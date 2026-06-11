@@ -1,0 +1,15 @@
+{
+  "name": "cyber-trade-war",
+  "version": "1.0.0",
+  "description": "賽博龐克環太平洋科技冷戰桌遊 — LAN 多人 3D 網頁版",
+  "type": "module",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js",
+    "test": "node test/sim.js && node test/e2e.js"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
+  }
+}

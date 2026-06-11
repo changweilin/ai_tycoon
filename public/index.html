@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>賽博貿易戰 2049 — 環太平洋科技冷戰</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+
+<!-- ========= 連線畫面 ========= -->
+<div id="connect" class="screen">
+  <h1 class="title">賽博貿易戰 <span class="title-year">2049</span></h1>
+  <p class="subtitle">環太平洋科技冷戰 // 3~8 人陣營對抗桌遊</p>
+  <div class="connect-box">
+    <input id="myName" placeholder="你的名字" maxlength="12">
+    <button id="createBtn" class="btn big">🏠 建立房間(房主)</button>
+    <div class="divider">─── 或加入別人的房間 ───</div>
+    <input id="joinPin" placeholder="房間 PIN(4 位數)" inputmode="numeric" maxlength="4">
+    <div class="join-mode">
+      <label><input type="radio" name="joinMode" value="player" checked> 🎮 遊戲模式</label>
+      <label><input type="radio" name="joinMode" value="spectator"> 👁️ 觀戰模式</label>
+    </div>
+    <button id="joinBtn" class="btn big">🔌 加入房間</button>
+    <div class="divider">─── 繼續上次的戰局 ───</div>
+    <button id="loadBtn" class="btn big">📂 載入遊戲</button>
+  </div>
+</div>
+
+<!-- ========= 大廳 ========= -->
+<div id="lobby" class="screen" style="display:none">
+  <h1 class="title small-title">作戰大廳</h1>
+  <div class="lobby-grid">
+    <div class="lobby-left">
+      <div class="pin-display">房間 PIN:<b id="roomPin">----</b></div>
+      <div id="qrBox" class="qr-box"></div>
+      <div id="joinUrls"></div>
+      <h3>已連線</h3>
+      <div id="lobbyClients"></div>
+      <div id="lobbyStatus" class="lobby-status"></div>
+      <div class="host-mode">
+        <label>遊戲名稱
+          <input id="gameName" class="cfg-input" maxlength="24" placeholder="例:週五科技冷戰之夜">
+        </label>
+        <label>預計人數
+          <select id="expectedCount">
+            <option value="2">2(米牆對決)</option>
+            <option value="3">3</option><option value="4" selected>4</option>
+            <option value="5">5</option><option value="6">6</option>
+            <option value="7">7(開放日本)</option><option value="8">8(開放日韓)</option>
+          </select>
+        </label>
+      </div>
+      <div id="hostModeBox" class="host-mode" style="display:none">
+        <label>遊戲模式
+          <select id="gameMode">
+            <option value="multi">👥 多人連線(2 人=米牆對決)</option>
+            <option value="ai">🤖 單人 vs AI</option>
+            <option value="god">👁️‍🗨️ 上帝模式(全角色試玩)</option>
+          </select>
+        </label>
+        <label id="aiCountWrap" style="display:none">AI 數量
+          <select id="aiCount">
+            <option value="1">1(米牆對決)</option>
+            <option value="2" selected>2</option><option value="3">3</option>
+            <option value="4">4</option><option value="5">5</option>
+            <option value="6">6(開放日本)</option><option value="7">7(開放日韓)</option>
+          </select>
+        </label>
+        <label id="godCountWrap" style="display:none">角色數量
+          <select id="godCount">
+            <option value="2">2(米牆對決)</option>
+            <option value="3">3</option><option value="4" selected>4</option>
+            <option value="5">5</option><option value="6">6</option>
+            <option value="7">7(含日本)</option><option value="8">8(含日韓)</option>
+          </select>
+        </label>
+      </div>
+      <button id="startBtn" class="btn big" style="display:none">🚀 開始遊戲</button>
+    </div>
+    <div class="lobby-right">
+      <h3>選擇你的科技巨頭(點選後設定角色 PIN 鎖定)</h3>
+      <div id="charPool" class="char-pool"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========= 遊戲畫面 ========= -->
+<div id="gameUI" style="display:none">
+  <div id="canvas3d"></div>
+
+  <!-- 科技力對比 -->
+  <div id="techBar" class="hud">
+    <div class="tech-row">
+      <span class="tech-label us">米國 <b id="techUS">10</b>年</span>
+      <div class="tech-bars">
+        <div class="bar-track"><div id="barUS" class="bar us-bar"></div></div>
+        <div class="bar-track"><div id="barCN" class="bar cn-bar"></div></div>
+      </div>
+      <span class="tech-label cn">牆國 <b id="techCN">5</b>年</span>
+    </div>
+    <div id="techLead" class="tech-lead"></div>
+    <div id="techGoal" class="tech-goal"></div>
+    <div id="twStatus" class="tw-status"></div>
+  </div>
+
+  <div id="turnBanner" class="hud turn-banner"></div>
+  <div id="hostBar" class="hud host-bar" style="display:none">
+    <button id="btnSave" class="btn small-btn">💾 儲存</button>
+    <button id="btnEndGame" class="btn small-btn">⏹️ 結束遊戲</button>
+  </div>
+  <div id="spectatorTag" class="hud spectator-tag" style="display:none">👁️ 觀戰模式</div>
+
+  <!-- 目前玩家面板 -->
+  <div id="playerPanel" class="hud">
+    <div id="curName"></div>
+    <div id="curStats"></div>
+    <div id="curPerk" class="perk-line"></div>
+  </div>
+
+  <!-- 所有玩家 -->
+  <div id="playersList" class="hud"></div>
+
+  <!-- 行動列 -->
+  <div id="actionBar" class="hud">
+    <button id="btnMove" class="btn act">🚶 移動</button>
+    <button id="btnBuild" class="btn act">🏗️ 研發科技卡</button>
+    <button id="btnDraw" class="btn act">🃏 抽作戰卡</button>
+    <button id="btnReveal" class="btn act tw" style="display:none">⚡ 公開表態</button>
+    <button id="btnJoin" class="btn act tw" style="display:none">🏆 加入陣營</button>
+    <button id="btnEnd" class="btn act end">⏭️ 結束回合</button>
+    <button id="rulesBtn" class="btn act">📜 規則</button>
+  </div>
+
+  <!-- 手牌 -->
+  <div id="handWrap" class="hud"><div id="hand"></div></div>
+
+  <!-- 行動紀錄 -->
+  <div id="log" class="hud"></div>
+</div>
+
+<!-- ========= 通用 Modal ========= -->
+<div id="modal" class="overlay" style="display:none">
+  <div class="modal-box">
+    <h2 id="modalTitle"></h2>
+    <div id="modalBody"></div>
+    <div id="modalOptions"></div>
+  </div>
+</div>
+
+<!-- ========= 結算 ========= -->
+<div id="resultOverlay" class="overlay" style="display:none">
+  <div class="modal-box result-box">
+    <h1>🏁 終局</h1>
+    <div id="resultBody"></div>
+    <button id="resultClose" class="btn big">關閉(可繼續看盤面)</button>
+  </div>
+</div>
+
+<!-- ========= 規則 ========= -->
+<div id="rulesOverlay" class="overlay" style="display:none">
+  <div class="modal-box rules-box">
+    <h2>📜 規則速查</h2>
+    <div class="rules-content">
+      <p><b>目標:</b>米國要把科技力領先拉開到 10 年;牆國要追平米國。台灣暗中支持一方(公開表態後該方門檻 +5 年);台灣花 40 資本「加入」即讓該方立即獲勝。日本(7人+):終局米國領先 ≥5 年且台灣未加入任一方。韓國(8人):終局米國領先 &lt;5 年且雙方和局。多人獲勝時資本最多者奪冠。第 10 輪結束強制終局。</p>
+      <p><b>回合:</b>回合開始自動收入(基礎 4 + 場上科技卡交易力 + 角色加成)。每回合 3 行動點(AP):移動 1 格 1AP/研發 1AP/抽作戰卡 1AP+5 資本/打作戰卡 1AP+卡費。</p>
+      <p><b>科技卡(5 大類 × 5 階,3 項數值):</b>🔬科技力(計入陣營年數)/🛡️防護力(阻擋作戰卡)/💱交易力(每回合收入)。🚀動力類交易高;📱硬體類科技高;🗄️資訊類防護高(高階有防護光環);🧠AI類均衡;🎮娛樂類數值低但特效強。階級越高綜合數值越高、分配越多元,費用指數成長(1階約 6 → 5階約 44)。研發=選任一類別翻 2 選 1 付費部署在所在區域(每區上限 4 張,每人每區 2 張);<b>擅長領域費用 -20% 且科技力 +1</b>。新竹部署科技力 +1。</p>
+      <p><b>模式:</b>2 人=米牆對決(無台灣規則)|單人 vs AI(可選 AI 數量)|上帝模式(一人控全角色試玩)。</p>
+      <p><b>作戰卡(灰色 3 大類):</b>💣間諜類:攻擊力 ≥ 目標有效防護力即摧毀,對方損失其科技力。🕵️竊取類:成功則竊取等同目標階級的科技力。📰假新聞類:封鎖區域 1~2 輪無法研發。牆國陣營作戰卡 -3 資本。</p>
+      <p><b>陣營特性:</b>米國 3 階科技卡 +1 科技力|牆國作戰卡 -3|台灣收晶片稅(每次他人研發 +2)且硬體卡 +1 科技力|日本科技計入米國|韓國科技計入牆國。</p>
+    </div>
+    <button id="rulesClose" class="btn big">關閉</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script type="module" src="js/ui.js"></script>
+</body>
+</html>

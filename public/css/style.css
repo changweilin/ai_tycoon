@@ -1,0 +1,222 @@
+/* ============ 賽博龐克 UI ============ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --cyan: #00f0ff;
+  --pink: #ff2bd6;
+  --purple: #7b2bff;
+  --bg: #04050f;
+  --panel: rgba(8, 12, 32, 0.88);
+  --border: rgba(0, 240, 255, 0.35);
+}
+body {
+  background: var(--bg);
+  color: #d8f4ff;
+  font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+  overflow: hidden;
+}
+
+/* ---------- 全螢幕畫面 ---------- */
+.screen {
+  position: fixed; inset: 0; overflow-y: auto;
+  padding: 30px 5vw;
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(123, 43, 255, .18), transparent 50%),
+    radial-gradient(ellipse at 80% 90%, rgba(255, 43, 214, .14), transparent 50%),
+    var(--bg);
+}
+.title {
+  text-align: center; font-size: 3rem; letter-spacing: .15em;
+  color: #fff; text-shadow: 0 0 18px var(--cyan), 0 0 40px var(--purple);
+}
+.title-year { color: var(--pink); text-shadow: 0 0 18px var(--pink); }
+.small-title { font-size: 2rem; margin-bottom: 16px; }
+.subtitle { text-align: center; color: var(--cyan); margin: 8px 0 28px; letter-spacing: .3em; }
+
+/* ---------- 連線畫面 ---------- */
+.connect-box {
+  max-width: 380px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 26px;
+  box-shadow: 0 0 30px rgba(0, 240, 255, .15);
+}
+.connect-box input, .pin-input {
+  background: #060a1e; border: 1px solid var(--border); color: #fff;
+  padding: 12px 14px; border-radius: 8px; font-size: 1.05rem; width: 100%;
+}
+.divider { text-align: center; color: #5a7a9a; font-size: .85rem; }
+.join-mode { display: flex; gap: 18px; justify-content: center; color: #bfe9ff; }
+
+/* ---------- 按鈕 ---------- */
+.btn {
+  background: linear-gradient(135deg, rgba(0,240,255,.16), rgba(123,43,255,.16));
+  border: 1px solid var(--border); color: #eaffff;
+  padding: 9px 16px; border-radius: 8px; cursor: pointer;
+  font-family: inherit; font-size: .95rem; transition: all .15s;
+}
+.btn:hover:not(:disabled) { box-shadow: 0 0 14px rgba(0,240,255,.5); transform: translateY(-1px); }
+.btn:disabled { opacity: .35; cursor: not-allowed; }
+.btn.big { padding: 14px 22px; font-size: 1.1rem; }
+.btn.toggled { background: var(--cyan); color: #001; font-weight: bold; }
+.btn.end { border-color: rgba(255,43,214,.5); }
+.btn.tw { border-color: rgba(46,255,143,.6); }
+
+/* ---------- 大廳 ---------- */
+.lobby-grid { display: grid; grid-template-columns: 340px 1fr; gap: 24px; max-width: 1400px; margin: 0 auto; }
+.lobby-left {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px; display: flex; flex-direction: column; gap: 12px; height: fit-content;
+}
+.pin-display { font-size: 1.3rem; }
+.pin-display b { color: var(--pink); font-size: 2rem; letter-spacing: .2em; text-shadow: 0 0 12px var(--pink); }
+.qr-box { background: #fff; padding: 10px; border-radius: 8px; width: fit-content; }
+.qr-box img { display: block; }
+.join-url { font-size: .85rem; color: var(--cyan); word-break: break-all; }
+.join-hint { font-size: .75rem; color: #5a7a9a; }
+.lobby-status { color: #ffd02e; font-size: .9rem; }
+.seat {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  background: rgba(0,240,255,.05); border-radius: 8px; margin-bottom: 6px;
+}
+.seat-no { font-size: 1.1rem; }
+.seat-name-ro { min-width: 80px; }
+.seat-char { flex: 1; font-size: .88rem; }
+
+.char-pool { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.char-card {
+  background: var(--panel); border: 1px solid var(--fc, var(--border));
+  border-radius: 10px; padding: 14px; cursor: pointer; position: relative; transition: all .15s;
+}
+.char-card:hover { box-shadow: 0 0 16px var(--fc); transform: translateY(-2px); }
+.char-card.taken { opacity: .55; }
+.char-card.locked { opacity: .35; cursor: not-allowed; }
+.char-card.mine { box-shadow: 0 0 20px var(--fc); }
+.char-faction { color: var(--fc); font-weight: bold; font-size: .82rem; }
+.char-name { font-size: 1.15rem; font-weight: bold; margin: 4px 0; }
+.char-real { color: #7a9aba; font-size: .78rem; }
+.char-ind { margin-top: 6px; font-size: .85rem; }
+.char-perk { margin-top: 4px; font-size: .8rem; color: #aee9ff; }
+.lock-tip { position: absolute; top: 8px; right: 10px; font-size: .72rem; color: #ffd02e; }
+.mine-tip { color: #2eff8f; }
+
+/* ---------- 遊戲 HUD ---------- */
+#canvas3d { position: fixed; inset: 0; }
+.hud {
+  position: fixed; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 14px; z-index: 5;
+  box-shadow: 0 0 18px rgba(0,240,255,.12);
+}
+
+#techBar { top: 12px; left: 50%; transform: translateX(-50%); width: min(620px, 92vw); text-align: center; }
+.tech-row { display: flex; align-items: center; gap: 10px; }
+.tech-label { font-size: .95rem; white-space: nowrap; }
+.tech-label.us { color: #2e9fff; }
+.tech-label.cn { color: #ff3b3b; }
+.tech-bars { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.bar-track { background: #060a1e; border-radius: 4px; height: 9px; overflow: hidden; }
+.bar { height: 100%; transition: width .5s; }
+.us-bar { background: linear-gradient(90deg, #1a5fff, #2e9fff); box-shadow: 0 0 8px #2e9fff; }
+.cn-bar { background: linear-gradient(90deg, #ff1a1a, #ff6b3b); box-shadow: 0 0 8px #ff3b3b; }
+.tech-lead { margin-top: 4px; color: var(--cyan); font-size: .95rem; }
+.tech-goal { color: #7a9aba; font-size: .75rem; }
+.tw-status { color: #2eff8f; font-size: .8rem; }
+
+.turn-banner { top: 12px; left: 12px; font-size: 1.05rem; }
+.spectator-tag { top: 60px; left: 200px; color: #ffd02e; }
+
+#playerPanel { top: 110px; left: 12px; max-width: 320px; font-size: .92rem; line-height: 1.7; }
+.perk-line { color: #aee9ff; font-size: .8rem; }
+
+#playersList { top: 12px; right: 12px; min-width: 210px; }
+.pl-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: .85rem; }
+.pl-row.active { color: var(--cyan); text-shadow: 0 0 8px var(--cyan); }
+.pl-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.pl-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-info { color: #9ab; font-size: .8rem; }
+
+#actionBar { bottom: 150px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 95vw; }
+
+#handWrap { bottom: 12px; left: 50%; transform: translateX(-50%); max-width: 95vw; overflow-x: auto; }
+#hand { display: flex; gap: 8px; }
+.card {
+  width: 128px; flex-shrink: 0; background: linear-gradient(160deg, #0c1430, #1a0c30);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px; cursor: pointer; transition: all .15s;
+}
+.card:hover { transform: translateY(-6px); box-shadow: 0 0 14px rgba(255,43,214,.5); }
+.card-icon { font-size: 1.4rem; }
+.card-name { font-weight: bold; font-size: .9rem; }
+.card-cost { color: #ffd02e; font-size: .8rem; }
+.card-desc { color: #9ab; font-size: .68rem; margin-top: 4px; line-height: 1.4; }
+.hand-empty { color: #567; padding: 12px; }
+
+#log {
+  bottom: 12px; right: 12px; width: 280px; height: 180px; overflow-y: auto;
+  font-size: .75rem; line-height: 1.6; color: #9fd4ee;
+}
+
+/* ---------- Modal ---------- */
+.overlay {
+  position: fixed; inset: 0; background: rgba(2,4,12,.8); z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-box {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 26px; max-width: min(640px, 92vw); max-height: 86vh; overflow-y: auto;
+  box-shadow: 0 0 40px rgba(0,240,255,.25);
+}
+.modal-box h2 { color: var(--cyan); margin-bottom: 12px; font-size: 1.2rem; }
+#modalBody { margin-bottom: 14px; line-height: 1.8; }
+#modalOptions { display: flex; flex-direction: column; gap: 8px; }
+.modal-desc { color: #9ab; font-size: .85rem; }
+.region-card-row { padding: 6px 0; border-bottom: 1px dashed rgba(0,240,255,.15); }
+.rc-stats { color: #9ab; font-size: .8rem; }
+
+.offer-row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+.tech-card {
+  width: 200px; background: linear-gradient(160deg, #0c1430, #140c30);
+  border: 1px solid var(--cc, var(--border)); border-radius: 10px; padding: 14px;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--cc) 40%, transparent);
+}
+.tc-cat { color: var(--cc); font-size: .82rem; font-weight: bold; }
+.tc-name { font-size: 1.1rem; font-weight: bold; margin: 6px 0; }
+.tc-stats { font-size: .85rem; }
+.tc-desc { color: #8aa9c9; font-size: .74rem; margin-top: 4px; font-style: italic; line-height: 1.5; }
+.tc-special { color: #ffd02e; font-size: .78rem; margin-top: 6px; }
+.host-mode { display: flex; flex-direction: column; gap: 8px; font-size: .88rem; color: #bfe9ff; }
+.cfg-input {
+  background: #060a1e; border: 1px solid var(--border); color: #fff;
+  padding: 6px 8px; border-radius: 6px; margin-left: 6px; font-family: inherit; width: 200px;
+}
+.host-bar { top: 60px; left: 12px; display: flex; gap: 6px; padding: 6px 8px; }
+.small-btn { padding: 5px 10px; font-size: .8rem; }
+.save-players { color: #7a9aba; font-size: .75rem; }
+.modal-opt { text-align: left; line-height: 1.5; }
+.host-mode select {
+  background: #060a1e; border: 1px solid var(--border); color: #fff;
+  padding: 6px 8px; border-radius: 6px; margin-left: 6px; font-family: inherit;
+}
+.tc-cost { margin-top: 8px; color: var(--cyan); }
+
+.result-box { text-align: center; }
+.result-box h1 { color: var(--pink); text-shadow: 0 0 16px var(--pink); margin-bottom: 14px; }
+.champion { font-size: 1.25rem; margin: 10px 0; }
+.result-secret { color: #2eff8f; font-size: .9rem; }
+
+.rules-box { max-width: min(760px, 94vw); }
+.rules-content p { margin-bottom: 10px; font-size: .88rem; line-height: 1.8; color: #cfeaff; }
+
+/* ---------- Toast ---------- */
+#toast {
+  position: fixed; bottom: 210px; left: 50%; transform: translateX(-50%);
+  background: rgba(255,43,214,.92); color: #fff; padding: 10px 22px; border-radius: 22px;
+  opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 99; font-size: .92rem;
+}
+#toast.show { opacity: 1; }
+
+/* ---------- 手機直向 ---------- */
+@media (max-width: 760px) {
+  .lobby-grid { grid-template-columns: 1fr; }
+  #playerPanel { top: auto; bottom: 340px; left: 8px; max-width: 60vw; font-size: .78rem; }
+  #playersList { display: none; }
+  #log { display: none; }
+  #actionBar { bottom: 140px; }
+  .card { width: 104px; }
+}
