@@ -454,7 +454,6 @@ wss.on('connection', ws => {
         case 'playCard': res = g.doPlayCard(m.handIdx, m.target); break;
         case 'endTurn': g.endTurn(); res = { ok: true }; break;
         case 'reveal': res = g.doReveal(); break;
-        case 'joinSide': res = g.doJoin(); break;
         case 'tradeOffer': res = g.doTradeOffer(pIdx, m.toId, m.give, m.receive); break;
         case 'tradeRespond': res = g.doTradeRespond(pIdx, m.offerId, !!m.accept); break;
         case 'tradeCancel': res = g.doTradeCancel(pIdx, m.offerId); break;

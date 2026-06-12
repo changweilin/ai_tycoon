@@ -44,9 +44,9 @@ function randomLineup(total) {
   const chosen = [pick('US', []), ];
   chosen.push(pick('CN', chosen));
   if (total >= 3) chosen.push('tsmc');
-  if (total >= RULES.jpkrMinPlayers) {
+  if (total >= RULES.jpkrMinPlayers) { // 與 server buildLineup 一致:6 人以上日韓成對加入
     chosen.push('toyota');
-    if (total >= RULES.jpkrMinPlayers + 1 && chosen.length < total) chosen.push('lee');
+    if (chosen.length < total) chosen.push('lee');
   }
   let toggle = Math.random() < 0.5 ? 0 : 1;
   while (chosen.length < total) {
@@ -61,7 +61,13 @@ function randomLineup(total) {
 // ---------- 單局模擬 ----------
 function runOne(lineup) {
   const usedNames = new Set();
-  const seats = lineup.map(id => {
+  // 洗牌座位順序:讓「先攻/後攻」與「陣營」脫鉤,才能分析先後手優勢
+  const order = [...lineup];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  const seats = order.map(id => {
     const strategy = randomStrategy();
     return { charId: id, playerName: strategyNickname(strategy, usedNames), isAI: true, strategy };
   });
@@ -76,8 +82,11 @@ function runOne(lineup) {
 const stats = {
   games: args.games,
   byChampionFaction: {}, byChampionChar: {}, byWinnerFaction: {},
-  reasons: { twJoin: 0, US: 0, CN: 0, timeout: 0 },
+  reasons: { US: 0, CN: 0, timeout: 0 },
   rounds: [], leads: [],
+  bySeat: {},        // 座位(行動順序)→ {games, wins}:先攻後攻優勢
+  bySideCount: {},   // 'US x v CN y' → {games, usWin, cnWin, none}:陣營人數差優勢
+  firstSeatSide: { US: { games: 0, wins: 0 }, CN: { games: 0, wins: 0 } }, // 先攻者所屬陣營的勝率
   axisChampion: Object.fromEntries(STRATEGY_AXES.map(a => [a, 0])),
   axisAll: Object.fromEntries(STRATEGY_AXES.map(a => [a, 0])),
   axisHighWin: Object.fromEntries(STRATEGY_AXES.map(a => [a, { games: 0, wins: 0 }])),
@@ -97,12 +106,32 @@ for (let i = 0; i < args.games; i++) {
     stats.byWinnerFaction[f] = (stats.byWinnerFaction[f] || 0) + 1;
   }
   const lead = g.lead();
-  if (g.twJoined) stats.reasons.twJoin++;
-  else if (lead >= g.usThreshold()) stats.reasons.US++;
-  else if (lead <= g.cnThreshold()) stats.reasons.CN++;
+  let sideWon = null;
+  if (lead >= g.usThreshold()) { stats.reasons.US++; sideWon = 'US'; }
+  else if (lead <= g.cnThreshold()) { stats.reasons.CN++; sideWon = 'CN'; }
   else stats.reasons.timeout++;
   stats.rounds.push(g.round);
   stats.leads.push(lead);
+
+  // 先攻後攻:各座位的冠軍率
+  for (const p of g.players) {
+    const seat = (stats.bySeat[p.id] ||= { games: 0, wins: 0 });
+    seat.games++;
+    if (p.id === g.result.champion) seat.wins++;
+  }
+  // 陣營人數組成 vs 哪一方達成門檻(台灣依秘密立場、日→米、韓→牆)
+  const sideOf = p => p.faction === 'TW' ? g.twSupport
+    : p.faction === 'JP' ? 'US' : p.faction === 'KR' ? 'CN' : p.faction;
+  const usN = g.players.filter(p => sideOf(p) === 'US').length;
+  const cnN = g.players.length - usN;
+  const key = `米${usN} vs 牆${cnN}`;
+  const sc = (stats.bySideCount[key] ||= { games: 0, usWin: 0, cnWin: 0, none: 0 });
+  sc.games++;
+  if (sideWon === 'US') sc.usWin++; else if (sideWon === 'CN') sc.cnWin++; else sc.none++;
+  // 先攻者所屬陣營是否獲勝
+  const fs = stats.firstSeatSide[sideOf(g.players[0])];
+  fs.games++;
+  if (sideWon && sideOf(g.players[0]) === sideWon) fs.wins++;
 
   // 策略傾向 vs 勝負:冠軍的各軸平均 / 全體平均 / 高傾向(>0.6)玩家勝率
   for (const p of g.players) {
@@ -131,8 +160,18 @@ const pct = (n, d) => `${(n / Math.max(1, d) * 100).toFixed(1)}%`;
 
 console.log(`\n========== 模擬結果(${args.games} 局,${elapsed.toFixed(1)}s,${(args.games / elapsed).toFixed(0)} 局/秒)==========`);
 console.log(`平均局長:${avg(stats.rounds).toFixed(1)} 季|平均終局科技差(US−CN):${avg(stats.leads).toFixed(0)} 點`);
-console.log(`終局型態:台灣加入終結 ${pct(stats.reasons.twJoin, args.games)}|米國門檻勝 ${pct(stats.reasons.US, args.games)}`
+console.log(`終局型態:米國門檻勝 ${pct(stats.reasons.US, args.games)}`
   + `|牆國門檻勝 ${pct(stats.reasons.CN, args.games)}|打滿 12 季 ${pct(stats.reasons.timeout, args.games)}`);
+
+console.log('\n-- 先攻後攻:各座位冠軍率 --(均等應為 ' + pct(1, args.seats ? args.seats.length : args.players) + ')');
+for (const [seat, v] of Object.entries(stats.bySeat))
+  console.log(`  第 ${Number(seat) + 1} 位行動 冠軍率 ${pct(v.wins, v.games)}(${v.wins}/${v.games})`);
+console.log(`  先攻者陣營達成門檻率:米先攻 ${pct(stats.firstSeatSide.US.wins, stats.firstSeatSide.US.games)}`
+  + `(${stats.firstSeatSide.US.games} 局)|牆先攻 ${pct(stats.firstSeatSide.CN.wins, stats.firstSeatSide.CN.games)}(${stats.firstSeatSide.CN.games} 局)`);
+
+console.log('\n-- 陣營人數組成 vs 門檻勝負 --(台灣依秘密立場、日→米、韓→牆)');
+for (const [key, v] of Object.entries(stats.bySideCount).sort((a, b) => b[1].games - a[1].games))
+  console.log(`  ${key}:${String(v.games).padStart(4)} 局|米勝 ${pct(v.usWin, v.games)}|牆勝 ${pct(v.cnWin, v.games)}|未分勝負 ${pct(v.none, v.games)}`);
 
 console.log('\n-- 冠軍陣營分布 --');
 for (const [f, n] of Object.entries(stats.byChampionFaction).sort((a, b) => b[1] - a[1]))
@@ -160,6 +199,9 @@ if (args.json) {
     summary: {
       avgRounds: avg(stats.rounds), avgLead: avg(stats.leads),
       reasons: stats.reasons,
+      bySeat: stats.bySeat,
+      bySideCount: stats.bySideCount,
+      firstSeatSide: stats.firstSeatSide,
       byChampionFaction: stats.byChampionFaction,
       byChampionChar: stats.byChampionChar,
       axisChampionAvg: Object.fromEntries(STRATEGY_AXES.map(a => [a, stats.axisChampion[a] / Math.max(1, args.games)])),

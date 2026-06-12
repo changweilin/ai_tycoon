@@ -89,7 +89,6 @@ export class Game {
 
     this.twSupport = Math.random() < 0.5 ? 'US' : 'CN';
     this.twRevealed = false;
-    this.twJoined = null;
     this.chipReserve = 0;
 
     this.log = [];
@@ -792,21 +791,6 @@ export class Game {
     return { ok: true };
   }
 
-  doJoin() {
-    const p = this.cur();
-    if (p.faction !== 'TW') return { ok: false, msg: '只有台灣可以加入陣營' };
-    if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
-    if (!this.twRevealed) return { ok: false, msg: '必須先表態' };
-    if (p.ap < 1) return { ok: false, msg: '行動點不足' };
-    if (!canPay(p, RULES.twJoinCost)) return { ok: false, msg: `需要 ${resStr(RULES.twJoinCost)}` };
-    p.ap -= 1;
-    pay(p, RULES.twJoinCost);
-    this.twJoined = this.twSupport;
-    this.addLog(`🏆 ${p.name} 正式加入${FACTIONS[this.twSupport].name}!神山歸位,大局已定!`);
-    this.checkVictory();
-    return { ok: true };
-  }
-
   // ---------- 勝負 ----------
   wealthOf(p) { return totalRes(p.res); }
 
@@ -814,10 +798,7 @@ export class Game {
     if (this.over) return;
     const lead = this.lead();
     let side = null, reason = '';
-    if (this.twJoined) {
-      side = this.twJoined;
-      reason = `台灣加入${FACTIONS[side].name},${FACTIONS[side].name}立即獲勝!`;
-    } else if (lead >= this.usThreshold()) {
+    if (lead >= this.usThreshold()) {
       side = 'US';
       reason = `米國科技力領先 ${lead} 點(${this.yearsOf(lead)} 年,門檻 ${this.usThreshold() / RULES.pointsPerYear} 年),米國獲勝!`;
     } else if (lead <= this.cnThreshold()) {
@@ -845,9 +826,9 @@ export class Game {
     const jpLeadPts = RULES.jpWinLead * RULES.pointsPerYear;
     let winners = [];
     let reason = `3 年(${RULES.maxRounds} 季)結束,米牆雙方和局(差距 ${this.yearsOf(lead)} 年)。`;
-    if (jp && lead >= jpLeadPts && !this.twJoined) {
+    if (jp && lead >= jpLeadPts) {
       winners.push(jp.id);
-      reason += ` 米國領先 ${this.yearsOf(lead)} 年(≥5)且台灣未加入任一方 → 日本達成勝利條件!`;
+      reason += ` 米國領先 ${this.yearsOf(lead)} 年(≥5) → 日本達成勝利條件!`;
     }
     if (kr && lead < jpLeadPts) {
       winners.push(kr.id);
@@ -905,7 +886,6 @@ export class Game {
       usThreshold: this.usThreshold(), cnThreshold: this.cnThreshold(),
       twRevealed: this.twRevealed,
       twSupportPublic: this.twRevealed ? this.twSupport : null,
-      twJoined: this.twJoined,
       deckCount: this.deck.length + this.discardPile.length,
       phase: this.phase,
       tradeOffers: this.phase === 'trade' ? this.tradeOffers : [],
@@ -940,7 +920,7 @@ export class Game {
       eventDeck: this.eventDeck, activeEvent: this.activeEvent,
       tech: this.tech, round: this.round, turnIdx: this.turnIdx,
       twSupport: this.twSupport, twRevealed: this.twRevealed,
-      twJoined: this.twJoined, chipReserve: this.chipReserve,
+      chipReserve: this.chipReserve,
       phase: this.phase, tradeOffers: this.tradeOffers,
       tradeReady: this.tradeReady, nextOfferId: this.nextOfferId,
       tradeOfferCount: this.tradeOfferCount, tradeDone: this.tradeDone,
@@ -970,7 +950,7 @@ export class Game {
     g.eventDeck = d.eventDeck; g.activeEvent = d.activeEvent;
     g.tech = d.tech; g.round = d.round; g.turnIdx = d.turnIdx;
     g.twSupport = d.twSupport; g.twRevealed = d.twRevealed;
-    g.twJoined = d.twJoined; g.chipReserve = d.chipReserve;
+    g.chipReserve = d.chipReserve;
     g.phase = d.phase || 'play';
     g.tradeOffers = d.tradeOffers || [];
     g.tradeReady = d.tradeReady || [];

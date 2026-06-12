@@ -25,13 +25,8 @@ export function botStep(g) {
   // 防守型留老本、攻擊型敢梭哈
   const reserve = Math.round(4 + s.defensive * 8 - s.aggressive * 4);
 
-  // 台灣 AI:儲備夠多或時間不多就表態;資源夠就加入終結遊戲
+  // 台灣 AI:儲備夠多或時間不多就表態(注入神山儲備科技力)
   if (p.faction === 'TW' && p.ap > 0) {
-    if (g.twRevealed && !g.twJoined && canPay(p, RULES.twJoinCost)
-      && totalRes(p.res) >= totalRes(RULES.twJoinCost) + Math.max(4, reserve + 4)) {
-      g.doJoin();
-      return !g.over;
-    }
     // 短期型早表態落袋為安、長期型憋到最後
     const revealRound = (g.players.length > 5 ? 10 : 9) + (s.longTerm > s.shortTerm ? 1 : 0);
     const reserveGoal = 4 + Math.round(s.longTerm * 4);

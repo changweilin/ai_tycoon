@@ -328,8 +328,7 @@ function renderTechBar(s) {
   $('#barUS').style.width = Math.min(100, s.tech.US / total * 100) + '%';
   $('#barCN').style.width = Math.min(100, s.tech.CN / total * 100) + '%';
   if (s.hasTW) {
-    const twTag = s.twJoined ? `已加入${FACTIONS[s.twJoined].name}`
-      : s.twRevealed ? `公開支持${FACTIONS[s.twSupportPublic].name}` : '立場成謎';
+    const twTag = s.twRevealed ? `公開支持${FACTIONS[s.twSupportPublic].name}` : '立場成謎';
     $('#twStatus').textContent = `🏔️ 台灣:${twTag}`;
   } else {
     $('#twStatus').textContent = '⚔️ 雙人對決:無台灣特殊規則';
@@ -394,7 +393,7 @@ function renderActions(m) {
   const s = m.state;
 
   const inTrade = s.phase === 'trade';
-  for (const id of ['btnMove', 'btnDraw', 'btnEnd', 'btnReveal', 'btnJoin',
+  for (const id of ['btnMove', 'btnDraw', 'btnEnd', 'btnReveal',
     'btnForfTech', 'btnForfOps', 'btnForfMove', 'btnUpgrade', 'btnExchange'])
     $('#' + id).disabled = !myTurn || inTrade;
 
@@ -426,8 +425,6 @@ function renderActions(m) {
 
   const isTW = me.faction === 'TW';
   $('#btnReveal').style.display = isTW && !s.twRevealed ? '' : 'none';
-  $('#btnJoin').style.display = isTW && s.twRevealed && !s.twJoined ? '' : 'none';
-  if (isTW) $('#btnJoin').textContent = `🏆 加入陣營(${fmtRes(RULES.twJoinCost)})`;
 }
 
 function renderLog(s) {
@@ -617,12 +614,6 @@ function setupGameEvents() {
       `<p>表態後你秘密支持的陣營將被公開,該陣營勝利門檻 <b>+5 年</b>,但神山儲備的科技力會全數注入。確定嗎?</p>`,
       [{ label: '確定表態!', value: true }, { label: '再想想', value: null }],
       val => { if (val) net.action('reveal'); });
-  });
-  $('#btnJoin').addEventListener('click', () => {
-    openModal('🏆 正式加入陣營',
-      `<p>花費 ${fmtRes(RULES.twJoinCost)} 正式加入你支持的陣營 — <b>該陣營立即獲勝</b>!確定嗎?</p>`,
-      [{ label: '神山歸位!', value: true }, { label: '再等等', value: null }],
-      val => { if (val) net.action('joinSide'); });
   });
   $('#hand').addEventListener('click', e => {
     const card = e.target.closest('.card');

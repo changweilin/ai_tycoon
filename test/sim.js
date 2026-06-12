@@ -31,7 +31,7 @@ for (const seats of seatSets) {
       }
       const p = g.cur();
       const acts = ['move', 'plane', 'playTech', 'draw', 'playOps', 'forfeit', 'exchange', 'upgrade', 'end', 'end'];
-      if (p.faction === 'TW') acts.push('reveal', 'join');
+      if (p.faction === 'TW') acts.push('reveal');
       const a = rand(acts);
       if (a === 'move') {
         const t = g.adj[p.pos].filter(r => g.canMoveTo(r));
@@ -59,8 +59,6 @@ for (const seats of seatSets) {
         g.doUpgradeCity();
       } else if (a === 'reveal') {
         g.doReveal();
-      } else if (a === 'join') {
-        g.doJoin();
       } else {
         g.endTurn();
       }

@@ -341,7 +341,6 @@ export const RULES = {
   usWinLead: 10,           // 以下勝利門檻單位:年(×20 換算成點)
   cnWinLead: 0,
   twRevealPenalty: 5,
-  twJoinCost: { money: 14, power: 13, oil: 13 },
   chipLevy: 2,             // 台灣優勢:晶片稅(金錢)
   cnOpsHalf: 0.5,          // 牆國優勢:灰色作戰卡費用是他國的一半
   jpMoveHalf: 0.5,         // 日本優勢:油電混合 — 移動石油費用減半(捨去)
