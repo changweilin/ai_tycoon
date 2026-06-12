@@ -296,8 +296,18 @@ function refreshGame(m) {
 
   const turnP = s.players[s.turnIdx];
   $('#turnBanner').innerHTML = s.over ? '🏁 遊戲結束'
+    : s.phase === 'trade' ? '🤝 交易環節 — 自由交換資源'
     : `輪到 <b style="color:${FACTIONS[turnP.faction].css}">${turnP.name}</b>${isMyTurn() ? '(你!)' : ''}`;
   $('#hostBar').style.display = m.isHost ? '' : 'none';
+
+  // 交易環節 overlay
+  const meP = myPlayer();
+  if (s.phase === 'trade' && meP && !s.over) {
+    renderTrade(m, meP);
+    $('#tradeOverlay').style.display = 'flex';
+  } else {
+    $('#tradeOverlay').style.display = 'none';
+  }
 
   if (mode === 'move' && !isMyTurn()) setMode('idle');
   if (s.over && !resultShown) { resultShown = true; showResult(s); }
@@ -305,15 +315,16 @@ function refreshGame(m) {
 
 function renderTechBar(s) {
   const lead = s.tech.US - s.tech.CN;
+  const yrs = pts => Math.round(pts / RULES.pointsPerYear * 10) / 10;
   $('#techUS').textContent = s.tech.US;
   $('#techCN').textContent = s.tech.CN;
-  $('#techLead').innerHTML = lead > 0 ? `米國領先 <b>${lead}</b> 年`
-    : lead < 0 ? `牆國反超 <b>${-lead}</b> 年` : '雙方持平!';
+  $('#techLead').innerHTML = lead > 0 ? `米國領先 <b>${lead}</b> 點(${yrs(lead)} 年)`
+    : lead < 0 ? `牆國反超 <b>${-lead}</b> 點(${yrs(-lead)} 年)` : '雙方持平!';
   $('#techGoal').textContent =
-    `米國勝利:領先 ${s.usThreshold} 年|牆國勝利:差距 ≤ ${s.cnThreshold} 年|${s.roundLabel}(共 3 年)`;
+    `1 年 = ${RULES.pointsPerYear} 點|米國勝利:領先 ${yrs(s.usThreshold)} 年|牆國勝利:差距 ≤ ${yrs(s.cnThreshold)} 年|${s.roundLabel}(共 3 年)`;
   $('#eventLine').textContent = s.event
     ? `🌏 本季事件【${s.event.icon} ${s.event.name}】${s.event.desc}` : '';
-  const total = 60;
+  const total = 800;
   $('#barUS').style.width = Math.min(100, s.tech.US / total * 100) + '%';
   $('#barCN').style.width = Math.min(100, s.tech.CN / total * 100) + '%';
   if (s.hasTW) {
@@ -329,7 +340,8 @@ function renderMyPanel(m) {
   const me = myPlayer();
   const priv = m.priv;
   $('#curName').innerHTML = `<span style="color:${FACTIONS[me.faction].css}">${me.name}</span> 【${FACTIONS[me.faction].name}】`;
-  let stats = `💰 <b>${me.res.money}</b>  ⚡ <b>${me.res.power}</b>  🛢️ <b>${me.res.oil}</b>  🎯 行動點 <b>${me.ap}</b>  📍 ${REGIONS.find(r => r.id === me.pos).name}<br>📈 收入 ${fmtRes(me.income)}/回合`;
+  const myTech = last.state.tech[me.faction] ?? 0;
+  let stats = `💰 <b>${me.res.money}</b>  ⚡ <b>${me.res.power}</b>  🛢️ <b>${me.res.oil}</b>  🎯 行動點 <b>${me.ap}</b>  📍 ${REGIONS.find(r => r.id === me.pos).name}<br>📈 收入 ${fmtRes(me.income)}/回合  🔬 本國科技力 <b>${myTech}</b> 點(每 100 點收益 +1)`;
   if (priv?.intel?.length) {
     stats += '<br>' + priv.intel.map(it =>
       `🧬 ${TECH_CATEGORIES[it.cat].name}情報:下次發展 -${fmtRes(it.gain)}`).join('  ');
@@ -381,12 +393,32 @@ function renderActions(m) {
   const myTurn = isMyTurn();
   const s = m.state;
 
-  for (const id of ['btnMove', 'btnDraw', 'btnEnd', 'btnReveal', 'btnJoin'])
-    $('#' + id).disabled = !myTurn;
+  const inTrade = s.phase === 'trade';
+  for (const id of ['btnMove', 'btnDraw', 'btnEnd', 'btnReveal', 'btnJoin',
+    'btnForfTech', 'btnForfOps', 'btnForfMove', 'btnUpgrade', 'btnExchange'])
+    $('#' + id).disabled = !myTurn || inTrade;
 
-  if (myTurn && priv) {
+  if (myTurn && priv && !inTrade) {
     $('#btnDraw').textContent = `🃏 抽卡(${fmtRes(priv.drawCost)})`;
     $('#btnDraw').disabled = me.ap < 1 || RES_KEYS.some(k => me.res[k] < (priv.drawCost[k] || 0));
+    const f = priv.turnFlags || {};
+    const g = priv.forfeitGain ?? RULES.forfeitBase;
+    $('#btnForfTech').textContent = f.forfeitTech ? '♻️ 已放棄科技' : `♻️ 放棄科技 → ⚡${g}`;
+    $('#btnForfTech').disabled = f.forfeitTech || f.playedTech;
+    $('#btnForfOps').textContent = f.forfeitOps ? '♻️ 已放棄作戰' : `♻️ 放棄作戰 → 💰${g}`;
+    $('#btnForfOps').disabled = f.forfeitOps || f.playedOps;
+    $('#btnForfMove').textContent = f.forfeitMove ? '♻️ 已放棄行動' : `♻️ 放棄行動 → 🛢️${g}`;
+    $('#btnForfMove').disabled = f.forfeitMove || f.moved;
+    $('#btnMove').disabled = !!f.forfeitMove;
+    const up = priv.upgrade;
+    if (up) {
+      $('#btnUpgrade').textContent = up.cost === null
+        ? `⬆️ 城市已滿級(Lv.${up.level})`
+        : `⬆️ 升級城市 Lv.${up.level}→${up.level + 1}(⚡${up.cost})`;
+      $('#btnUpgrade').disabled = up.cost === null || me.ap < 1 || me.res.power < up.cost;
+    }
+    $('#btnExchange').textContent = f.exchanged ? '💱 本回合已兌換' : `💱 金錢兌換(${RULES.exchangeRate}💰=1)`;
+    $('#btnExchange').disabled = f.exchanged || me.res.money < RULES.exchangeRate;
   } else {
     $('#btnDraw').textContent = '🃏 抽卡';
   }
@@ -436,11 +468,13 @@ function showRegionInfo(rid) {
       ${cat.icon}【${c.name}】${c.tier}階 — ${o.name}<br>
       <span class="rc-stats">🔬${c.tech} 🛡️${c.effDef} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</span></div>`;
   }).join('') || '<div>(尚無科技卡)</div>';
-  const blocked = r.fakeUntilRound > s.round
-    ? `<div style="color:#ff6">📰 假新聞影響中:此城發展科技花費 ×${r.fakeMult}</div>` : '';
+  const blocked = (r.fakeUntilRound > s.round
+    ? `<div style="color:#ff6">📰 假新聞影響中:此城發展科技花費 ×${r.fakeMult}</div>` : '')
+    + (r.builtRound && s.round < r.builtRound + RULES.cityBuildCooldown
+    ? `<div style="color:#ff6">🚧 今年已建造過,須過一年才可重新建造</div>` : '');
   const country = rDef.country ? `|${{ US: '🇺🇸米國', CN: '🇨🇳牆國', JP: '🇯🇵日本', KR: '🇰🇷韓國', TW: '🇹🇼台灣' }[rDef.country]}地盤` : '|中立';
-  openModal(`${rDef.name}|${rDef.tag}${country}${rDef.chipBonus ? '(晶片重鎮:科技力 +1)' : ''}`,
-    `<p class="modal-desc">米國在牆國地盤(及反之)發展科技花費 ×2</p>` + lines + blocked,
+  openModal(`${rDef.name} Lv.${r.level}|${rDef.tag}${country}${rDef.chipBonus ? '(晶片重鎮:科技力 +1)' : ''}`,
+    `<p class="modal-desc">城市等級 ${r.level}:可建 ${r.level} 階以下科技卡|米國在牆國地盤(及反之)發展科技花費 ×2</p>` + lines + blocked,
     [{ label: '關閉', value: null }]);
 }
 
@@ -457,25 +491,20 @@ function onCardClick(idx) {
     body = `<p class="modal-desc">${cat.icon} ${cat.name}|${c.tier}階|🔬${c.tech} 🛡️${c.def} 💱${c.trade}
       ${c.special ? `<br>✨ ${c.special.text}` : ''}<br>${c.desc || ''}</p>`;
     if (c.playMsg) body += `<p class="modal-desc" style="color:#ff6">⚠️ ${c.playMsg}</p>`;
+    else if (priv.turnFlags?.forfeitTech) body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出科技卡的權利</p>`;
     else opts.push({ label: `🏗️ 部署在目前城市(${fmtRes(c.myCost)})`, value: { a: 'play' } });
   } else {
     const targets = priv.targets?.[c.id] || [];
-    if (targets.length) opts.push({ label: `${c.icon} 使用(${fmtRes(c.myCost)})`, value: { a: 'target' } });
-    else body += `<p class="modal-desc" style="color:#ff6">⚠️ 目前沒有合法目標(防護太高/已被鎖定過/無敵方科技卡)</p>`;
+    if (priv.turnFlags?.forfeitOps) body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出作戰卡的權利</p>`;
+    else if (targets.length) opts.push({ label: `${c.icon} 使用(${fmtRes(c.myCost)})`, value: { a: 'target' } });
+    else body += `<p class="modal-desc" style="color:#ff6">⚠️ 沒有合法目標(限兩格內城市/防護太高/已被鎖定過)</p>`;
   }
-  for (const k of RES_KEYS)
-    opts.push({ label: `♻️ 棄卡換 ${RESOURCES[k].icon}${RESOURCES[k].name} +${RULES.discardGain}`, value: { a: 'disc', res: k } });
-  const otherKind = c.kind === 'tech' ? 'ops' : 'tech';
-  if (priv.hand.some((h, j) => j !== idx && h.kind === otherKind))
-    opts.push({ label: `♻️ 搭配一張${otherKind === 'ops' ? '作戰' : '科技'}卡一起棄掉,三種資源各 +${RULES.discardGain}`, value: { a: 'combo' } });
   opts.push({ label: '取消', value: null });
 
   openModal(`${c.kind === 'tech' ? TECH_CATEGORIES[c.cat].icon : c.icon} ${c.name}`, body, opts, val => {
     if (!val) return;
     if (val.a === 'play') net.action('playTech', { handIdx: idx });
-    else if (val.a === 'disc') net.action('discard', { idxs: [idx], res: val.res });
     else if (val.a === 'target') chooseOpsTarget(c, idx);
-    else if (val.a === 'combo') chooseComboPartner(c, idx, otherKind);
   });
 }
 
@@ -490,16 +519,49 @@ function chooseOpsTarget(c, idx) {
     });
 }
 
-function chooseComboPartner(c, idx, otherKind) {
-  const opts = last.priv.hand
-    .map((h, j) => ({ h, j }))
-    .filter(({ h, j }) => j !== idx && h.kind === otherKind)
-    .map(({ h, j }) => ({ label: `${h.kind === 'tech' ? TECH_CATEGORIES[h.cat].icon : h.icon} ${h.name}`, value: j }))
-    .concat([{ label: '取消', value: null }]);
-  openModal('♻️ 選擇一起棄掉的卡(換三種資源各 5)', '', opts, val => {
-    if (val === null) return;
-    net.action('discard', { idxs: [idx, val] });
-  });
+
+// ---------------- 交易環節 ----------------
+function renderTrade(m, me) {
+  const s = m.state;
+  $('#tradeMyRes').innerHTML = `你的資源:💰<b>${me.res.money}</b> ⚡<b>${me.res.power}</b> 🛢️<b>${me.res.oil}</b>`;
+  // 對象下拉(避免打字中重建)
+  const sel = $('#tradeTo');
+  const others = s.players.filter(p => p.id !== me.id);
+  if (sel.childElementCount !== others.length || sel.dataset.me !== String(me.id)) {
+    const prev = sel.value;
+    sel.dataset.me = String(me.id);
+    sel.innerHTML = others.map(p =>
+      `<option value="${p.id}">${p.isAI ? '🤖' : ''}${p.name}</option>`).join('');
+    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  }
+  const iAmDone = (s.tradeDone || []).includes(me.id);
+  const myOffers = s.tradeOfferCount?.[me.id] || 0;
+  // 提案列表
+  $('#tradeOffers').innerHTML = (s.tradeOffers || []).map(o => {
+    const from = s.players[o.fromId], to = s.players[o.toId];
+    const txt = `${from.name} 以 ${fmtRes(o.give)} 換 ${to.name} 的 ${fmtRes(o.receive)}`;
+    if (o.toId === me.id && !iAmDone)
+      return `<div class="trade-offer">📨 ${txt}
+        <button class="btn small-btn" data-acc="${o.id}">✅ 接受</button>
+        <button class="btn small-btn" data-dec="${o.id}">❌ 婉拒</button></div>`;
+    if (o.fromId === me.id)
+      return `<div class="trade-offer">📤 ${txt} <button class="btn small-btn" data-cxl="${o.id}">↩️ 撤回</button></div>`;
+    return `<div class="trade-offer">👀 ${txt}</div>`;
+  }).join('') || '<div class="trade-offer">(目前沒有提案)</div>';
+  // 次數限制與準備狀態
+  $('#tradeSend').disabled = iAmDone || myOffers >= RULES.tradeMaxOffers;
+  $('#tradeSend').textContent = iAmDone ? '✅ 你已成交(每環節限 1 次)'
+    : `📨 送出提案(${myOffers}/${RULES.tradeMaxOffers})`;
+  const ready = s.tradeReady || [];
+  $('#tradeStatus').textContent =
+    `每人最多提案 ${RULES.tradeMaxOffers} 次、成交 1 次|已結束交易:${ready.length}/${s.players.length} — ${ready.map(id => s.players[id].name).join('、') || '(無)'}`;
+  $('#tradeReadyBtn').disabled = ready.includes(me.id) && myCharId !== '*';
+}
+
+function readTradeInputs(prefix) {
+  const out = {};
+  for (const k of RES_KEYS) out[k] = Math.max(0, parseInt($(`#${prefix}_${k}`).value, 10) || 0);
+  return out;
 }
 
 // ---------------- 結算 ----------------
@@ -522,6 +584,33 @@ function showResult(s) {
 function setupGameEvents() {
   $('#btnMove').addEventListener('click', () => setMode(mode === 'move' ? 'idle' : 'move'));
   $('#btnDraw').addEventListener('click', () => net.action('draw'));
+  $('#btnForfTech').addEventListener('click', () => net.action('forfeit', { kind2: 'tech' }));
+  $('#btnForfOps').addEventListener('click', () => net.action('forfeit', { kind2: 'ops' }));
+  $('#btnForfMove').addEventListener('click', () => net.action('forfeit', { kind2: 'move' }));
+  $('#btnUpgrade').addEventListener('click', () => net.action('upgradeCity'));
+  $('#btnExchange').addEventListener('click', () => {
+    openModal('💱 金錢兌換(每回合一次,不可反向)',
+      `<p class="modal-desc">每 ${RULES.exchangeRate} 金錢換 1 石油或電力,單次最多 ${RULES.exchangeMax} 單位。</p>`,
+      [1, 3, 5].flatMap(n => [
+        { label: `🛢️ 石油 ×${n}(💰${n * RULES.exchangeRate})`, value: { res: 'oil', n } },
+        { label: `⚡ 電力 ×${n}(💰${n * RULES.exchangeRate})`, value: { res: 'power', n } },
+      ]).concat([{ label: '取消', value: null }]),
+      val => { if (val) net.action('exchange', { res: val.res, amount: val.n }); });
+  });
+  // 交易環節
+  $('#tradeSend').addEventListener('click', () => {
+    const toId = parseInt($('#tradeTo').value, 10);
+    if (Number.isNaN(toId)) { toast('請選擇交易對象'); return; }
+    net.action('tradeOffer', { toId, give: readTradeInputs('tg'), receive: readTradeInputs('tr') });
+  });
+  $('#tradeOffers').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.acc) net.action('tradeRespond', { offerId: parseInt(b.dataset.acc, 10), accept: true });
+    else if (b.dataset.dec) net.action('tradeRespond', { offerId: parseInt(b.dataset.dec, 10), accept: false });
+    else if (b.dataset.cxl) net.action('tradeCancel', { offerId: parseInt(b.dataset.cxl, 10) });
+  });
+  $('#tradeReadyBtn').addEventListener('click', () => net.action('tradeReady'));
   $('#btnEnd').addEventListener('click', () => { setMode('idle'); net.action('endTurn'); });
   $('#btnReveal').addEventListener('click', () => {
     openModal('⚡ 公開表態',

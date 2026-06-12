@@ -146,6 +146,14 @@ body {
 .card-cost { color: #ffd02e; font-size: .8rem; }
 .card-desc { color: #9ab; font-size: .68rem; margin-top: 4px; line-height: 1.4; }
 .card-disabled { opacity: .55; }
+.trade-box { max-width: 560px; }
+.trade-myres { margin: 8px 0; font-size: 1.05rem; }
+.trade-form { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+.trade-row { margin: 6px 0; }
+.trade-row input { width: 52px; background: #0c1430; color: #dfe9ff; border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; margin: 0 8px 0 2px; }
+.trade-offers { max-height: 30vh; overflow-y: auto; margin-bottom: 8px; }
+.trade-offer { padding: 6px 4px; border-bottom: 1px dashed var(--border); font-size: .9rem; }
+.trade-status { color: #9ab; margin-bottom: 8px; font-size: .85rem; }
 .hand-empty { color: #567; padding: 12px; }
 
 #log {

@@ -402,18 +402,25 @@ wss.on('connection', ws => {
       const g = room.game;
       const pIdx = playerIdxOf(room, client);
       if (pIdx < 0) { err('你不是此局玩家'); return; }
-      if (g.turnIdx !== pIdx && m.kind !== 'noop') { err('還沒輪到你'); return; }
+      const isTradeAction = String(m.kind).startsWith('trade');
+      if (g.turnIdx !== pIdx && m.kind !== 'noop' && !isTradeAction) { err('還沒輪到你'); return; }
 
       let res = { ok: false, msg: '未知行動' };
       switch (m.kind) {
         case 'move': res = g.doMove(m.regionId); break;
         case 'playTech': res = g.doPlayTech(m.handIdx); break;
-        case 'discard': res = g.doDiscard(m.idxs, m.res); break;
+        case 'forfeit': res = g.doForfeit(m.kind2); break;
+        case 'exchange': res = g.doExchange(m.res, m.amount); break;
+        case 'upgradeCity': res = g.doUpgradeCity(); break;
         case 'draw': res = g.doDraw(); break;
         case 'playCard': res = g.doPlayCard(m.handIdx, m.target); break;
         case 'endTurn': g.endTurn(); res = { ok: true }; break;
         case 'reveal': res = g.doReveal(); break;
         case 'joinSide': res = g.doJoin(); break;
+        case 'tradeOffer': res = g.doTradeOffer(pIdx, m.toId, m.give, m.receive); break;
+        case 'tradeRespond': res = g.doTradeRespond(pIdx, m.offerId, !!m.accept); break;
+        case 'tradeCancel': res = g.doTradeCancel(pIdx, m.offerId); break;
+        case 'tradeReady': res = g.doTradeReady(pIdx, client.charId === '*'); break;
       }
       if (!res.ok) err(res.msg);
       broadcast(room);

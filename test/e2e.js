@@ -55,18 +55,19 @@ if (spec.last.priv !== null) throw new Error('觀戰者不該有私有資訊');
 const turnP = host.last.state.players[host.last.state.turnIdx];
 console.log('輪到:', turnP.name);
 
-// 輪到的人棄一張卡換資源(混合牌庫:開局手牌 4 張)
+// 輪到的人放棄打出作戰卡的權利換金錢(混合牌庫:開局手牌 4 張)
 const clients = { '皮衣刀客·黃仁薰': host, '菊廠廠長·任正飛': p2, '護國神山·張中謀': p3,
   '房主': host, '玩家二': p2, '玩家三': p3 };
 const actor = clients[turnP.name];
 if (actor.last.priv.hand.length !== 4) throw new Error('開局手牌應為 4 張');
 const beforeMoney = turnP.res.money;
-actor.send({ t: 'action', kind: 'discard', idxs: [0], res: 'money' });
+const expectedGain = actor.last.priv.forfeitGain;
+actor.send({ t: 'action', kind: 'forfeit', kind2: 'ops' });
 await actor.wait();
 const afterP = actor.last.state.players.find(p => p.id === turnP.id);
-if (afterP.res.money !== beforeMoney + 5) throw new Error('棄卡換資源未生效');
-if (afterP.handCount !== 3) throw new Error('棄卡後手牌數錯誤');
-console.log('棄卡換資源後紀錄:', actor.last.state.log.at(-1));
+if (afterP.res.money !== beforeMoney + expectedGain) throw new Error('放棄作戰換金錢未生效');
+if (!actor.last.priv.turnFlags?.forfeitOps) throw new Error('forfeitOps 旗標未同步');
+console.log('放棄權利後紀錄:', actor.last.state.log.at(-1));
 // 事件卡應已抽出
 if (!actor.last.state.event) throw new Error('每輪開始應有集體事件');
 console.log('本季事件:', actor.last.state.event.name);

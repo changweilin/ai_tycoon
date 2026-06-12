@@ -29,6 +29,12 @@ export function resStr(c) {
 
 let cardUid = 1;
 
+/** 每回合重置的旗標:played* = 已用過該權利;forfeit* = 已放棄該權利換取資源 */
+function emptyTurnFlags() {
+  return { playedTech: false, playedOps: false, moved: false,
+    forfeitTech: false, forfeitOps: false, forfeitMove: false, exchanged: false };
+}
+
 function makeTechCard(catId, def) {
   return { uid: cardUid++, kind: 'tech', cat: catId, ...def, special: def.special || null };
 }
@@ -40,7 +46,8 @@ export class Game {
   /** @param {Array<{charId:string, playerName:string}>} seats */
   constructor(seats) {
     this.regions = {};
-    for (const r of REGIONS) this.regions[r.id] = { ...r, cards: [], fakeUntilRound: 0, fakeMult: 1 };
+    for (const r of REGIONS)
+      this.regions[r.id] = { ...r, cards: [], fakeUntilRound: 0, fakeMult: 1, level: r.startLevel || 1, builtRound: 0 };
     this.adj = {};
     for (const r of REGIONS) this.adj[r.id] = [];
     for (const [a, b] of EDGES) { this.adj[a].push(b); this.adj[b].push(a); }
@@ -50,7 +57,7 @@ export class Game {
       return {
         id: i, name: s.playerName || ch.name, char: ch, faction: ch.faction,
         res: { ...RULES.startResources }, hand: [], intel: [], pos: ch.home,
-        ap: 0, usedFreeMove: false, isAI: !!s.isAI,
+        ap: 0, usedFreeMove: false, isAI: !!s.isAI, turnFlags: emptyTurnFlags(),
       };
     });
     this.hasTW = this.players.some(p => p.faction === 'TW');
@@ -59,17 +66,20 @@ export class Game {
     this.round = 1;
     this.turnIdx = 0;
 
-    // 混合牌庫:科技卡 + 灰色作戰卡全部洗成一疊
+    // 混合牌庫:科技卡 + 灰色作戰卡全部洗成一疊(數量依遊玩人數調整)
+    const scale = RULES.deckScale[Math.min(8, Math.max(2, seats.length))] || 1;
     this.deck = [];
     this.discardPile = [];
     for (const catId in TECH_CATEGORIES) {
       for (const def of TECH_CARDS[catId]) {
-        const copies = TIER_COPIES[def.tier - 1];
+        const copies = Math.max(1, Math.round(TIER_COPIES[def.tier - 1] * scale));
         for (let i = 0; i < copies; i++) this.deck.push(makeTechCard(catId, def));
       }
     }
-    for (const [type, n] of OPS_DECK_COMPOSITION)
-      for (let i = 0; i < n; i++) this.deck.push(makeOpsCard(type));
+    for (const [type, n] of OPS_DECK_COMPOSITION) {
+      const copies = Math.max(1, Math.round(n * scale));
+      for (let i = 0; i < copies; i++) this.deck.push(makeOpsCard(type));
+    }
     shuffle(this.deck);
 
     // 集體事件卡牌庫
@@ -84,6 +94,14 @@ export class Game {
     this.log = [];
     this.over = false;
     this.result = null;
+
+    // 交易環節(每輪所有玩家行動結束後)
+    this.phase = 'play';
+    this.tradeOffers = [];
+    this.tradeReady = [];
+    this.tradeOfferCount = {}; // playerId → 本環節已提案次數(上限 3)
+    this.tradeDone = [];       // 本環節已成交的玩家(每人限成交 1 次,含接受)
+    this.nextOfferId = 1;
 
     for (const p of this.players)
       for (let i = 0; i < RULES.startHand; i++) this.drawCardFor(p);
@@ -109,15 +127,65 @@ export class Game {
     return FACTIONS[p.faction].side;
   }
   lead() { return this.tech.US - this.tech.CN; }
+  /** 點 → 年(領先 1 年 = 20 點) */
+  yearsOf(pts) { return Math.round(pts / RULES.pointsPerYear * 10) / 10; }
+
+  /** 科技力紅利:每 100 點「本國」科技力,每種資源收入 +1、放棄權利收益 +1 */
+  techBonusOf(p) { return Math.floor((this.tech[p.faction] || 0) / RULES.techIncomeDivisor); }
+  forfeitGainOf(p) { return RULES.forfeitBase + this.techBonusOf(p); }
   usThreshold() {
-    return RULES.usWinLead + (this.twRevealed && this.twSupport === 'US' ? RULES.twRevealPenalty : 0);
+    return (RULES.usWinLead + (this.twRevealed && this.twSupport === 'US' ? RULES.twRevealPenalty : 0))
+      * RULES.pointsPerYear;
   }
   cnThreshold() {
-    return RULES.cnWinLead - (this.twRevealed && this.twSupport === 'CN' ? RULES.twRevealPenalty : 0);
+    return (RULES.cnWinLead - (this.twRevealed && this.twSupport === 'CN' ? RULES.twRevealPenalty : 0))
+      * RULES.pointsPerYear;
+  }
+
+  /** 部署科技卡的科技力結算:計入本國分數;日本另計入米國、韓國另計入牆國、台灣依立場(未表態進神山儲備) */
+  applyTechGain(p, gain) {
+    this.tech[p.faction] = (this.tech[p.faction] || 0) + gain;
+    if (p.faction === 'JP') { this.tech.US += gain; return 'US'; }
+    if (p.faction === 'KR') { this.tech.CN += gain; return 'CN'; }
+    if (p.faction === 'TW') {
+      const side = this.sideOf(p);
+      if (side) { this.tech[side] += gain; return side; }
+      this.chipReserve += gain;
+      return null;
+    }
+    return p.faction; // US/CN 本身就是陣營分數
+  }
+
+  /** 科技卡被毀/拆除時扣回(與 applyTechGain 對稱) */
+  removeTechGain(p, loss) {
+    this.tech[p.faction] = Math.max(0, (this.tech[p.faction] || 0) - loss);
+    if (p.faction === 'JP') { this.tech.US = Math.max(0, this.tech.US - loss); return 'US'; }
+    if (p.faction === 'KR') { this.tech.CN = Math.max(0, this.tech.CN - loss); return 'CN'; }
+    if (p.faction === 'TW') {
+      const side = this.sideOf(p);
+      if (side) { this.tech[side] = Math.max(0, this.tech[side] - loss); return side; }
+      this.chipReserve = Math.max(0, this.chipReserve - loss);
+      return null;
+    }
+    return p.faction;
   }
 
   /** 角色擅長的科技卡類別 */
   specialtyOf(p) { return INDUSTRY_CATEGORY[p.char.industry]; }
+
+  /** from 出發 maxDist 格內可達的城市集合(含自身) */
+  regionsWithin(from, maxDist) {
+    const seen = new Set([from]);
+    let frontier = [from];
+    for (let d = 0; d < maxDist; d++) {
+      const next = [];
+      for (const rid of frontier)
+        for (const n of this.adj[rid])
+          if (!seen.has(n)) { seen.add(n); next.push(n); }
+      frontier = next;
+    }
+    return seen;
+  }
 
   /** 科技/作戰卡的資源花費比例 */
   ratioOf(card) {
@@ -150,12 +218,12 @@ export class Game {
     return false;
   }
 
-  /** 作戰卡費用(三種資源) */
+  /** 作戰卡費用(三種資源);牆國優勢:費用是他國的一半 */
   opsCostFor(p, type) {
     const c = OPS_CARDS[type];
     if (c.cat === 'fake' && (p.char.perk === 'media' || this.hasFakeFree(p))) return zeroRes();
     let cost = c.cost;
-    if (p.faction === 'CN') cost -= RULES.cnOpsDiscount;
+    if (p.faction === 'CN') cost = Math.ceil(cost * RULES.cnOpsHalf);
     if (p.char.perk === 'phone') cost -= 2;
     cost -= this.specialSum(p, 'opsDiscount');
     const ev = this.eventEffect();
@@ -176,6 +244,7 @@ export class Game {
     if (p.char.perk === 'auto') cost -= 2;
     const ev = this.eventEffect();
     if (ev?.type === 'catCost' && ev.cat === card.cat) cost = Math.ceil(cost * ev.mult);
+    if (ev?.type === 'allCost') cost = Math.ceil(cost * ev.mult);
     if (r.fakeUntilRound > this.round) cost = Math.ceil(cost * r.fakeMult); // 假新聞:更多花費
     // 米國在牆國地盤(及反之)發展科技花費加倍,其他國家不在此限
     if ((p.faction === 'US' && r.country === 'CN') || (p.faction === 'CN' && r.country === 'US'))
@@ -217,32 +286,36 @@ export class Game {
     return def;
   }
 
-  /** 卡片實際科技力(含加成),用於上場/被毀時的科技結算 */
+  /** 卡片實際科技力「點」(含加成),用於上場/被毀時的科技結算 */
   techValueOf(p, card, rid) {
     let v = card.tech;
-    if (this.regions[rid].chipBonus) v += 1;        // 新竹晶片重鎮
-    if (card.cat === this.specialtyOf(p)) v += RULES.specialtyTechBonus; // 擅長領域 +1
-    if (p.char.perk === 'chip' && card.cat === 'hardware') v += 1; // 神山硬體+1
-    if (p.faction === 'US' && card.tier >= 4) v += 1;              // 米國:尖端科技領先
+    if (this.regions[rid].chipBonus) v += 5;        // 新竹晶片重鎮 +5 點
+    if (card.cat === this.specialtyOf(p)) v += RULES.specialtyTechBonus; // 擅長領域 +5 點
+    if (p.char.perk === 'chip' && card.cat === 'hardware') v += 5; // 神山硬體 +5 點
+    if (p.faction === 'US' && card.tier >= 4) v += 10;             // 米國:尖端科技領先 +10 點
     const ev = this.eventEffect();
     if (ev?.type === 'techDelta') v += ev.val;                     // 事件:科技力增減
     return Math.max(0, v);
   }
 
   // ---------- 回合流程 ----------
-  /** 收入(三種資源):基礎 + 場上卡片交易力(依類別比例) */
+  /** 收入(三種資源):基礎(隨陣營科技力提高)+ 場上卡片交易力(依類別比例) */
   incomeOf(p) {
     const inc = { ...RULES.baseIncome };
+    const bonus = this.techBonusOf(p);
+    for (const k of RES_KEYS) inc[k] += bonus;
     for (const rid in this.regions)
       for (const c of this.regions[rid].cards)
         if (c.owner === p.id) {
-          addRes(inc, splitCost(c.trade, this.ratioOf(c)));
+          // 建造後產出資源:預設依建造比例(消耗多的生產也多),約 1/3 卡片有 prodRatio 例外
+          addRes(inc, splitCost(c.trade, c.prodRatio || this.ratioOf(c)));
           if (c.special?.type === 'income') inc.money += c.special.val;
         }
     if (p.char.perk === 'info' || p.char.perk === 'auto') inc.money += 2;
     const ev = this.eventEffect();
     if (ev?.type === 'resZero') inc[ev.res] = 0;
     if (ev?.type === 'resHalf') inc[ev.res] = Math.floor(inc[ev.res] / 2);
+    if (ev?.type === 'resBoost') inc[ev.res] += ev.val;
     if (ev?.type === 'incomeBonus') for (const k of RES_KEYS) inc[k] += ev.val;
     return inc;
   }
@@ -256,22 +329,135 @@ export class Game {
     const p = this.cur();
     p.ap = this.apPerTurn();
     p.usedFreeMove = false;
+    p.turnFlags = emptyTurnFlags();
     const income = this.incomeOf(p);
     addRes(p.res, income);
     this.addLog(`${p.name} 開始回合,獲得收入 ${resStr(income)}(行動點 ${p.ap})`);
   }
 
   endTurn() {
-    if (this.over) return;
+    if (this.over || this.phase === 'trade') return;
     this.turnIdx++;
     if (this.turnIdx >= this.players.length) {
       this.turnIdx = 0;
-      this.round++;
-      if (this.round > RULES.maxRounds) { this.endGameByRounds(); return; }
-      this.addLog(`====== ${this.roundLabel()} 開始 ======`);
-      this.drawEvent();
+      if (this.round >= RULES.maxRounds) { this.endGameByRounds(); return; }
+      this.enterTradePhase();
+      return;
     }
     this.beginTurn();
+  }
+
+  // ---------- 交易環節(所有玩家行動結束時,自由交換資源) ----------
+  enterTradePhase() {
+    this.phase = 'trade';
+    this.tradeOffers = [];
+    this.tradeOfferCount = {};
+    this.tradeDone = [];
+    this.tradeReady = this.players.filter(p => p.isAI).map(p => p.id); // AI 自動準備
+    this.addLog(`🤝 交易環節:可以以任意比值交換資源(每人最多提案 ${RULES.tradeMaxOffers} 次、成交 ${RULES.tradeMaxDeals} 次)`);
+    this.checkTradeDone();
+  }
+
+  checkTradeDone() {
+    if (this.phase !== 'trade') return;
+    if (this.tradeReady.length < this.players.length) return;
+    this.phase = 'play';
+    this.tradeOffers = [];
+    this.tradeReady = [];
+    this.round++;
+    this.addLog(`====== ${this.roundLabel()} 開始 ======`);
+    this.drawEvent();
+    this.beginTurn();
+  }
+
+  doTradeOffer(fromId, toId, give, receive) {
+    if (this.over || this.phase !== 'trade') return { ok: false, msg: '現在不是交易環節' };
+    const from = this.players[fromId];
+    const to = this.players[toId];
+    if (!to || toId === fromId) return { ok: false, msg: '交易對象不合法' };
+    if (this.tradeDone.includes(fromId)) return { ok: false, msg: '你本環節已成交一次,無法再交易' };
+    if (this.tradeDone.includes(toId)) return { ok: false, msg: '對方本環節已成交一次,無法再交易' };
+    if ((this.tradeOfferCount[fromId] || 0) >= RULES.tradeMaxOffers)
+      return { ok: false, msg: `每人最多提出 ${RULES.tradeMaxOffers} 次交易` };
+    const clean = c => {
+      const out = zeroRes();
+      for (const k of RES_KEYS) {
+        const v = Math.floor(Number(c?.[k]) || 0);
+        if (v < 0 || v > 99) return null;
+        out[k] = v;
+      }
+      return out;
+    };
+    const g = clean(give), r = clean(receive);
+    if (!g || !r || totalRes(g) + totalRes(r) === 0) return { ok: false, msg: '請填寫交換的資源' };
+    if (!canPay(from, g)) return { ok: false, msg: '你的資源不足' };
+    this.tradeOfferCount[fromId] = (this.tradeOfferCount[fromId] || 0) + 1;
+    const offer = { id: this.nextOfferId++, fromId, toId, give: g, receive: r };
+    // AI 對象:即時評估(收到的總量不少於付出的就接受)
+    if (to.isAI) {
+      if (canPay(to, r) && totalRes(g) >= totalRes(r)) {
+        this.execTrade(offer);
+      } else {
+        this.addLog(`🤝 ${to.name} 婉拒了 ${from.name} 的交易提案`);
+      }
+      return { ok: true };
+    }
+    this.tradeOffers.push(offer);
+    this.addLog(`🤝 ${from.name} 向 ${to.name} 提案:以 ${resStr(g)} 換 ${resStr(r)}`);
+    return { ok: true };
+  }
+
+  execTrade(offer) {
+    const from = this.players[offer.fromId];
+    const to = this.players[offer.toId];
+    pay(from, offer.give); pay(to, offer.receive);
+    addRes(from.res, offer.receive); addRes(to.res, offer.give);
+    // 每人每環節只能成交一次(含接受):雙方標記,撤掉他們其餘的提案
+    this.tradeDone.push(offer.fromId, offer.toId);
+    this.tradeOffers = this.tradeOffers.filter(o =>
+      !this.tradeDone.includes(o.fromId) && !this.tradeDone.includes(o.toId));
+    this.addLog(`✅ 成交:${from.name} 以 ${resStr(offer.give)} 換得 ${to.name} 的 ${resStr(offer.receive)}`);
+  }
+
+  doTradeRespond(playerId, offerId, accept) {
+    if (this.phase !== 'trade') return { ok: false, msg: '現在不是交易環節' };
+    const i = this.tradeOffers.findIndex(o => o.id === offerId);
+    if (i < 0) return { ok: false, msg: '提案不存在或已失效' };
+    const offer = this.tradeOffers[i];
+    if (offer.toId !== playerId) return { ok: false, msg: '這不是給你的提案' };
+    this.tradeOffers.splice(i, 1);
+    if (!accept) {
+      this.addLog(`🤝 ${this.players[playerId].name} 婉拒了交易提案`);
+      return { ok: true };
+    }
+    if (this.tradeDone.includes(playerId))
+      return { ok: false, msg: '你本環節已成交一次,無法再接受交易' };
+    if (this.tradeDone.includes(offer.fromId))
+      return { ok: false, msg: '提案方本環節已成交,提案失效' };
+    if (!canPay(this.players[offer.fromId], offer.give) || !canPay(this.players[offer.toId], offer.receive))
+      return { ok: false, msg: '其中一方資源已不足,交易取消' };
+    this.execTrade(offer);
+    return { ok: true };
+  }
+
+  doTradeCancel(playerId, offerId) {
+    if (this.phase !== 'trade') return { ok: false, msg: '現在不是交易環節' };
+    const i = this.tradeOffers.findIndex(o => o.id === offerId && o.fromId === playerId);
+    if (i < 0) return { ok: false, msg: '提案不存在' };
+    this.tradeOffers.splice(i, 1);
+    return { ok: true };
+  }
+
+  doTradeReady(playerId, all = false) {
+    if (this.phase !== 'trade') return { ok: false, msg: '現在不是交易環節' };
+    if (all) { // 上帝模式:一人控全部角色
+      this.tradeReady = this.players.map(p => p.id);
+    } else if (!this.tradeReady.includes(playerId)) {
+      this.tradeReady.push(playerId);
+      this.addLog(`🤝 ${this.players[playerId].name} 結束交易(${this.tradeReady.length}/${this.players.length})`);
+    }
+    this.checkTradeDone();
+    return { ok: true };
   }
 
   // ---------- 移動(相鄰 1🛢️;搭飛機直達任一城市,費用 5 倍) ----------
@@ -280,12 +466,15 @@ export class Game {
     const adjacent = this.adj[p.pos].includes(rid);
     if (adjacent && p.char.perk === 'transport' && !p.usedFreeMove)
       return { oil: 0, free: true, plane: false };
-    return { oil: adjacent ? RULES.moveOilCost : RULES.planeOilCost, free: false, plane: !adjacent };
+    let oil = adjacent ? RULES.moveOilCost : RULES.planeOilCost;
+    if (p.faction === 'JP') oil = Math.floor(oil * RULES.jpMoveHalf); // 日本優勢:油電混合
+    return { oil, free: false, plane: !adjacent };
   }
 
   canMoveTo(rid) {
     const p = this.cur();
-    if (this.over || !this.regions[rid]) return false;
+    if (this.over || this.phase === 'trade' || !this.regions[rid]) return false;
+    if (p.turnFlags.forfeitMove) return false; // 本回合已放棄行動換作戰卡
     const mc = this.moveCostTo(p, rid);
     if (!mc) return false;
     if (mc.free) return true;
@@ -298,6 +487,7 @@ export class Game {
     const mc = this.moveCostTo(p, rid);
     if (mc.free) p.usedFreeMove = true;
     else { p.ap -= 1; p.res.oil -= mc.oil; }
+    p.turnFlags.moved = true;
     p.pos = rid;
     this.addLog(`${p.name} ${mc.plane ? `✈️ 搭飛機直飛(🛢️${mc.oil})` : '移動'}到 ${this.regions[rid].name}${mc.free ? '(免費移動)' : ''}`);
     return { ok: true };
@@ -307,6 +497,10 @@ export class Game {
   /** 某張手牌科技卡可否在目前城市部署 */
   canPlayTech(p, card, rid = p.pos) {
     const r = this.regions[rid];
+    if (card.tier > r.level)
+      return { ok: false, msg: `城市等級不足(${r.name} Lv.${r.level},${card.tier}階卡需 Lv.${card.tier})` };
+    if (r.builtRound && this.round < r.builtRound + RULES.cityBuildCooldown)
+      return { ok: false, msg: `${r.name} 今年已建造過,須過一年(第 ${Math.ceil((r.builtRound + RULES.cityBuildCooldown) / 4)} 年起)才可重新建造` };
     const old = this.ownCardAt(p, rid);
     if (old) {
       if (card.tier <= old.tier)
@@ -320,8 +514,10 @@ export class Game {
   doPlayTech(handIdx) {
     const p = this.cur();
     if (this.over) return { ok: false, msg: '遊戲已結束' };
+    if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
     const card = p.hand[handIdx];
     if (!card || card.kind !== 'tech') return { ok: false, msg: '無此科技卡' };
+    if (p.turnFlags.forfeitTech) return { ok: false, msg: '你本回合已放棄打出科技卡的權利' };
     if (p.ap < 1) return { ok: false, msg: '行動點不足' };
     const chk = this.canPlayTech(p, card);
     if (!chk.ok) return chk;
@@ -331,6 +527,7 @@ export class Game {
     p.ap -= 1;
     pay(p, cost);
     p.hand.splice(handIdx, 1);
+    p.turnFlags.playedTech = true;
 
     // 消耗一次竊取情報
     const intelIdx = p.intel.findIndex(it => it.cat === card.cat);
@@ -353,10 +550,7 @@ export class Game {
     const old = this.ownCardAt(p, p.pos);
     if (old) {
       r.cards = r.cards.filter(c => c.uid !== old.uid);
-      const oldSide = this.sideOf(p);
-      const loss = old.techApplied || 0;
-      if (oldSide) this.tech[oldSide] = Math.max(0, this.tech[oldSide] - loss);
-      else this.chipReserve = Math.max(0, this.chipReserve - loss);
+      this.removeTechGain(p, old.techApplied || 0);
       delete old.owner; delete old.techApplied; delete old.opsHit;
       this.discardPile.push(old);
       this.addLog(`${p.name} 拆除了 ${r.name} 的【${old.name}】${old.cat === card.cat ? '(同類型折舊抵免費用)' : ''}`);
@@ -364,14 +558,13 @@ export class Game {
 
     card.owner = p.id;
     r.cards.push(card);
+    r.builtRound = this.round; // 此城一年內不可再建造
 
     const gain = this.techValueOf(p, card, p.pos);
-    const side = this.sideOf(p);
+    const side = this.applyTechGain(p, gain);
     if (side) {
-      this.tech[side] += gain;
-      this.addLog(`${p.name} 在 ${r.name} 部署【${card.name}】(${card.tier}階,${resStr(cost)}),${FACTIONS[side].name}科技力 +${gain} 年`);
+      this.addLog(`${p.name} 在 ${r.name} 部署【${card.name}】(${card.tier}階,${resStr(cost)}),${FACTIONS[side].name}科技力 +${gain} 點`);
     } else {
-      this.chipReserve += gain;
       this.addLog(`${p.name} 在 ${r.name} 部署【${card.name}】(${card.tier}階,${resStr(cost)}),神山儲備增加(秘密)`);
     }
     card.techApplied = gain; // 被毀/拆除時要扣回的量
@@ -382,6 +575,7 @@ export class Game {
   doDraw() {
     const p = this.cur();
     if (this.over) return { ok: false, msg: '遊戲已結束' };
+    if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
     if (p.ap < 1) return { ok: false, msg: '行動點不足' };
     const cost = this.drawCost(p);
     if (!canPay(p, cost)) return { ok: false, msg: `資源不足(需要 ${resStr(cost)})` };
@@ -393,48 +587,97 @@ export class Game {
     return { ok: true };
   }
 
-  // ---------- 棄卡換資源 ----------
-  /** 棄 1 張卡換 5 單一資源;科技+作戰各棄 1 張換三種資源各 5 */
-  doDiscard(idxs, res) {
+  // ---------- 放棄權利換取資源(每回合各一次,不耗 AP;收益隨陣營科技力提高) ----------
+  /** kind: 'tech' 放棄打出科技卡→電力 / 'ops' 放棄打出作戰卡→金錢 / 'move' 放棄行動(移動)→石油 */
+  doForfeit(kind) {
     const p = this.cur();
     if (this.over) return { ok: false, msg: '遊戲已結束' };
-    if (!Array.isArray(idxs) || idxs.length < 1 || idxs.length > 2)
-      return { ok: false, msg: '請選擇 1~2 張卡' };
-    const uniq = [...new Set(idxs.map(i => parseInt(i, 10)))];
-    if (uniq.length !== idxs.length) return { ok: false, msg: '卡片重複' };
-    const cards = uniq.map(i => p.hand[i]);
-    if (cards.some(c => !c)) return { ok: false, msg: '無此卡片' };
-
-    const gain = zeroRes();
-    if (cards.length === 1) {
-      if (!RES_KEYS.includes(res)) return { ok: false, msg: '請指定要換的資源' };
-      gain[res] = RULES.discardGain;
-    } else {
-      const kinds = new Set(cards.map(c => c.kind));
-      if (!(kinds.has('tech') && kinds.has('ops')))
-        return { ok: false, msg: '需科技卡與作戰卡各一張才能換三種資源' };
-      for (const k of RES_KEYS) gain[k] = RULES.discardGain;
+    if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
+    const f = p.turnFlags;
+    const gain = this.forfeitGainOf(p);
+    if (kind === 'tech') {
+      if (f.forfeitTech) return { ok: false, msg: '本回合已放棄過' };
+      if (f.playedTech) return { ok: false, msg: '本回合已打出過科技卡,無法放棄該權利' };
+      f.forfeitTech = true;
+      p.res.power += gain;
+      this.addLog(`♻️ ${p.name} 放棄本回合打出科技卡的權利,換得 ⚡${gain}`);
+      return { ok: true };
     }
-    // 從大索引開始移除,避免位移
-    uniq.sort((a, b) => b - a).forEach(i => p.hand.splice(i, 1));
-    for (const c of cards) this.discardPile.push(c);
-    addRes(p.res, gain);
-    const names = cards.map(c => c.kind === 'tech' ? c.name : OPS_CARDS[c.type].name).join('】【');
-    this.addLog(`♻️ ${p.name} 棄掉【${names}】換得 ${resStr(gain)}`);
+    if (kind === 'ops') {
+      if (f.forfeitOps) return { ok: false, msg: '本回合已放棄過' };
+      if (f.playedOps) return { ok: false, msg: '本回合已打出過作戰卡,無法放棄該權利' };
+      f.forfeitOps = true;
+      p.res.money += gain;
+      this.addLog(`♻️ ${p.name} 放棄本回合打出作戰卡的權利,換得 💰${gain}`);
+      return { ok: true };
+    }
+    if (kind === 'move') {
+      if (f.forfeitMove) return { ok: false, msg: '本回合已放棄過' };
+      if (f.moved) return { ok: false, msg: '本回合已移動過,無法放棄行動' };
+      f.forfeitMove = true;
+      p.res.oil += gain;
+      this.addLog(`♻️ ${p.name} 放棄本回合的行動(移動),換得 🛢️${gain}`);
+      return { ok: true };
+    }
+    return { ok: false, msg: '未知的放棄類型' };
+  }
+
+  // ---------- 金錢兌換(每回合一次,不可反向) ----------
+  doExchange(res, amount) {
+    const p = this.cur();
+    if (this.over) return { ok: false, msg: '遊戲已結束' };
+    if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
+    if (p.turnFlags.exchanged) return { ok: false, msg: '本回合已兌換過' };
+    if (res !== 'power' && res !== 'oil') return { ok: false, msg: '只能用金錢換取石油或電力' };
+    const n = Math.floor(Number(amount) || 0);
+    if (n < 1 || n > RULES.exchangeMax) return { ok: false, msg: `兌換數量需為 1~${RULES.exchangeMax}` };
+    const cost = n * RULES.exchangeRate;
+    if (p.res.money < cost) return { ok: false, msg: `金錢不足(需要 💰${cost})` };
+    p.turnFlags.exchanged = true;
+    p.res.money -= cost;
+    p.res[res] += n;
+    const icon = res === 'power' ? '⚡' : '🛢️';
+    this.addLog(`💱 ${p.name} 用 💰${cost} 兌換了 ${icon}${n}`);
+    return { ok: true };
+  }
+
+  // ---------- 升級城市(電力;城市等級 ≥ 科技卡階級才能建造) ----------
+  upgradeCostAt(p, rid) {
+    const r = this.regions[rid];
+    let cost = r.level * RULES.cityUpgradePower;
+    if (p.faction === 'KR') cost = Math.ceil(cost * RULES.krUpgradeHalf); // 韓國優勢:基建狂魔
+    return cost;
+  }
+
+  doUpgradeCity() {
+    const p = this.cur();
+    if (this.over) return { ok: false, msg: '遊戲已結束' };
+    if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
+    if (p.ap < 1) return { ok: false, msg: '行動點不足' };
+    const r = this.regions[p.pos];
+    if (r.level >= RULES.cityMaxLevel) return { ok: false, msg: '城市已達最高等級' };
+    const cost = this.upgradeCostAt(p, p.pos);
+    if (p.res.power < cost) return { ok: false, msg: `電力不足(需要 ⚡${cost})` };
+    p.ap -= 1;
+    p.res.power -= cost;
+    r.level += 1;
+    this.addLog(`⬆️ ${p.name} 用 ⚡${cost} 將 ${r.name} 升級到 Lv.${r.level}`);
     return { ok: true };
   }
 
   // ---------- 作戰卡 ----------
-  /** 合法目標清單(每張科技卡只能被作戰卡鎖定一次) */
+  /** 合法目標清單(每張科技卡只能被鎖定一次;只能對兩格內的城市使用) */
   cardTargets(type) {
     const p = this.cur();
     const card = OPS_CARDS[type];
     if (!card) return [];
     const mySide = this.secretSideOf(p);
+    const inRange = this.regionsWithin(p.pos, RULES.opsRange);
 
     if (card.cat === 'spy' || card.cat === 'steal') {
       const targets = [];
       for (const rid in this.regions) {
+        if (!inRange.has(rid)) continue;
         for (const c of this.regions[rid].cards) {
           if (c.owner === p.id) continue;
           if (c.opsHit) continue; // 已被作戰卡鎖定過
@@ -452,7 +695,7 @@ export class Game {
     }
     if (card.cat === 'fake') {
       return Object.values(this.regions)
-        .filter(r => r.fakeUntilRound <= this.round)
+        .filter(r => inRange.has(r.id) && r.fakeUntilRound <= this.round)
         .map(r => ({ regionId: r.id, label: r.name }));
     }
     return [];
@@ -461,8 +704,10 @@ export class Game {
   doPlayCard(handIdx, target) {
     const p = this.cur();
     if (this.over) return { ok: false, msg: '遊戲已結束' };
+    if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
     const hc = p.hand[handIdx];
     if (!hc || hc.kind !== 'ops') return { ok: false, msg: '無此作戰卡' };
+    if (p.turnFlags.forfeitOps) return { ok: false, msg: '你本回合已放棄打出作戰卡的權利' };
     const type = hc.type;
     const card = OPS_CARDS[type];
     if (p.ap < 1) return { ok: false, msg: '行動點不足' };
@@ -479,6 +724,7 @@ export class Game {
     p.ap -= 1;
     pay(p, cost);
     p.hand.splice(handIdx, 1);
+    p.turnFlags.playedOps = true;
     this.discardPile.push(hc);
 
     if (card.cat === 'spy') {
@@ -486,15 +732,13 @@ export class Game {
       const tc = r.cards.find(c => c.uid === chosen.uid);
       const owner = this.players[tc.owner];
       r.cards = r.cards.filter(c => c.uid !== tc.uid);
-      const ownerSide = this.sideOf(owner);
       const loss = tc.techApplied || tc.tech;
       delete tc.owner; delete tc.techApplied; delete tc.opsHit;
       this.discardPile.push(tc);
+      const ownerSide = this.removeTechGain(owner, loss);
       if (ownerSide) {
-        this.tech[ownerSide] = Math.max(0, this.tech[ownerSide] - loss);
-        this.addLog(`💣 ${p.name} 用【${card.name}】摧毀了 ${owner.name} 在 ${r.name} 的【${tc.name}】!${FACTIONS[ownerSide].name}科技力 -${loss} 年`);
+        this.addLog(`💣 ${p.name} 用【${card.name}】摧毀了 ${owner.name} 在 ${r.name} 的【${tc.name}】!${FACTIONS[ownerSide].name}科技力 -${loss} 點`);
       } else {
-        this.chipReserve = Math.max(0, this.chipReserve - loss);
         this.addLog(`💣 ${p.name} 用【${card.name}】摧毀了 ${owner.name} 在 ${r.name} 的【${tc.name}】!神山儲備受損(秘密)`);
       }
       this.checkVictory();
@@ -528,6 +772,7 @@ export class Game {
   doReveal() {
     const p = this.cur();
     if (p.faction !== 'TW') return { ok: false, msg: '只有台灣可以表態' };
+    if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
     if (this.twRevealed) return { ok: false, msg: '已經表態過了' };
     if (p.ap < 1) return { ok: false, msg: '行動點不足' };
     p.ap -= 1;
@@ -535,7 +780,7 @@ export class Game {
     const side = this.twSupport;
     if (this.chipReserve > 0) {
       this.tech[side] += this.chipReserve;
-      this.addLog(`⚡ ${p.name} 公開表態支持${FACTIONS[side].name}!神山儲備 ${this.chipReserve} 年科技力全數注入!(該陣營勝利門檻 +5 年)`);
+      this.addLog(`⚡ ${p.name} 公開表態支持${FACTIONS[side].name}!神山儲備 ${this.chipReserve} 點科技力全數注入!(該陣營勝利門檻 +5 年)`);
       this.chipReserve = 0;
     } else {
       this.addLog(`⚡ ${p.name} 公開表態支持${FACTIONS[side].name}!(該陣營勝利門檻 +5 年)`);
@@ -547,6 +792,7 @@ export class Game {
   doJoin() {
     const p = this.cur();
     if (p.faction !== 'TW') return { ok: false, msg: '只有台灣可以加入陣營' };
+    if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
     if (!this.twRevealed) return { ok: false, msg: '必須先表態' };
     if (p.ap < 1) return { ok: false, msg: '行動點不足' };
     if (!canPay(p, RULES.twJoinCost)) return { ok: false, msg: `需要 ${resStr(RULES.twJoinCost)}` };
@@ -570,11 +816,11 @@ export class Game {
       reason = `台灣加入${FACTIONS[side].name},${FACTIONS[side].name}立即獲勝!`;
     } else if (lead >= this.usThreshold()) {
       side = 'US';
-      reason = `米國科技力領先 ${lead} 年(門檻 ${this.usThreshold()}),米國獲勝!`;
+      reason = `米國科技力領先 ${lead} 點(${this.yearsOf(lead)} 年,門檻 ${this.usThreshold() / RULES.pointsPerYear} 年),米國獲勝!`;
     } else if (lead <= this.cnThreshold()) {
       side = 'CN';
       reason = this.cnThreshold() < 0
-        ? `牆國科技力反超 ${-lead} 年,牆國獲勝!`
+        ? `牆國科技力反超 ${this.yearsOf(-lead)} 年,牆國獲勝!`
         : `牆國科技力追平米國,牆國獲勝!`;
     }
     if (!side) return;
@@ -593,13 +839,14 @@ export class Game {
     const lead = this.lead();
     const jp = this.players.find(p => p.faction === 'JP');
     const kr = this.players.find(p => p.faction === 'KR');
+    const jpLeadPts = RULES.jpWinLead * RULES.pointsPerYear;
     let winners = [];
-    let reason = `3 年(${RULES.maxRounds} 季)結束,米牆雙方和局(差距 ${lead} 年)。`;
-    if (jp && lead >= RULES.jpWinLead && !this.twJoined) {
+    let reason = `3 年(${RULES.maxRounds} 季)結束,米牆雙方和局(差距 ${this.yearsOf(lead)} 年)。`;
+    if (jp && lead >= jpLeadPts && !this.twJoined) {
       winners.push(jp.id);
-      reason += ` 米國領先 ${lead} 年(≥5)且台灣未加入任一方 → 日本達成勝利條件!`;
+      reason += ` 米國領先 ${this.yearsOf(lead)} 年(≥5)且台灣未加入任一方 → 日本達成勝利條件!`;
     }
-    if (kr && lead < RULES.jpWinLead) {
+    if (kr && lead < jpLeadPts) {
       winners.push(kr.id);
       reason += ` 米國領先不足 5 年且雙方和局 → 韓國達成勝利條件!`;
     }
@@ -630,7 +877,8 @@ export class Game {
     for (const rid in this.regions) {
       const r = this.regions[rid];
       regions[rid] = {
-        id: rid, fakeUntilRound: r.fakeUntilRound, fakeMult: r.fakeMult, country: r.country,
+        id: rid, fakeUntilRound: r.fakeUntilRound, fakeMult: r.fakeMult,
+        country: r.country, level: r.level, builtRound: r.builtRound,
         cards: r.cards.map(c => ({
           uid: c.uid, owner: c.owner, cat: c.cat, tier: c.tier, name: c.name,
           tech: c.tech, def: c.def, trade: c.trade, effDef: this.effDef(rid, c),
@@ -656,6 +904,11 @@ export class Game {
       twSupportPublic: this.twRevealed ? this.twSupport : null,
       twJoined: this.twJoined,
       deckCount: this.deck.length + this.discardPile.length,
+      phase: this.phase,
+      tradeOffers: this.phase === 'trade' ? this.tradeOffers : [],
+      tradeReady: this.phase === 'trade' ? [...this.tradeReady] : [],
+      tradeOfferCount: this.phase === 'trade' ? { ...this.tradeOfferCount } : {},
+      tradeDone: this.phase === 'trade' ? [...this.tradeDone] : [],
       log: this.log.slice(-60),
       over: this.over, result: this.result,
     };
@@ -669,12 +922,15 @@ export class Game {
         cards: this.regions[rid].cards,
         fakeUntilRound: this.regions[rid].fakeUntilRound,
         fakeMult: this.regions[rid].fakeMult,
+        level: this.regions[rid].level,
+        builtRound: this.regions[rid].builtRound,
       };
     return {
       version: 2,
       players: this.players.map(p => ({
         id: p.id, name: p.name, charId: p.char.id, res: p.res, intel: p.intel,
-        hand: p.hand, pos: p.pos, ap: p.ap, usedFreeMove: p.usedFreeMove, isAI: p.isAI,
+        hand: p.hand, pos: p.pos, ap: p.ap, usedFreeMove: p.usedFreeMove,
+        turnFlags: p.turnFlags, isAI: p.isAI,
       })),
       regions,
       deck: this.deck, discardPile: this.discardPile,
@@ -682,6 +938,9 @@ export class Game {
       tech: this.tech, round: this.round, turnIdx: this.turnIdx,
       twSupport: this.twSupport, twRevealed: this.twRevealed,
       twJoined: this.twJoined, chipReserve: this.chipReserve,
+      phase: this.phase, tradeOffers: this.tradeOffers,
+      tradeReady: this.tradeReady, nextOfferId: this.nextOfferId,
+      tradeOfferCount: this.tradeOfferCount, tradeDone: this.tradeDone,
       log: this.log,
       over: this.over, result: this.result, cardUid,
     };
@@ -691,13 +950,14 @@ export class Game {
     if (d.version !== 2) throw new Error('存檔版本不相容(舊版規則存檔無法載入)');
     const g = Object.create(Game.prototype);
     g.regions = {};
-    for (const r of REGIONS) g.regions[r.id] = { ...r, cards: [], fakeUntilRound: 0, fakeMult: 1 };
-    for (const rid in d.regions) Object.assign(g.regions[rid], d.regions[rid]);
+    for (const r of REGIONS)
+      g.regions[r.id] = { ...r, cards: [], fakeUntilRound: 0, fakeMult: 1, level: r.startLevel || 1, builtRound: 0 };
+    for (const rid in d.regions) if (g.regions[rid]) Object.assign(g.regions[rid], d.regions[rid]);
     g.adj = {};
     for (const r of REGIONS) g.adj[r.id] = [];
     for (const [a, b] of EDGES) { g.adj[a].push(b); g.adj[b].push(a); }
     g.players = d.players.map(p => ({
-      ...p, intel: p.intel || [],
+      ...p, intel: p.intel || [], turnFlags: p.turnFlags || emptyTurnFlags(),
       char: CHARACTERS.find(c => c.id === p.charId),
       faction: CHARACTERS.find(c => c.id === p.charId).faction,
     }));
@@ -707,6 +967,12 @@ export class Game {
     g.tech = d.tech; g.round = d.round; g.turnIdx = d.turnIdx;
     g.twSupport = d.twSupport; g.twRevealed = d.twRevealed;
     g.twJoined = d.twJoined; g.chipReserve = d.chipReserve;
+    g.phase = d.phase || 'play';
+    g.tradeOffers = d.tradeOffers || [];
+    g.tradeReady = d.tradeReady || [];
+    g.tradeOfferCount = d.tradeOfferCount || {};
+    g.tradeDone = d.tradeDone || [];
+    g.nextOfferId = d.nextOfferId || 1;
     g.log = d.log;
     g.over = d.over; g.result = d.result;
     cardUid = Math.max(cardUid, d.cardUid || 1);
@@ -732,16 +998,25 @@ export class Game {
       }),
       drawCost: this.drawCost(p),
       intel: p.intel.map(it => ({ cat: it.cat, gain: it.gain })),
+      turnFlags: { ...p.turnFlags },
+      forfeitGain: this.forfeitGainOf(p),
+      techBonus: this.techBonusOf(p),
     };
     if (p.faction === 'TW') {
       priv.twSupport = this.twSupport;
       priv.chipReserve = this.chipReserve;
     }
-    if (this.turnIdx === playerId && !this.over) {
+    if (this.turnIdx === playerId && !this.over && this.phase === 'play') {
       priv.targets = {};
       for (const t of ['spy1', 'spy2', 'steal1', 'steal2', 'fake1', 'fake2'])
         priv.targets[t] = this.cardTargets(t);
       priv.specialty = this.specialtyOf(p);
+      const r = this.regions[p.pos];
+      priv.upgrade = {
+        level: r.level,
+        max: RULES.cityMaxLevel,
+        cost: r.level < RULES.cityMaxLevel ? this.upgradeCostAt(p, p.pos) : null,
+      };
       priv.moveTargets = REGIONS
         .filter(r => r.id !== p.pos && this.canMoveTo(r.id))
         .map(r => {

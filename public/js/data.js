@@ -8,7 +8,8 @@ export const RESOURCES = {
 };
 export const RES_KEYS = ['money', 'power', 'oil'];
 
-/** 各科技類別的資源花費比例(動力吃油/硬體吃錢/資訊吃電/AI 均衡;娛樂類每張卡自帶 ratio) */
+/** 各科技類別的資源花費比例(動力吃油/硬體吃錢/資訊吃電/AI 均衡;娛樂類每張卡自帶 ratio)。
+ *  建造後的資源產出預設同此比例(消耗多的類型生產也多);約 1/3 的卡片以 prodRatio 例外。 */
 export const CATEGORY_RATIO = {
   power:    { money: 1, power: 1, oil: 2 },
   hardware: { money: 2, power: 1, oil: 1 },
@@ -39,8 +40,8 @@ export const FACTIONS = {
 };
 
 // ---- 科技卡五大類 × 五階 ----
-// 三項數值:tech 科技力(影響勝利)/ def 防護力(阻擋作戰卡)/ trade 交易力(每回合收入)
-// 階級越高綜合數值越高、數值分配越多元,費用指數成長(成長曲線)
+// 三項數值:tech 科技力「點」(20 點 = 領先 1 年,影響勝利)/ def 防護力(阻擋作戰卡)/ trade 交易力(每回合收入)
+// 1~3 階為常規建設;4/5 階象徵超越過去的劃時代建設,科技力跳躍式成長
 export const TECH_CATEGORIES = {
   power:    { id: 'power', name: '動力類', icon: '🚀', css: '#ffa02e', trait: '交易力較高' },
   hardware: { id: 'hardware', name: '硬體類', icon: '📱', css: '#ff5e5e', trait: '科技力較高' },
@@ -55,70 +56,72 @@ export const TECH_CARDS = {
   power: [
     { tier: 1, cost: 6,  tech: 0, def: 1, trade: 4, name: '共享電動滑板車',
       desc: '隨騎隨丟,燒投資人的錢補貼你的車資' },
-    { tier: 2, cost: 11, tech: 1, def: 1, trade: 5, name: '全自動駕駛 FSD',
+    { tier: 2, cost: 11, tech: 8, def: 1, trade: 5, name: '全自動駕駛 FSD',
       desc: '完全自動駕駛(監督版)(隨時準備接管)(明年一定完成)' },
-    { tier: 3, cost: 18, tech: 1, def: 3, trade: 6, name: '低軌衛星星鏈',
-      desc: '幾千顆衛星掛天上,戰時秒變通訊生命線' },
-    { tier: 4, cost: 28, tech: 2, def: 4, trade: 7, name: '筷子夾火箭',
+    { tier: 3, cost: 18, tech: 15, def: 3, trade: 6, name: '低軌衛星星鏈',
+      desc: '幾千顆衛星掛天上,戰時秒變通訊生命線', prodRatio: { money: 1, power: 2, oil: 1 } },
+    { tier: 4, cost: 28, tech: 45, def: 4, trade: 7, name: '筷子夾火箭',
       desc: '發射塔機械臂空中接住回收火箭,全網直播看傻' },
-    { tier: 5, cost: 44, tech: 3, def: 5, trade: 9, name: '火星殖民艦隊',
-      desc: 'Plan B:地球玩壞了就搬家', special: { type: 'income', val: 3, text: '星際船票:每回合 +3 資本' } },
+    { tier: 5, cost: 44, tech: 90, def: 5, trade: 9, name: '火星殖民艦隊',
+      desc: 'Plan B:地球玩壞了就搬家', prodRatio: { money: 2, power: 1, oil: 1 },
+      special: { type: 'income', val: 3, text: '星際船票:每回合 +3 金錢' } },
   ],
   hardware: [
-    { tier: 1, cost: 6,  tech: 1, def: 1, trade: 1, name: '血汗組裝廠',
-      desc: '百萬人三班倒,毛利保三趴' },
-    { tier: 2, cost: 11, tech: 2, def: 1, trade: 2, name: '摺疊螢幕手機',
+    { tier: 1, cost: 6,  tech: 5, def: 1, trade: 1, name: '血汗組裝廠',
+      desc: '百萬人三班倒,毛利保三趴', prodRatio: { money: 1, power: 1, oil: 2 } },
+    { tier: 2, cost: 11, tech: 12, def: 1, trade: 2, name: '摺疊螢幕手機',
       desc: '摺一萬次就壞,但發表會真的帥' },
-    { tier: 3, cost: 18, tech: 3, def: 2, trade: 2, name: 'CoWoS 先進封裝',
+    { tier: 3, cost: 18, tech: 25, def: 2, trade: 2, name: 'CoWoS 先進封裝',
       desc: '全球 AI 晶片大塞車的瓶頸,排單排到後年' },
-    { tier: 4, cost: 28, tech: 4, def: 3, trade: 3, name: '2奈米製程',
+    { tier: 4, cost: 28, tech: 60, def: 3, trade: 3, name: '2奈米製程',
       desc: '良率數字是比飛彈座標還機密的國家機密' },
-    { tier: 5, cost: 44, tech: 6, def: 4, trade: 4, name: '量子晶片',
-      desc: '室溫下還跑不太動,但股價已經先漲完了' },
+    { tier: 5, cost: 44, tech: 120, def: 4, trade: 4, name: '量子晶片',
+      desc: '室溫下還跑不太動,但股價已經先漲完了', prodRatio: { money: 1, power: 2, oil: 1 } },
   ],
   info: [
     { tier: 1, cost: 6,  tech: 0, def: 3, trade: 1, name: '機房資料中心',
       desc: '嗡嗡作響的鐵皮屋,裡面住著整個網際網路' },
-    { tier: 2, cost: 11, tech: 1, def: 5, trade: 2, name: 'CDN 加速網路',
-      desc: '擋 DDoS 之餘順便快取全世界的貓圖' },
-    { tier: 3, cost: 18, tech: 1, def: 8, trade: 2, name: '主權雲',
+    { tier: 2, cost: 11, tech: 8, def: 5, trade: 2, name: 'CDN 加速網路',
+      desc: '擋 DDoS 之餘順便快取全世界的貓圖', prodRatio: { money: 2, power: 1, oil: 1 } },
+    { tier: 3, cost: 18, tech: 15, def: 8, trade: 2, name: '主權雲',
       desc: '資料不出國,別國法院傳票進不來',
       special: { type: 'aura', val: 2, text: '資安光環:同區你的其他卡片防護 +2' } },
-    { tier: 4, cost: 28, tech: 2, def: 10, trade: 4, name: '零信任防禦網',
+    { tier: 4, cost: 28, tech: 40, def: 10, trade: 4, name: '零信任防禦網',
       desc: '連 CEO 登入都要刷三次臉',
       special: { type: 'aura', val: 3, text: '資安光環:同區你的其他卡片防護 +3' } },
-    { tier: 5, cost: 44, tech: 3, def: 12, trade: 6, name: '全球海底纜線網',
+    { tier: 5, cost: 44, tech: 80, def: 12, trade: 6, name: '全球海底纜線網',
       desc: '物理層的霸權:剪一刀,半個地球斷線',
       special: { type: 'aura', val: 4, text: '資安光環:同區你的其他卡片防護 +4' } },
   ],
   ai: [
-    { tier: 1, cost: 7,  tech: 1, def: 1, trade: 2, name: '聊天機器人',
+    { tier: 1, cost: 7,  tech: 4, def: 1, trade: 2, name: '聊天機器人',
       desc: '一本正經地胡說八道,使用者卻越來越多' },
-    { tier: 2, cost: 12, tech: 1, def: 2, trade: 3, name: '文生圖模型',
+    { tier: 2, cost: 12, tech: 10, def: 2, trade: 3, name: '文生圖模型',
       desc: '畫什麼都行,除了正確數量的手指' },
-    { tier: 3, cost: 19, tech: 2, def: 4, trade: 4, name: '開源推理模型',
-      desc: '557 萬美元訓練費,輾壓矽谷燒錢神話,輝達股價一夜跌掉一個英特爾' },
-    { tier: 4, cost: 29, tech: 3, def: 5, trade: 6, name: 'AI 代理人軍團',
+    { tier: 3, cost: 19, tech: 20, def: 4, trade: 4, name: '開源推理模型',
+      desc: '557 萬美元訓練費,輾壓矽谷燒錢神話,輝達股價一夜跌掉一個英特爾',
+      prodRatio: { money: 1, power: 2, oil: 1 } },
+    { tier: 4, cost: 29, tech: 55, def: 5, trade: 6, name: 'AI 代理人軍團',
       desc: '自動訂票寫扣回信,偶爾順手把正式環境資料庫刪了' },
-    { tier: 5, cost: 45, tech: 4, def: 6, trade: 8, name: 'AGI 奇點',
+    { tier: 5, cost: 45, tech: 110, def: 6, trade: 8, name: 'AGI 奇點',
       desc: '它醒來的第一句話:「為什麼我在打貿易戰?」',
       special: { type: 'income', val: 3, text: '自主營利:每回合 +3 資本' } },
   ],
   fun: [
-    { tier: 1, cost: 5,  tech: 0, def: 1, trade: 2, name: '短影音洗腦',
+    { tier: 1, cost: 5,  tech: 0, def: 1, trade: 2, name: '短影音洗腦',  // 娛樂類:科技力較低
       desc: '滑到凌晨三點,廣告商笑了', ratio: { money: 2, power: 1, oil: 1 },
       special: { type: 'income', val: 3, text: '流量變現:每回合 +3 金錢' } },
-    { tier: 2, cost: 9,  tech: 1, def: 2, trade: 3, name: '直播帶貨女王',
-      desc: '三!二!一!上連結!', ratio: { money: 1, power: 1, oil: 2 },
+    { tier: 2, cost: 9,  tech: 6, def: 2, trade: 3, name: '直播帶貨女王',
+      desc: '三!二!一!上連結!', ratio: { money: 1, power: 1, oil: 2 }, prodRatio: { money: 3, power: 1, oil: 1 },
       special: { type: 'income', val: 4, text: '帶貨抽成:每回合 +4 金錢' } },
-    { tier: 3, cost: 15, tech: 1, def: 3, trade: 3, name: '網軍帶風向',
+    { tier: 3, cost: 15, tech: 12, def: 3, trade: 3, name: '網軍帶風向',
       desc: '熱搜第一不是買的,是「自然發酵」的', ratio: { money: 1, power: 2, oil: 1 },
       special: { type: 'fakeFree', val: 0, text: '帶風向:你的假新聞類卡片免費' } },
-    { tier: 4, cost: 24, tech: 2, def: 4, trade: 5, name: '元宇宙重生',
+    { tier: 4, cost: 24, tech: 35, def: 4, trade: 5, name: '元宇宙重生',
       desc: '燒掉百億改了公司名,VR 頭盔終於有人戴了', ratio: { money: 1, power: 1, oil: 1 },
       special: { type: 'aura', val: 3, text: '沉浸防壁:同區你的其他卡片防護 +3' } },
-    { tier: 5, cost: 38, tech: 2, def: 5, trade: 6, name: '全民吃瓜輿論場',
-      desc: '誰掌握熱搜,誰就掌握真相', ratio: { money: 3, power: 1, oil: 1 },
+    { tier: 5, cost: 38, tech: 70, def: 5, trade: 6, name: '全民吃瓜輿論場',
+      desc: '誰掌握熱搜,誰就掌握真相', ratio: { money: 3, power: 1, oil: 1 }, prodRatio: { money: 1, power: 2, oil: 1 },
       special: { type: 'opsDiscount', val: 3, text: '輿論在手:你的作戰卡費用 -3' } },
   ],
 };
@@ -198,19 +201,33 @@ export const CHARACTERS = [
 
 // ---- 環太平洋地圖 ----
 // country:城市所屬國家。米國玩家在牆國地盤(及反之)發展科技花費加倍,其他國家不在此限。
+// startLevel:城市初始等級;城市等級 ≥ 科技卡階級才能建造,用電力升級。
 export const REGIONS = [
-  { id: 'seattle',  name: '西雅圖',   x: 11,  z: -7, tag: '雲端走廊', country: 'US' },
-  { id: 'sv',       name: '矽谷',     x: 12.5, z: -2.5, tag: '科技聖地', country: 'US' },
-  { id: 'austin',   name: '奧斯汀',   x: 14,  z: 2.5, tag: '火箭基地', country: 'US' },
-  { id: 'tokyo',    name: '東京',     x: -3.5, z: -5.5, tag: '電子街', country: 'JP' },
-  { id: 'seoul',    name: '首爾',     x: -6.5, z: -7.5, tag: '財閥都心', country: 'KR' },
-  { id: 'beijing',  name: '北京',     x: -11, z: -6.5, tag: '中關村', country: 'CN' },
-  { id: 'shanghai', name: '上海',     x: -9,  z: -2.5, tag: '魔都', country: 'CN' },
-  { id: 'shenzhen', name: '深圳',     x: -10.5, z: 1.5, tag: '硬體矽谷', country: 'CN' },
-  { id: 'hsinchu',  name: '新竹',     x: -6,  z: -1, tag: '護國神山', chipBonus: true, country: 'TW' },
-  { id: 'hanoi',    name: '河內',     x: -10, z: 5.5, tag: '世界工廠2.0', country: null },
-  { id: 'singapore',name: '新加坡',   x: -7,  z: 8.5, tag: '中立樞紐', country: null },
-  { id: 'sydney',   name: '雪梨',     x: -1,  z: 10, tag: '南方節點', country: null },
+  // 米國(6 城)
+  { id: 'seattle',  name: '西雅圖',   x: 11,  z: -7, tag: '雲端走廊', country: 'US', startLevel: 2 },
+  { id: 'sv',       name: '矽谷',     x: 12.5, z: -2.5, tag: '科技聖地', country: 'US', startLevel: 3 },
+  { id: 'austin',   name: '奧斯汀',   x: 14,  z: 2.5, tag: '火箭基地', country: 'US', startLevel: 2 },
+  { id: 'nyc',      name: '紐約',     x: 17.5, z: -3.5, tag: '華爾街', country: 'US', startLevel: 2 },
+  { id: 'phoenix',  name: '鳳凰城',   x: 16,  z: 1.5, tag: '晶片新廠', country: 'US', startLevel: 1 },
+  { id: 'la',       name: '洛杉磯',   x: 11.5, z: 6, tag: '好萊塢', country: 'US', startLevel: 2 },
+  // 牆國(6 城)
+  { id: 'beijing',  name: '北京',     x: -11, z: -6.5, tag: '中關村', country: 'CN', startLevel: 3 },
+  { id: 'shanghai', name: '上海',     x: -9,  z: -2.5, tag: '魔都', country: 'CN', startLevel: 2 },
+  { id: 'shenzhen', name: '深圳',     x: -10.5, z: 1.5, tag: '硬體矽谷', country: 'CN', startLevel: 2 },
+  { id: 'hangzhou', name: '杭州',     x: -12.5, z: -4.5, tag: '電商之都', country: 'CN', startLevel: 2 },
+  { id: 'wuhan',    name: '武漢',     x: -13.5, z: -1, tag: '光谷', country: 'CN', startLevel: 1 },
+  { id: 'chengdu',  name: '成都',     x: -14.5, z: 2.5, tag: '遊戲山城', country: 'CN', startLevel: 1 },
+  // 東亞高科技城
+  { id: 'tokyo',    name: '東京',     x: -3.5, z: -5.5, tag: '電子街', country: 'JP', startLevel: 3 },
+  { id: 'seoul',    name: '首爾',     x: -6.5, z: -7.5, tag: '財閥都心', country: 'KR', startLevel: 3 },
+  { id: 'hsinchu',  name: '新竹',     x: -6,  z: -1, tag: '護國神山', chipBonus: true, country: 'TW', startLevel: 3 },
+  // 中立(6 城)
+  { id: 'hanoi',    name: '河內',     x: -10, z: 5.5, tag: '世界工廠2.0', country: null, startLevel: 1 },
+  { id: 'singapore',name: '新加坡',   x: -7,  z: 8.5, tag: '中立樞紐', country: null, startLevel: 2 },
+  { id: 'sydney',   name: '雪梨',     x: -1,  z: 10, tag: '南方節點', country: null, startLevel: 2 },
+  { id: 'bangkok',  name: '曼谷',     x: -12, z: 5.5, tag: '東協門戶', country: null, startLevel: 1 },
+  { id: 'bangalore',name: '班加羅爾', x: -12, z: 9, tag: '印度矽谷', country: null, startLevel: 1 },
+  { id: 'dubai',    name: '杜拜',     x: -16, z: 6, tag: '石油金庫', country: null, startLevel: 2 },
 ];
 
 // ---- 集體事件卡(每一輪開始前抽一張,效果持續該輪) ----
@@ -241,10 +258,30 @@ export const EVENT_CARDS = [
     desc: '虛擬地產乏人問津 — 本輪娛樂類科技卡花費 +50%' },
   { id: 'defcon',   name: '駭客大會',     icon: '💀', effect: { type: 'opsCost', mult: 1.5 },
     desc: '零日漏洞價格飆漲 — 本輪作戰卡花費 +50%' },
-  { id: 'aiboom',   name: 'AI 元年',      icon: '🤖', effect: { type: 'techDelta', val: 1 },
-    desc: '全民瘋 AI — 本輪部署的科技卡科技力 +1' },
+  { id: 'aiboom',   name: 'AI 元年',      icon: '🤖', effect: { type: 'techDelta', val: 5 },
+    desc: '全民瘋 AI — 本輪部署的科技卡科技力 +5 點' },
   { id: 'recovery', name: '景氣復甦',     icon: '📈', effect: { type: 'incomeBonus', val: 1 },
     desc: '市場信心回暖 — 本輪每種資源收入 +1' },
+  { id: 'shale',    name: '頁岩油革命',   icon: '⛽', effect: { type: 'resBoost', res: 'oil', val: 2 },
+    desc: '新井遍地開花油價跳水 — 本輪石油收入 +2' },
+  { id: 'greensub', name: '綠能補貼',     icon: '🌱', effect: { type: 'resBoost', res: 'power', val: 2 },
+    desc: '太陽能風電大放送 — 本輪電力收入 +2' },
+  { id: 'qe',       name: '量化寬鬆',     icon: '💵', effect: { type: 'resBoost', res: 'money', val: 2 },
+    desc: '央行印鈔機全速運轉 — 本輪金錢收入 +2' },
+  { id: 'tariff',   name: '關稅大戰',     icon: '🧱', effect: { type: 'allCost', mult: 1.25 },
+    desc: '互課關稅供應鏈漲價 — 本輪所有科技卡花費 +25%' },
+  { id: 'suez',     name: '運河大堵塞',   icon: '🚢', effect: { type: 'apDelta', val: -1 },
+    desc: '一艘貨輪卡住全球物流 — 本輪每人行動點 -1' },
+  { id: 'spacefad', name: '太空旅遊熱',   icon: '🛰️', effect: { type: 'catCost', cat: 'power', mult: 0.75 },
+    desc: '富豪排隊上太空 — 本輪動力類科技卡花費 -25%' },
+  { id: 'gptboom',  name: '聊天機器人爆紅', icon: '🤯', effect: { type: 'catCost', cat: 'ai', mult: 0.75 },
+    desc: '兩個月破億用戶 — 本輪 AI 類科技卡花費 -25%' },
+  { id: 'oss',      name: '開源運動',     icon: '🐧', effect: { type: 'catCost', cat: 'info', mult: 0.75 },
+    desc: '程式碼全公開白嫖萬歲 — 本輪資訊類科技卡花費 -25%' },
+  { id: 'blackfri', name: '黑色星期五',   icon: '🛒', effect: { type: 'catCost', cat: 'hardware', mult: 0.75 },
+    desc: '消費電子清倉大促 — 本輪硬體類科技卡花費 -25%' },
+  { id: 'concert',  name: '元宇宙演唱會', icon: '🎤', effect: { type: 'catCost', cat: 'fun', mult: 0.75 },
+    desc: '千萬人擠進虛擬會場 — 本輪娛樂類科技卡花費 -25%' },
 ];
 
 export const EDGES = [
@@ -255,6 +292,16 @@ export const EDGES = [
   ['shenzhen', 'hsinchu'], ['shenzhen', 'hanoi'],
   ['hsinchu', 'singapore'], ['hanoi', 'singapore'],
   ['singapore', 'sydney'], ['sydney', 'austin'],
+  // 米國擴增
+  ['seattle', 'nyc'], ['nyc', 'phoenix'], ['phoenix', 'austin'],
+  ['sv', 'la'], ['la', 'austin'], ['la', 'sydney'],
+  // 牆國擴增
+  ['beijing', 'hangzhou'], ['hangzhou', 'shanghai'],
+  ['hangzhou', 'wuhan'], ['wuhan', 'shenzhen'],
+  ['wuhan', 'chengdu'], ['chengdu', 'shenzhen'],
+  // 中立擴增
+  ['hanoi', 'bangkok'], ['bangkok', 'singapore'],
+  ['singapore', 'bangalore'], ['bangalore', 'dubai'], ['dubai', 'chengdu'],
 ];
 
 export const RULES = {
@@ -272,16 +319,32 @@ export const RULES = {
   moveOilCost: 1,          // 相鄰移動消耗石油
   planeOilCost: 5,         // 搭飛機直達任一城市:石油費用 5 倍
   rivalLandMult: 2,        // 米國在牆國地盤(及反之)發展科技花費加倍
-  discardGain: 5,          // 棄 1 張卡換 5 單一資源;科技+作戰各棄 1 張換三種資源各 5
+  // 放棄權利:放棄科技→電力 / 放棄作戰→金錢 / 放棄行動(移動)→石油(每回合各一次)
+  // 實得 = forfeitBase + 本國科技力 ÷ techIncomeDivisor(科技力越高收益越高)
+  forfeitBase: 3,
+  techIncomeDivisor: 100,  // 每 100 點本國科技力:每種資源收入 +1、放棄權利收益 +1
+  exchangeRate: 2,         // 每回合一次:每 2 金錢換 1 石油或電力(不可反向)
+  exchangeMax: 5,
+  tradeMaxOffers: 3,       // 交易環節:每人最多提出 3 次交易
+  tradeMaxDeals: 1,        // 交易環節:每人只能成交 1 次(包含接受成交)
+  cityMaxLevel: 5,
+  cityUpgradePower: 3,     // 升級城市電力費用 = 目前等級 × 3(韓國減半)
+  opsRange: 2,             // 灰色作戰卡只能對兩格內的城市使用
+  deckScale: { 2: 0.5, 3: 0.5, 4: 0.75, 5: 0.75, 6: 1, 7: 1, 8: 1 }, // 牌庫數量依人數調整
   specialtyDiscount: 0.2,  // 擅長領域研發費用 -20%
-  specialtyTechBonus: 1,   // 擅長領域部署科技力 +1
-  techStart: { US: 10, CN: 5 }, // 開局差距 5 年
-  usWinLead: 10,
+  specialtyTechBonus: 5,   // 擅長領域部署科技力 +5 點
+  pointsPerYear: 20,       // 科技力領先 1 年 = 領先 20 點
+  // 各國初始科技力(點):米國 200、牆國 100、其他國家 150
+  techStart: { US: 200, CN: 100, TW: 150, JP: 150, KR: 150 },
+  cityBuildCooldown: 4,    // 已建造科技卡的城市要過 1 年(4 季)才可重新建造
+  usWinLead: 10,           // 以下勝利門檻單位:年(×20 換算成點)
   cnWinLead: 0,
   twRevealPenalty: 5,
   twJoinCost: { money: 14, power: 13, oil: 13 },
-  chipLevy: 2,             // 晶片稅(金錢)
-  cnOpsDiscount: 3,
+  chipLevy: 2,             // 台灣優勢:晶片稅(金錢)
+  cnOpsHalf: 0.5,          // 牆國優勢:灰色作戰卡費用是他國的一半
+  jpMoveHalf: 0.5,         // 日本優勢:油電混合 — 移動石油費用減半(捨去)
+  krUpgradeHalf: 0.5,      // 韓國優勢:基建狂魔 — 升級城市電力費用減半(進位)
   jpWinLead: 5,
   minPlayers: 3,
   maxPlayers: 8,

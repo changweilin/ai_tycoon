@@ -11,6 +11,7 @@ function canPay(p, c) { return RES_KEYS.every(k => p.res[k] >= (c[k] || 0)); }
  */
 export function botStep(g) {
   if (g.over) return false;
+  if (g.phase === 'trade') return false; // AI 在交易環節自動準備完畢,等人類
   const p = g.cur();
 
   // 台灣 AI:儲備夠多或時間不多就表態;資源夠就加入終結遊戲
@@ -28,14 +29,33 @@ export function botStep(g) {
 
   if (p.ap <= 0) { g.endTurn(); return false; }
 
+  // 0. 金錢換資源(每回合一次):缺電/缺油且金錢充裕就兌換
+  if (!p.turnFlags.exchanged && p.res.money >= 12) {
+    const scarcer = p.res.power <= p.res.oil ? 'power' : 'oil';
+    if (p.res[scarcer] <= 3) {
+      const r = g.doExchange(scarcer, 3);
+      if (r.ok) return true;
+    }
+  }
+
+  // 0.5 手上有因城市等級不足而蓋不了的卡 → 升級城市
+  const lvlBlocked = p.hand.some(c => c.kind === 'tech'
+    && c.tier === g.regions[p.pos].level + 1
+    && canPay(p, g.developCostFor(p, c)));
+  if (lvlBlocked && p.ap >= 2 && g.regions[p.pos].level < RULES.cityMaxLevel
+    && p.res.power >= g.upgradeCostAt(p, p.pos) + 4) {
+    const r = g.doUpgradeCity();
+    if (r.ok) return true;
+  }
+
   // 1. 打出手上最划算且付得起的科技卡
   let bestIdx = -1, bestScore = -1;
   p.hand.forEach((c, i) => {
-    if (c.kind !== 'tech') return;
+    if (p.turnFlags.forfeitTech || c.kind !== 'tech') return;
     if (!g.canPlayTech(p, c).ok) return;
     const cost = g.developCostFor(p, c);
     if (!canPay(p, cost)) return;
-    const score = (c.tech * 2 + c.trade * 1.5 + c.def * 0.8 + (c.special ? 3 : 0)
+    const score = (c.tech * 0.5 + c.trade * 1.5 + c.def * 0.8 + (c.special ? 3 : 0)
       + (c.cat === g.specialtyOf(p) ? 2 : 0)) / Math.max(1, totalRes(cost));
     if (score > bestScore) { bestScore = score; bestIdx = i; }
   });
@@ -45,7 +65,7 @@ export function botStep(g) {
   }
 
   // 2. 有好目標就打作戰卡(優先打掉/竊取高科技力的卡)
-  const opsOrder = ['spy2', 'steal2', 'spy1', 'steal1'];
+  const opsOrder = p.turnFlags.forfeitOps ? [] : ['spy2', 'steal2', 'spy1', 'steal1'];
   for (const type of opsOrder) {
     const idx = p.hand.findIndex(c => c.kind === 'ops' && c.type === type);
     if (idx < 0) continue;
@@ -54,13 +74,14 @@ export function botStep(g) {
     const targets = g.cardTargets(type);
     if (!targets.length) continue;
     const best = targets.reduce((a, b) => (b.tech > a.tech ? b : a));
-    if (best.tech >= 2) {
+    if (best.tech >= 10) {
       const r = g.doPlayCard(idx, best);
       return r.ok ? !g.over : true;
     }
   }
   // 假新聞:手牌快滿時丟出去加重敵人發展成本
   for (const type of ['fake1', 'fake2']) {
+    if (p.turnFlags.forfeitOps) break;
     const idx = p.hand.findIndex(c => c.kind === 'ops' && c.type === type);
     if (idx < 0 || p.hand.length < RULES.handLimit - 1) continue;
     if (!canPay(p, g.opsCostFor(p, type))) continue;
@@ -68,15 +89,23 @@ export function botStep(g) {
     if (targets.length) { g.doPlayCard(idx, rand(targets)); return !g.over; }
   }
 
-  // 3. 資源乾涸:棄卡換資源(科技+作戰各一張優先,換三種)
-  const scarce = RES_KEYS.filter(k => p.res[k] < 3);
-  if (scarce.length && p.hand.length >= 2) {
-    const techIdx = p.hand.findIndex(c => c.kind === 'tech');
-    const opsIdx = p.hand.findIndex(c => c.kind === 'ops');
-    let r;
-    if (techIdx >= 0 && opsIdx >= 0 && scarce.length >= 2) r = g.doDiscard([techIdx, opsIdx]);
-    else r = g.doDiscard([p.hand.length - 1], scarce[0]);
-    if (r.ok) return true;
+  // 3. 放棄用不到的權利換資源/卡片
+  const f = p.turnFlags;
+  const anyTechPlayable = p.hand.some(c => c.kind === 'tech'
+    && g.canPlayTech(p, c).ok && canPay(p, g.developCostFor(p, c)));
+  const anyTechNearby = anyTechPlayable || p.hand.some(c => c.kind === 'tech'
+    && canPay(p, g.developCostFor(p, c))
+    && g.adj[p.pos].some(rid => g.canPlayTech(p, c, rid).ok));
+  if (!f.playedTech && !f.forfeitTech && !anyTechNearby) {
+    if (g.doForfeit('tech').ok) return true;
+  }
+  const anyOpsUseful = p.hand.some(c => c.kind === 'ops' && g.cardTargets(c.type).length
+    && canPay(p, g.opsCostFor(p, c.type)));
+  if (!f.playedOps && !f.forfeitOps && !anyOpsUseful) {
+    if (g.doForfeit('ops').ok) return true;
+  }
+  if (!f.moved && !f.forfeitMove && anyTechPlayable) {
+    if (g.doForfeit('move').ok) return true; // 不需要移動就換石油
   }
 
   // 4. 手牌少且付得起就抽卡
