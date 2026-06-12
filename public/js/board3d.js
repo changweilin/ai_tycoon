@@ -623,7 +623,7 @@ export class Board3D {
           this.nodeGroup.add(box);
         }
       });
-      this.blockedRings[rid].visible = r.blockedUntilRound > state.round;
+      this.blockedRings[rid].visible = r.fakeUntilRound > state.round;
     }
 
     // 棋子

@@ -145,6 +145,7 @@ body {
 .card-name { font-weight: bold; font-size: .9rem; }
 .card-cost { color: #ffd02e; font-size: .8rem; }
 .card-desc { color: #9ab; font-size: .68rem; margin-top: 4px; line-height: 1.4; }
+.card-disabled { opacity: .55; }
 .hand-empty { color: #567; padding: 12px; }
 
 #log {

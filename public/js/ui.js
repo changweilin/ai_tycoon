@@ -1,5 +1,5 @@
 // ============ 前端 UI 與流程(連線版) ============
-import { FACTIONS, CHARACTERS, TECH_CATEGORIES, RULES, REGIONS } from './data.js';
+import { FACTIONS, CHARACTERS, TECH_CATEGORIES, RULES, REGIONS, RES_KEYS, RESOURCES } from './data.js';
 import { Board3D } from './board3d.js';
 import { Net } from './net.js';
 
@@ -10,8 +10,13 @@ let board = null;
 let last = null;        // 最近一次 sync payload
 let mode = 'idle';      // idle | move
 let myCharId = null;
-let shownOfferSig = ''; // 避免重複彈出發展選卡
 let resultShown = false;
+
+function fmtRes(c) {
+  const parts = RES_KEYS.filter(k => c && c[k] > 0).map(k => `${RESOURCES[k].icon}${c[k]}`);
+  return parts.length ? parts.join(' ') : '免費';
+}
+function totalRes(c) { return RES_KEYS.reduce((s, k) => s + (c?.[k] || 0), 0); }
 
 // ---------------- 工具 ----------------
 function toast(msg) {
@@ -101,7 +106,6 @@ function onSync(m) {
     $('#lobby').style.display = 'block';
     $('#resultOverlay').style.display = 'none';
     resultShown = false;
-    shownOfferSig = '';
     renderLobby(m);
   } else {
     $('#connect').style.display = 'none';
@@ -284,7 +288,6 @@ function refreshGame(m) {
     renderMyPanel(m);
     renderHand(m);
     renderActions(m);
-    maybeShowOffer(m);
   } else {
     $('#curName').textContent = '👁️ 觀戰模式';
     $('#curStats').textContent = '';
@@ -307,7 +310,9 @@ function renderTechBar(s) {
   $('#techLead').innerHTML = lead > 0 ? `米國領先 <b>${lead}</b> 年`
     : lead < 0 ? `牆國反超 <b>${-lead}</b> 年` : '雙方持平!';
   $('#techGoal').textContent =
-    `米國勝利:領先 ${s.usThreshold} 年|牆國勝利:差距 ≤ ${s.cnThreshold} 年|第 ${s.round}/${s.maxRounds} 輪`;
+    `米國勝利:領先 ${s.usThreshold} 年|牆國勝利:差距 ≤ ${s.cnThreshold} 年|${s.roundLabel}(共 3 年)`;
+  $('#eventLine').textContent = s.event
+    ? `🌏 本季事件【${s.event.icon} ${s.event.name}】${s.event.desc}` : '';
   const total = 60;
   $('#barUS').style.width = Math.min(100, s.tech.US / total * 100) + '%';
   $('#barCN').style.width = Math.min(100, s.tech.CN / total * 100) + '%';
@@ -324,7 +329,11 @@ function renderMyPanel(m) {
   const me = myPlayer();
   const priv = m.priv;
   $('#curName').innerHTML = `<span style="color:${FACTIONS[me.faction].css}">${me.name}</span> 【${FACTIONS[me.faction].name}】`;
-  let stats = `💰 資本 <b>${me.capital}</b>  ⚡ 行動點 <b>${me.ap}</b>  📍 ${REGIONS.find(r => r.id === me.pos).name}  📈 收入 ${me.income}/回合`;
+  let stats = `💰 <b>${me.res.money}</b>  ⚡ <b>${me.res.power}</b>  🛢️ <b>${me.res.oil}</b>  🎯 行動點 <b>${me.ap}</b>  📍 ${REGIONS.find(r => r.id === me.pos).name}<br>📈 收入 ${fmtRes(me.income)}/回合`;
+  if (priv?.intel?.length) {
+    stats += '<br>' + priv.intel.map(it =>
+      `🧬 ${TECH_CATEGORIES[it.cat].name}情報:下次發展 -${fmtRes(it.gain)}`).join('  ');
+  }
   if (priv?.twSupport) {
     stats += `<br>🤫 秘密支持:<b style="color:${FACTIONS[priv.twSupport].css}">${FACTIONS[priv.twSupport].name}</b>  🏔️ 神山儲備:<b>${priv.chipReserve}</b> 年`;
   }
@@ -339,7 +348,7 @@ function renderPlayersList(s) {
     return `<div class="pl-row ${active ? 'active' : ''}">
       <span class="pl-dot" style="background:${FACTIONS[q.faction].css}"></span>
       <span class="pl-name">${q.isAI ? '🤖' : ''}${q.name}</span>
-      <span class="pl-info">💰${q.capital} 🃏${q.handCount}</span>
+      <span class="pl-info">💰${q.res.money} ⚡${q.res.power} 🛢️${q.res.oil} 🃏${q.handCount}</span>
     </div>`;
   }).join('');
 }
@@ -347,13 +356,23 @@ function renderPlayersList(s) {
 function renderHand(m) {
   const priv = m.priv;
   if (!priv) { $('#hand').innerHTML = ''; return; }
-  $('#hand').innerHTML = priv.hand.map((c, i) =>
-    `<div class="card" data-idx="${i}">
+  $('#hand').innerHTML = priv.hand.map((c, i) => {
+    if (c.kind === 'tech') {
+      const cat = TECH_CATEGORIES[c.cat];
+      return `<div class="card ${c.playMsg ? 'card-disabled' : ''}" data-idx="${i}" style="--cc:${cat.css}">
+        <div class="card-icon">${cat.icon}</div>
+        <div class="card-name">${c.name}|${c.tier}階</div>
+        <div class="card-cost">${fmtRes(c.myCost)}</div>
+        <div class="card-desc">🔬${c.tech} 🛡️${c.def} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</div>
+      </div>`;
+    }
+    return `<div class="card" data-idx="${i}">
       <div class="card-icon">${c.icon}</div>
       <div class="card-name">${c.name}</div>
-      <div class="card-cost">💰${c.myCost}${c.atk ? ` ⚔️${c.atk}` : ''}</div>
+      <div class="card-cost">${fmtRes(c.myCost)}${c.atk ? ` ⚔️${c.atk}` : ''}</div>
       <div class="card-desc">${c.desc}</div>
-    </div>`).join('') || '<div class="hand-empty">沒有手牌</div>';
+    </div>`;
+  }).join('') || '<div class="hand-empty">沒有手牌</div>';
 }
 
 function renderActions(m) {
@@ -362,71 +381,26 @@ function renderActions(m) {
   const myTurn = isMyTurn();
   const s = m.state;
 
-  for (const id of ['btnMove', 'btnBuild', 'btnDraw', 'btnEnd', 'btnReveal', 'btnJoin'])
+  for (const id of ['btnMove', 'btnDraw', 'btnEnd', 'btnReveal', 'btnJoin'])
     $('#' + id).disabled = !myTurn;
 
   if (myTurn && priv) {
-    const chk = priv.developCheck;
-    $('#btnBuild').textContent = chk.ok ? '🏗️ 研發科技卡(1AP 翻 2 選 1)' : `🏗️ ${chk.msg}`;
-    $('#btnBuild').disabled = !chk.ok || me.ap < 1;
-    $('#btnDraw').textContent = `🃏 抽作戰卡(💰${priv.drawCost})`;
-    $('#btnDraw').disabled = me.ap < 1 || me.capital < priv.drawCost;
+    $('#btnDraw').textContent = `🃏 抽卡(${fmtRes(priv.drawCost)})`;
+    $('#btnDraw').disabled = me.ap < 1 || RES_KEYS.some(k => me.res[k] < (priv.drawCost[k] || 0));
   } else {
-    $('#btnBuild').textContent = '🏗️ 研發科技卡';
-    $('#btnDraw').textContent = '🃏 抽作戰卡';
+    $('#btnDraw').textContent = '🃏 抽卡';
   }
   $('#btnMove').classList.toggle('toggled', mode === 'move');
 
   const isTW = me.faction === 'TW';
   $('#btnReveal').style.display = isTW && !s.twRevealed ? '' : 'none';
   $('#btnJoin').style.display = isTW && s.twRevealed && !s.twJoined ? '' : 'none';
-  if (isTW) $('#btnJoin').textContent = `🏆 加入陣營(💰${RULES.twJoinCost})`;
+  if (isTW) $('#btnJoin').textContent = `🏆 加入陣營(${fmtRes(RULES.twJoinCost)})`;
 }
 
 function renderLog(s) {
   $('#log').innerHTML = s.log.map(l => `<div>${l}</div>`).join('');
   $('#log').scrollTop = $('#log').scrollHeight;
-}
-
-// 研發:先選類別(擅長領域有折扣與科技加成)
-function chooseCategory() {
-  if (!isMyTurn() || !last?.priv) return;
-  const priv = last.priv;
-  const opts = Object.values(TECH_CATEGORIES).map(cat => {
-    const isSpec = cat.id === priv.specialty;
-    const left = priv.deckCounts?.[cat.id] ?? '?';
-    return {
-      label: `${cat.icon} ${cat.name}(${cat.trait})${isSpec ? ' ⭐擅長:費用-20%、科技+1' : ''}|剩 ${left} 張`,
-      value: cat.id,
-    };
-  }).concat([{ label: '取消', value: null }]);
-  openModal('🏗️ 研發 — 選擇科技類別(1 AP 翻 2 選 1)',
-    '<p class="modal-desc">可研發任何類別;你的擅長領域(⭐)費用 -20% 且部署科技力 +1。</p>',
-    opts, val => { if (val) net.action('developStart', { catId: val }); });
-}
-
-// 發展選卡 modal
-function maybeShowOffer(m) {
-  const offer = m.priv?.offer;
-  if (!offer) { shownOfferSig = ''; return; }
-  const sig = offer.map(c => c.uid).join(',');
-  if (sig === shownOfferSig) return;
-  shownOfferSig = sig;
-  const body = `<div class="offer-row">` + offer.map((c, i) => {
-    const cat = TECH_CATEGORIES[c.cat];
-    return `<div class="tech-card" style="--cc:${cat.css}">
-      <div class="tc-cat">${cat.icon} ${cat.name}|${c.tier}階</div>
-      <div class="tc-name">${c.name}</div>
-      <div class="tc-stats">🔬科技 ${c.tech}|🛡️防護 ${c.def}|💱交易 ${c.trade}</div>
-      <div class="tc-desc">${c.desc || ''}</div>
-      ${c.special ? `<div class="tc-special">✨ ${c.special.text}</div>` : ''}
-      <div class="tc-cost">費用 💰${c.myCost}</div>
-    </div>`;
-  }).join('') + `</div>`;
-  openModal('🏗️ 研發 — 選擇一張部署到目前區域', body,
-    offer.map((c, i) => ({ label: `部署【${c.name}】💰${c.myCost}`, value: i }))
-      .concat([{ label: '放棄(AP 不退)', value: -1 }]),
-    val => net.action('developPick', { idx: val }));
 }
 
 // ---------------- 行動 ----------------
@@ -443,8 +417,8 @@ function onRegionClick(rid) {
 function setMode(m2) {
   mode = m2;
   if (mode === 'move' && last?.priv?.moveTargets) {
-    board.highlight(last.priv.moveTargets);
-    toast('點擊發光的相鄰區域移動');
+    board.highlight(last.priv.moveTargets.map(t => t.regionId));
+    toast('點擊發光城市移動(相鄰 🛢️1;✈️ 搭飛機直達任一城市 🛢️5)');
   } else {
     board.highlight([]);
   }
@@ -462,10 +436,12 @@ function showRegionInfo(rid) {
       ${cat.icon}【${c.name}】${c.tier}階 — ${o.name}<br>
       <span class="rc-stats">🔬${c.tech} 🛡️${c.effDef} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</span></div>`;
   }).join('') || '<div>(尚無科技卡)</div>';
-  const blocked = r.blockedUntilRound > s.round
-    ? `<div style="color:#ff6">📰 假新聞封鎖中(至第 ${r.blockedUntilRound} 輪)</div>` : '';
-  openModal(`${rDef.name}|${rDef.tag}${rDef.chipBonus ? '(晶片重鎮:科技力 +1)' : ''}`,
-    lines + blocked, [{ label: '關閉', value: null }]);
+  const blocked = r.fakeUntilRound > s.round
+    ? `<div style="color:#ff6">📰 假新聞影響中:此城發展科技花費 ×${r.fakeMult}</div>` : '';
+  const country = rDef.country ? `|${{ US: '🇺🇸米國', CN: '🇨🇳牆國', JP: '🇯🇵日本', KR: '🇰🇷韓國', TW: '🇹🇼台灣' }[rDef.country]}地盤` : '|中立';
+  openModal(`${rDef.name}|${rDef.tag}${country}${rDef.chipBonus ? '(晶片重鎮:科技力 +1)' : ''}`,
+    `<p class="modal-desc">米國在牆國地盤(及反之)發展科技花費 ×2</p>` + lines + blocked,
+    [{ label: '關閉', value: null }]);
 }
 
 function onCardClick(idx) {
@@ -473,8 +449,38 @@ function onCardClick(idx) {
   const priv = last.priv;
   const c = priv.hand[idx];
   if (!c) return;
-  const targets = priv.targets?.[c.id] || [];
-  if (targets.length === 0) { toast('目前沒有合法目標(防護力太高或無敵方科技卡)'); return; }
+
+  const opts = [];
+  let body = `<p class="modal-desc">${c.desc || ''}</p>`;
+  if (c.kind === 'tech') {
+    const cat = TECH_CATEGORIES[c.cat];
+    body = `<p class="modal-desc">${cat.icon} ${cat.name}|${c.tier}階|🔬${c.tech} 🛡️${c.def} 💱${c.trade}
+      ${c.special ? `<br>✨ ${c.special.text}` : ''}<br>${c.desc || ''}</p>`;
+    if (c.playMsg) body += `<p class="modal-desc" style="color:#ff6">⚠️ ${c.playMsg}</p>`;
+    else opts.push({ label: `🏗️ 部署在目前城市(${fmtRes(c.myCost)})`, value: { a: 'play' } });
+  } else {
+    const targets = priv.targets?.[c.id] || [];
+    if (targets.length) opts.push({ label: `${c.icon} 使用(${fmtRes(c.myCost)})`, value: { a: 'target' } });
+    else body += `<p class="modal-desc" style="color:#ff6">⚠️ 目前沒有合法目標(防護太高/已被鎖定過/無敵方科技卡)</p>`;
+  }
+  for (const k of RES_KEYS)
+    opts.push({ label: `♻️ 棄卡換 ${RESOURCES[k].icon}${RESOURCES[k].name} +${RULES.discardGain}`, value: { a: 'disc', res: k } });
+  const otherKind = c.kind === 'tech' ? 'ops' : 'tech';
+  if (priv.hand.some((h, j) => j !== idx && h.kind === otherKind))
+    opts.push({ label: `♻️ 搭配一張${otherKind === 'ops' ? '作戰' : '科技'}卡一起棄掉,三種資源各 +${RULES.discardGain}`, value: { a: 'combo' } });
+  opts.push({ label: '取消', value: null });
+
+  openModal(`${c.kind === 'tech' ? TECH_CATEGORIES[c.cat].icon : c.icon} ${c.name}`, body, opts, val => {
+    if (!val) return;
+    if (val.a === 'play') net.action('playTech', { handIdx: idx });
+    else if (val.a === 'disc') net.action('discard', { idxs: [idx], res: val.res });
+    else if (val.a === 'target') chooseOpsTarget(c, idx);
+    else if (val.a === 'combo') chooseComboPartner(c, idx, otherKind);
+  });
+}
+
+function chooseOpsTarget(c, idx) {
+  const targets = last.priv.targets?.[c.id] || [];
   openModal(`${c.icon} ${c.name} — 選擇目標`, `<p class="modal-desc">${c.desc}</p>`,
     targets.map(t => ({ label: t.label, value: t }))
       .concat([{ label: '取消', value: '__cancel' }]),
@@ -484,13 +490,25 @@ function onCardClick(idx) {
     });
 }
 
+function chooseComboPartner(c, idx, otherKind) {
+  const opts = last.priv.hand
+    .map((h, j) => ({ h, j }))
+    .filter(({ h, j }) => j !== idx && h.kind === otherKind)
+    .map(({ h, j }) => ({ label: `${h.kind === 'tech' ? TECH_CATEGORIES[h.cat].icon : h.icon} ${h.name}`, value: j }))
+    .concat([{ label: '取消', value: null }]);
+  openModal('♻️ 選擇一起棄掉的卡(換三種資源各 5)', '', opts, val => {
+    if (val === null) return;
+    net.action('discard', { idxs: [idx, val] });
+  });
+}
+
 // ---------------- 結算 ----------------
 function showResult(s) {
   const r = s.result;
   const champion = s.players[r.champion];
   const winnerNames = r.winners.map(id => {
     const q = s.players[id];
-    return `<span style="color:${FACTIONS[q.faction].css}">${q.name}</span>(💰${q.capital})`;
+    return `<span style="color:${FACTIONS[q.faction].css}">${q.name}</span>(${fmtRes(q.res)})`;
   }).join('、');
   $('#resultBody').innerHTML = `
     <p>${r.reason}</p>
@@ -503,7 +521,6 @@ function showResult(s) {
 // ---------------- 事件繫結 ----------------
 function setupGameEvents() {
   $('#btnMove').addEventListener('click', () => setMode(mode === 'move' ? 'idle' : 'move'));
-  $('#btnBuild').addEventListener('click', chooseCategory);
   $('#btnDraw').addEventListener('click', () => net.action('draw'));
   $('#btnEnd').addEventListener('click', () => { setMode('idle'); net.action('endTurn'); });
   $('#btnReveal').addEventListener('click', () => {
@@ -514,7 +531,7 @@ function setupGameEvents() {
   });
   $('#btnJoin').addEventListener('click', () => {
     openModal('🏆 正式加入陣營',
-      `<p>花費 ${RULES.twJoinCost} 資本正式加入你支持的陣營 — <b>該陣營立即獲勝</b>!確定嗎?</p>`,
+      `<p>花費 ${fmtRes(RULES.twJoinCost)} 正式加入你支持的陣營 — <b>該陣營立即獲勝</b>!確定嗎?</p>`,
       [{ label: '神山歸位!', value: true }, { label: '再等等', value: null }],
       val => { if (val) net.action('joinSide'); });
   });

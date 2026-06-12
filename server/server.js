@@ -230,7 +230,10 @@ wss.on('connection', ws => {
         config: data.config || { gameName: data.name, expectedCount: 4 },
         aiChars: new Set(data.aiChars || []),
       };
-      if (data.game) room.game = Game.fromSave(data.game);
+      if (data.game) {
+        try { room.game = Game.fromSave(data.game); }
+        catch (e) { rooms.delete(pin); room = null; err('載入失敗:' + e.message); return; }
+      }
       client = { ws, name: m.name || `玩家${clientId}`, mode: 'player', charId: null };
       room.clients.set(clientId, client);
       rooms.set(pin, room);
@@ -404,8 +407,8 @@ wss.on('connection', ws => {
       let res = { ok: false, msg: '未知行動' };
       switch (m.kind) {
         case 'move': res = g.doMove(m.regionId); break;
-        case 'developStart': res = g.doDevelopStart(m.catId); break;
-        case 'developPick': res = g.doDevelopPick(m.idx); break;
+        case 'playTech': res = g.doPlayTech(m.handIdx); break;
+        case 'discard': res = g.doDiscard(m.idxs, m.res); break;
         case 'draw': res = g.doDraw(); break;
         case 'playCard': res = g.doPlayCard(m.handIdx, m.target); break;
         case 'endTurn': g.endTurn(); res = { ok: true }; break;

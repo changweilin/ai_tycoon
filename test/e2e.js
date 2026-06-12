@@ -55,17 +55,21 @@ if (spec.last.priv !== null) throw new Error('觀戰者不該有私有資訊');
 const turnP = host.last.state.players[host.last.state.turnIdx];
 console.log('輪到:', turnP.name);
 
-// 輪到的人做研發
+// 輪到的人棄一張卡換資源(混合牌庫:開局手牌 4 張)
 const clients = { '皮衣刀客·黃仁薰': host, '菊廠廠長·任正飛': p2, '護國神山·張中謀': p3,
   '房主': host, '玩家二': p2, '玩家三': p3 };
 const actor = clients[turnP.name];
-actor.send({ t: 'action', kind: 'developStart' });
+if (actor.last.priv.hand.length !== 4) throw new Error('開局手牌應為 4 張');
+const beforeMoney = turnP.res.money;
+actor.send({ t: 'action', kind: 'discard', idxs: [0], res: 'money' });
 await actor.wait();
-if (!actor.last.priv.offer) throw new Error('應收到發展選卡: ' + actor.errors.join(','));
-console.log('翻出科技卡:', actor.last.priv.offer.map(c => `${c.name}${c.tier}階`).join(' / '));
-actor.send({ t: 'action', kind: 'developPick', idx: 0 });
-await actor.wait();
-console.log('部署後紀錄:', actor.last.state.log.at(-1));
+const afterP = actor.last.state.players.find(p => p.id === turnP.id);
+if (afterP.res.money !== beforeMoney + 5) throw new Error('棄卡換資源未生效');
+if (afterP.handCount !== 3) throw new Error('棄卡後手牌數錯誤');
+console.log('棄卡換資源後紀錄:', actor.last.state.log.at(-1));
+// 事件卡應已抽出
+if (!actor.last.state.event) throw new Error('每輪開始應有集體事件');
+console.log('本季事件:', actor.last.state.event.name);
 
 // 非當前玩家行動應被拒
 const other = actor === host ? p2 : host;
