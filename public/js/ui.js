@@ -149,20 +149,29 @@ function renderLobby(m) {
   $('#gameName').disabled = !m.isHost;
   $('#expectedCount').disabled = !m.isHost;
 
-  // 角色池:預計人數 7+ 才開放日韓
-  const allowJPKR = (lobby.config?.expectedCount || 4) >= RULES.jpkrMinPlayers;
+  // 角色池:遊戲人數 6+ 同時開放日韓
+  const expected = lobby.config?.expectedCount || 4;
+  const allowJPKR = expected >= RULES.jpkrMinPlayers;
+  // 3 人以上:只剩我未選角且台灣沒人選 → 只能選台灣
+  const playerClients = lobby.clients.filter(c => c.mode === 'player');
+  const unselected = playerClients.filter(c => !c.charId);
+  const mustTW = expected >= 3 && !lobby.takenChars.includes('tsmc') &&
+    playerClients.length >= expected &&
+    unselected.length === 1 && unselected[0].id === m.youId;
   $('#charPool').innerHTML = CHARACTERS.map(c => {
     const lockedJPKR = (c.faction === 'JP' || c.faction === 'KR') && !allowJPKR;
+    const lockedTW = mustTW && c.id !== 'tsmc';
     const taken = lobby.takenChars.includes(c.id);
     const isMine = myCharId === c.id;
-    return `<div class="char-card ${taken && !isMine ? 'taken' : ''} ${lockedJPKR ? 'locked' : ''} ${isMine ? 'mine' : ''}"
+    return `<div class="char-card ${taken && !isMine ? 'taken' : ''} ${lockedJPKR || lockedTW ? 'locked' : ''} ${isMine ? 'mine' : ''}"
       data-char="${c.id}" style="--fc:${FACTIONS[c.faction].css}">
       <div class="char-faction">${FACTIONS[c.faction].name}</div>
       <div class="char-name">${c.name}</div>
       <div class="char-real">${c.real}</div>
       <div class="char-ind">🏭 ${c.industry}|${c.industryDesc}(${TECH_CATEGORIES[catOf(c)].name})</div>
       <div class="char-perk">✨ ${c.perkText}</div>
-      ${lockedJPKR ? `<div class="lock-tip">預計人數 ${RULES.jpkrMinPlayers}+ 開放</div>` : ''}
+      ${lockedJPKR ? `<div class="lock-tip">遊戲人數 ${RULES.jpkrMinPlayers}+ 開放</div>` : ''}
+      ${lockedTW && !lockedJPKR ? '<div class="lock-tip">最後一位須選台灣</div>' : ''}
       ${taken && !isMine ? '<div class="lock-tip">已被鎖定(可輸入 PIN 認領)</div>' : ''}
       ${isMine ? '<div class="lock-tip mine-tip">✔ 你的角色</div>' : ''}
     </div>`;
@@ -172,14 +181,20 @@ function renderLobby(m) {
   $('#startBtn').style.display = m.isHost ? '' : 'none';
   updateModeVisibility();
   const seated = lobby.clients.filter(c => c.mode === 'player' && c.charId);
-  $('#lobbyStatus').textContent =
-    `${seated.length} 位玩家已選角(多人 2~8 人;2 人=米牆對決免台灣,3 人以上需米/牆/台各一)`;
+  $('#lobbyStatus').textContent = mustTW
+    ? '🏔️ 你是最後一位未選角的玩家,必須選擇台灣(護國神山)!'
+    : `${seated.length} 位玩家已選角(2 人=米牆對決免台灣,3 人以上需米/牆/台各一)`;
 }
 
 function updateModeVisibility() {
   const mode = $('#gameMode').value;
-  $('#aiCountWrap').style.display = mode === 'ai' ? '' : 'none';
-  $('#godCountWrap').style.display = mode === 'god' ? '' : 'none';
+  const n = parseInt($('#expectedCount').value, 10);
+  $('#modeHint').textContent = {
+    multi: n === 2 ? '⚔️ 2 人=米牆對決(無台灣規則)' : `共 ${n} 位玩家連線對戰`,
+    ai: `你 1 人 + ${n - 1} 個 AI(AI 數量 = 遊戲人數 - 1)`,
+    aiwar: `${n} 個 AI 互鬥,所有人觀戰看戲`,
+    god: `你一人輪流操控全部 ${n} 個角色`,
+  }[mode] || '';
 }
 
 function catOf(c) {
@@ -233,11 +248,8 @@ function setupLobbyEvents() {
     net.send({ t: 'setRoomConfig', gameName: $('#gameName').value }));
   $('#expectedCount').addEventListener('change', () =>
     net.send({ t: 'setRoomConfig', expectedCount: $('#expectedCount').value }));
-  $('#startBtn').addEventListener('click', () => {
-    const mode = $('#gameMode').value;
-    const count = mode === 'ai' ? $('#aiCount').value : $('#godCount').value;
-    net.send({ t: 'startGame', mode, count });
-  });
+  $('#startBtn').addEventListener('click', () =>
+    net.send({ t: 'startGame', mode: $('#gameMode').value }));
 }
 
 // ---------------- 存檔/載入 ----------------

@@ -193,6 +193,7 @@ body {
   background: #060a1e; border: 1px solid var(--border); color: #fff;
   padding: 6px 8px; border-radius: 6px; margin-left: 6px; font-family: inherit;
 }
+.mode-hint { font-size: .78rem; color: #7a9aba; line-height: 1.4; min-height: 1em; }
 .tc-cost { margin-top: 8px; color: var(--cyan); }
 
 .result-box { text-align: center; }

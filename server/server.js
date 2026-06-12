@@ -150,8 +150,10 @@ function buildLineup(existing, total) {
   if (!has('US')) chosen.push(pool('US')[0]);
   if (!has('CN')) chosen.push(pool('CN')[0]);
   if (total >= 3 && !has('TW')) chosen.push('tsmc');
-  if (total >= 7 && !has('JP')) chosen.push('toyota');
-  if (total >= 8 && !has('KR')) chosen.push('lee');
+  if (total >= RULES.jpkrMinPlayers) { // 6 人以上同時開放日韓
+    if (!has('JP') && chosen.length < total) chosen.push('toyota');
+    if (!has('KR') && chosen.length < total) chosen.push('lee');
+  }
   let toggle = 0;
   while (chosen.length < total) {
     const f = toggle++ % 2 === 0 ? 'US' : 'CN';
@@ -293,7 +295,16 @@ wss.on('connection', ws => {
       const ch = CHARACTERS.find(c => c.id === m.charId);
       if (!ch) { err('無此角色'); return; }
       if ((ch.faction === 'JP' || ch.faction === 'KR') && room.config.expectedCount < RULES.jpkrMinPlayers) {
-        err(`日本/韓國需要預計人數 ${RULES.jpkrMinPlayers} 以上(請房主調整人數選項)`); return;
+        err(`日本/韓國需要遊戲人數 ${RULES.jpkrMinPlayers} 以上(請房主調整人數選項)`); return;
+      }
+      // 3 人以上:若只剩這位玩家未選角且台灣還沒人選,他只能選台灣
+      if (!room.started && room.config.expectedCount >= 3 && ch.id !== 'tsmc' && !room.chars.has('tsmc')) {
+        const playerClients = [...room.clients.values()].filter(c => c.mode === 'player');
+        const unselected = playerClients.filter(c => !c.charId);
+        if (playerClients.length >= room.config.expectedCount &&
+            unselected.length === 1 && unselected[0] === client) {
+          err('你是最後一位未選角的玩家,且台灣尚未有人選擇 — 必須選擇護國神山!'); return;
+        }
       }
       if (room.chars.has(m.charId)) {
         // 角色已被選:驗證 PIN 即可接管/觀察(換裝置重連)
@@ -319,22 +330,32 @@ wss.on('connection', ws => {
       let seats = [];
       room.aiChars = new Set();
 
+      const total = Math.min(RULES.maxPlayers, Math.max(2, room.config.expectedCount || 4));
+
       if (gameMode === 'god') {
-        // 上帝模式:所有角色由房主一人控制(試玩)
-        const total = Math.min(RULES.maxPlayers, Math.max(2, parseInt(m.count, 10) || 4));
+        // 上帝模式:所有角色由房主一人控制(人數 = 預計人數)
         const lineup = buildLineup(client.charId && client.charId !== '*' ? [client.charId] : [], total);
         seats = lineup.map(id => ({ charId: id }));
         for (const c of room.clients.values())
           if (c.mode === 'player') c.charId = '*';
+      } else if (gameMode === 'aiwar') {
+        // AI 內戰:全部角色都是 AI,人類觀賞(人數 = 預計人數)
+        const lineup = buildLineup([], total);
+        seats = lineup.map(id => ({
+          charId: id,
+          playerName: '🤖 ' + CHARACTERS.find(c => c.id === id).name,
+          isAI: true,
+        }));
+        for (const id of lineup) room.aiChars.add(id);
+        for (const c of room.clients.values()) c.charId = null; // 全員觀戰
       } else if (gameMode === 'ai') {
-        // 單人 vs AI:房主一個角色,其餘 AI
+        // 單人 vs AI:房主一個角色,AI 數量 = 預計人數 - 1
         if (!client.charId) { err('請先選擇你的角色'); return; }
-        const aiCount = Math.min(RULES.maxPlayers - 1, Math.max(1, parseInt(m.count, 10) || 2));
         const hostFaction = CHARACTERS.find(c => c.id === client.charId).faction;
-        if ((hostFaction === 'JP' || hostFaction === 'KR') && 1 + aiCount < RULES.jpkrMinPlayers) {
-          err(`選日本/韓國需要總人數 ${RULES.jpkrMinPlayers} 以上(請增加 AI 數量)`); return;
+        if ((hostFaction === 'JP' || hostFaction === 'KR') && total < RULES.jpkrMinPlayers) {
+          err(`選日本/韓國需要遊戲人數 ${RULES.jpkrMinPlayers} 以上`); return;
         }
-        const lineup = buildLineup([client.charId], 1 + aiCount);
+        const lineup = buildLineup([client.charId], total);
         seats = lineup.map(id => ({
           charId: id,
           playerName: id === client.charId ? client.name

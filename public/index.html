@@ -55,35 +55,21 @@
           <select id="expectedCount">
             <option value="2">2(米牆對決)</option>
             <option value="3">3</option><option value="4" selected>4</option>
-            <option value="5">5</option><option value="6">6</option>
-            <option value="7">7(開放日本)</option><option value="8">8(開放日韓)</option>
+            <option value="5">5</option><option value="6">6(開放日韓)</option>
+            <option value="7">7(開放日韓)</option><option value="8">8(開放日韓)</option>
           </select>
         </label>
       </div>
       <div id="hostModeBox" class="host-mode" style="display:none">
         <label>遊戲模式
           <select id="gameMode">
-            <option value="multi">👥 多人連線(2 人=米牆對決)</option>
+            <option value="multi">👥 多人連線</option>
             <option value="ai">🤖 單人 vs AI</option>
+            <option value="aiwar">🍿 AI 內戰(全 AI 對戰觀賞)</option>
             <option value="god">👁️‍🗨️ 上帝模式(全角色試玩)</option>
           </select>
         </label>
-        <label id="aiCountWrap" style="display:none">AI 數量
-          <select id="aiCount">
-            <option value="1">1(米牆對決)</option>
-            <option value="2" selected>2</option><option value="3">3</option>
-            <option value="4">4</option><option value="5">5</option>
-            <option value="6">6(開放日本)</option><option value="7">7(開放日韓)</option>
-          </select>
-        </label>
-        <label id="godCountWrap" style="display:none">角色數量
-          <select id="godCount">
-            <option value="2">2(米牆對決)</option>
-            <option value="3">3</option><option value="4" selected>4</option>
-            <option value="5">5</option><option value="6">6</option>
-            <option value="7">7(含日本)</option><option value="8">8(含日韓)</option>
-          </select>
-        </label>
+        <div id="modeHint" class="mode-hint"></div>
       </div>
       <button id="startBtn" class="btn big" style="display:none">🚀 開始遊戲</button>
     </div>
@@ -171,12 +157,12 @@
   <div class="modal-box rules-box">
     <h2>📜 規則速查</h2>
     <div class="rules-content">
-      <p><b>目標:</b>米國要把科技力領先拉開到 10 年;牆國要追平米國。台灣暗中支持一方(公開表態後該方門檻 +5 年);台灣花 40 資本「加入」即讓該方立即獲勝。日本(7人+):終局米國領先 ≥5 年且台灣未加入任一方。韓國(8人):終局米國領先 &lt;5 年且雙方和局。多人獲勝時資本最多者奪冠。第 10 輪結束強制終局。</p>
+      <p><b>目標:</b>米國要把科技力領先拉開到 10 年;牆國要追平米國。台灣暗中支持一方(公開表態後該方門檻 +5 年);台灣花 40 資本「加入」即讓該方立即獲勝。日本/韓國(6人+同時開放)— 日本:終局米國領先 ≥5 年且台灣未加入任一方;韓國:終局米國領先 &lt;5 年且雙方和局。多人獲勝時資本最多者奪冠。第 10 輪結束強制終局。</p>
       <p><b>回合:</b>回合開始自動收入(基礎 4 + 場上科技卡交易力 + 角色加成)。每回合 3 行動點(AP):移動 1 格 1AP/研發 1AP/抽作戰卡 1AP+5 資本/打作戰卡 1AP+卡費。</p>
       <p><b>科技卡(5 大類 × 5 階,3 項數值):</b>🔬科技力(計入陣營年數)/🛡️防護力(阻擋作戰卡)/💱交易力(每回合收入)。🚀動力類交易高;📱硬體類科技高;🗄️資訊類防護高(高階有防護光環);🧠AI類均衡;🎮娛樂類數值低但特效強。階級越高綜合數值越高、分配越多元,費用指數成長(1階約 6 → 5階約 44)。研發=選任一類別翻 2 選 1 付費部署在所在區域(每區上限 4 張,每人每區 2 張);<b>擅長領域費用 -20% 且科技力 +1</b>。新竹部署科技力 +1。</p>
-      <p><b>模式:</b>2 人=米牆對決(無台灣規則)|單人 vs AI(可選 AI 數量)|上帝模式(一人控全角色試玩)。</p>
+      <p><b>模式:</b>2 人=米牆對決(無台灣規則)|單人 vs AI(AI 數量 = 遊戲人數 - 1)|AI 內戰(全 AI 對戰觀賞)|上帝模式(一人控全角色試玩)。3 人以上若僅剩最後一位玩家未選角且台灣尚無人選,該玩家必須選擇台灣。</p>
       <p><b>作戰卡(灰色 3 大類):</b>💣間諜類:攻擊力 ≥ 目標有效防護力即摧毀,對方損失其科技力。🕵️竊取類:成功則竊取等同目標階級的科技力。📰假新聞類:封鎖區域 1~2 輪無法研發。牆國陣營作戰卡 -3 資本。</p>
-      <p><b>陣營特性:</b>米國 3 階科技卡 +1 科技力|牆國作戰卡 -3|台灣收晶片稅(每次他人研發 +2)且硬體卡 +1 科技力|日本科技計入米國|韓國科技計入牆國。</p>
+      <p><b>陣營特性:</b>米國 4 階以上科技卡 +1 科技力|牆國作戰卡 -3|台灣收晶片稅(每次他人研發 +2)且硬體卡 +1 科技力|日本科技計入米國|韓國科技計入牆國。</p>
     </div>
     <button id="rulesClose" class="btn big">關閉</button>
   </div>

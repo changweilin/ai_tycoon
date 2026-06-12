@@ -114,13 +114,17 @@ cfg.send({ t: 'createRoom', name: '設定俠', gameName: '測試之夜' });
 await cfg.wait();
 cfg.send({ t: 'selectChar', charId: 'toyota', charPin: '5555' });
 await cfg.wait();
-if (!cfg.errors.some(e => e.includes('預計人數'))) throw new Error('預設人數 4 不該能選日本');
-cfg.send({ t: 'setRoomConfig', expectedCount: 7 });
+if (!cfg.errors.some(e => e.includes('人數'))) throw new Error('預設人數 4 不該能選日本');
+cfg.send({ t: 'setRoomConfig', expectedCount: 6 });
 await cfg.wait();
-if (cfg.last.lobby.config.expectedCount !== 7) throw new Error('人數設定未生效');
+if (cfg.last.lobby.config.expectedCount !== 6) throw new Error('人數設定未生效');
+// 6 人即可同時選日韓
+cfg.send({ t: 'selectChar', charId: 'lee', charPin: '5555' });
+await cfg.wait();
+if (!cfg.last.lobby.takenChars.includes('lee')) throw new Error('人數 6 應可選韓國');
 cfg.send({ t: 'selectChar', charId: 'toyota', charPin: '5555' });
 await cfg.wait();
-if (!cfg.last.lobby.takenChars.includes('toyota')) throw new Error('人數 7 應可選日本');
+if (!cfg.last.lobby.takenChars.includes('toyota')) throw new Error('人數 6 應可選日本');
 // 同一 PIN 直接切換角色
 cfg.send({ t: 'selectChar', charId: 'musk', charPin: '5555' });
 await cfg.wait();
@@ -130,9 +134,10 @@ console.log('✅ 人數選項/日韓開放/切換角色通過');
 
 // ---- 儲存/載入/結束 ----
 cfg.send({ t: 'setRoomConfig', expectedCount: 4 });
-cfg.send({ t: 'startGame', mode: 'ai', count: 2 });
+cfg.send({ t: 'startGame', mode: 'ai' }); // AI 數量 = 人數 - 1 = 3
 await cfg.wait();
 if (!cfg.last.lobby.started) throw new Error('存檔測試局未開始: ' + cfg.errors.join(','));
+if (cfg.last.state.players.length !== 4) throw new Error('AI 數量應為人數-1(共4人)');
 cfg.send({ t: 'action', kind: 'endTurn' }); // 推進一手讓狀態有變化
 await cfg.wait();
 cfg.send({ t: 'saveGame', name: '存檔測試' });
@@ -154,7 +159,7 @@ if (!target) throw new Error('找不到剛才的存檔');
 loader.send({ t: 'loadGame', file: target.file, name: '回鍋俠' });
 await loader.wait();
 if (!loader.last.lobby.started) throw new Error('載入後應為進行中');
-if (loader.last.state.players.length !== 3) throw new Error('載入後人數錯誤');
+if (loader.last.state.players.length !== 4) throw new Error('載入後人數錯誤');
 // 以原 PIN 認領角色
 loader.send({ t: 'selectChar', charId: 'musk', charPin: '5555' });
 await loader.wait();
@@ -162,6 +167,44 @@ const meAfter = loader.last.lobby.clients.find(c => c.name === '回鍋俠');
 if (meAfter.charId !== 'musk') throw new Error('載入後認領角色失敗');
 if (!loader.last.priv) throw new Error('認領後應取得私有資訊');
 console.log('✅ 載入存檔與角色認領通過');
+
+// ---- AI 內戰模式 ----
+const war = await client('war');
+war.send({ t: 'createRoom', name: '吃瓜群眾' });
+await war.wait();
+war.send({ t: 'setRoomConfig', expectedCount: 6 });
+war.send({ t: 'startGame', mode: 'aiwar' });
+await war.wait();
+if (!war.last.lobby.started) throw new Error('AI 內戰未開始: ' + war.errors.join(','));
+if (war.last.state.players.length !== 6) throw new Error('AI 內戰人數錯誤');
+if (!war.last.state.players.every(p => p.isAI)) throw new Error('AI 內戰應全為 AI');
+if (war.last.priv !== null) throw new Error('AI 內戰中人類應為觀戰');
+const warLog = war.last.state.log.length;
+await new Promise(r => setTimeout(r, 3000));
+if (war.last.state.log.length <= warLog) throw new Error('AI 內戰沒有在自動進行');
+console.log('✅ AI 內戰模式通過(6 AI 含日韓自動對戰中)');
+
+// ---- 3 人以上最後一位必選台灣 ----
+const t1 = await client('t1');
+t1.send({ t: 'createRoom', name: '搶角一號' });
+await t1.wait();
+const twPin = t1.last.lobby.pin;
+t1.send({ t: 'setRoomConfig', expectedCount: 3 });
+const t2 = await client('t2');
+t2.send({ t: 'joinRoom', pin: twPin, name: '搶角二號', mode: 'player' });
+const t3 = await client('t3');
+t3.send({ t: 'joinRoom', pin: twPin, name: '慢半拍', mode: 'player' });
+await t1.wait();
+t1.send({ t: 'selectChar', charId: 'jensen', charPin: '1111' });
+t2.send({ t: 'selectChar', charId: 'ren', charPin: '2222' });
+await t1.wait();
+t3.send({ t: 'selectChar', charId: 'musk', charPin: '3333' });
+await t3.wait();
+if (!t3.errors.some(e => e.includes('台灣') || e.includes('神山'))) throw new Error('最後一位選非台灣應被拒');
+t3.send({ t: 'selectChar', charId: 'tsmc', charPin: '3333' });
+await t3.wait();
+if (!t3.last.lobby.takenChars.includes('tsmc')) throw new Error('最後一位應可選台灣');
+console.log('✅ 最後一位必選台灣通過');
 
 console.log('✅ 端對端煙霧測試全部通過');
 server.kill();

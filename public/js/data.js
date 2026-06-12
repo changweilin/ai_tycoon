@@ -206,5 +206,5 @@ export const RULES = {
   jpWinLead: 5,
   minPlayers: 3,
   maxPlayers: 8,
-  jpkrMinPlayers: 7, // 超過 6 人才能加入日韓
+  jpkrMinPlayers: 6, // 遊戲人數 6 以上同時開放日本與韓國
 };
