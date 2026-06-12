@@ -57,7 +57,8 @@ export class Game {
       return {
         id: i, name: s.playerName || ch.name, char: ch, faction: ch.faction,
         res: { ...RULES.startResources }, hand: [], intel: [], pos: ch.home,
-        ap: 0, usedFreeMove: false, isAI: !!s.isAI, turnFlags: emptyTurnFlags(),
+        ap: 0, usedFreeMove: false, isAI: !!s.isAI, strategy: s.strategy || null,
+        turnFlags: emptyTurnFlags(),
       };
     });
     this.hasTW = this.players.some(p => p.faction === 'TW');
@@ -393,9 +394,11 @@ export class Game {
     if (!canPay(from, g)) return { ok: false, msg: '你的資源不足' };
     this.tradeOfferCount[fromId] = (this.tradeOfferCount[fromId] || 0) + 1;
     const offer = { id: this.nextOfferId++, fromId, toId, give: g, receive: r };
-    // AI 對象:即時評估(收到的總量不少於付出的就接受)
+    // AI 對象:即時評估 — 自利型要佔便宜才肯、合作型小虧也接受
     if (to.isAI) {
-      if (canPay(to, r) && totalRes(g) >= totalRes(r)) {
+      const st = to.strategy;
+      const greed = st ? 1 + (st.selfish - st.cooperative) * 0.4 : 1;
+      if (canPay(to, r) && totalRes(g) >= totalRes(r) * greed) {
         this.execTrade(offer);
       } else {
         this.addLog(`🤝 ${to.name} 婉拒了 ${from.name} 的交易提案`);
@@ -930,7 +933,7 @@ export class Game {
       players: this.players.map(p => ({
         id: p.id, name: p.name, charId: p.char.id, res: p.res, intel: p.intel,
         hand: p.hand, pos: p.pos, ap: p.ap, usedFreeMove: p.usedFreeMove,
-        turnFlags: p.turnFlags, isAI: p.isAI,
+        turnFlags: p.turnFlags, isAI: p.isAI, strategy: p.strategy || null,
       })),
       regions,
       deck: this.deck, discardPile: this.discardPile,
@@ -957,7 +960,8 @@ export class Game {
     for (const r of REGIONS) g.adj[r.id] = [];
     for (const [a, b] of EDGES) { g.adj[a].push(b); g.adj[b].push(a); }
     g.players = d.players.map(p => ({
-      ...p, intel: p.intel || [], turnFlags: p.turnFlags || emptyTurnFlags(),
+      ...p, intel: p.intel || [], strategy: p.strategy || null,
+      turnFlags: p.turnFlags || emptyTurnFlags(),
       char: CHARACTERS.find(c => c.id === p.charId),
       faction: CHARACTERS.find(c => c.id === p.charId).faction,
     }));

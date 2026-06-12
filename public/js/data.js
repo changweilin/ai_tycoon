@@ -304,6 +304,7 @@ export const EDGES = [
   ['singapore', 'bangalore'], ['bangalore', 'dubai'], ['dubai', 'chengdu'],
 ];
 
+// 以下為預設值;伺服器啟動時會讀取 config/rules.json 覆寫(前端開局時也會 fetch 同一份套用)
 export const RULES = {
   startResources: { money: 10, power: 8, oil: 8 },
   baseIncome: { money: 2, power: 2, oil: 2 },
@@ -350,3 +351,19 @@ export const RULES = {
   maxPlayers: 8,
   jpkrMinPlayers: 6, // 遊戲人數 6 以上同時開放日本與韓國
 };
+
+/** 用設定檔(config/rules.json)覆寫 RULES — 就地深合併,讓所有 import 端看到同一份 */
+export function applyRulesOverrides(obj) {
+  if (!obj || typeof obj !== 'object') return RULES;
+  for (const k in obj) {
+    if (k.startsWith('$')) continue; // $comment 等註解欄位
+    const v = obj[k];
+    if (v && typeof v === 'object' && !Array.isArray(v)
+      && RULES[k] && typeof RULES[k] === 'object' && !Array.isArray(RULES[k])) {
+      Object.assign(RULES[k], v);
+    } else {
+      RULES[k] = v;
+    }
+  }
+  return RULES;
+}

@@ -7,6 +7,8 @@ import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { Game } from './game.js';
 import { botStep } from './bot.js';
+import { loadRulesConfig, DEFAULT_RULES_PATH } from './config.js';
+import { randomStrategy, strategyNickname } from './strategy.js';
 import { CHARACTERS, RULES, FACTIONS } from '../public/js/data.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -14,6 +16,10 @@ const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const SAVE_DIR = path.join(__dirname, '..', 'saves');
 const PORT = process.env.PORT || 8520;
 fs.mkdirSync(SAVE_DIR, { recursive: true });
+
+// 載入數值參數設定檔(config/rules.json)覆寫 RULES
+const rulesCfg = loadRulesConfig();
+console.log(rulesCfg ? `⚙️ 已載入參數檔:${rulesCfg.path}` : '⚙️ 未找到 config/rules.json,使用內建預設值');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -27,6 +33,14 @@ const MIME = {
 const httpServer = http.createServer((req, res) => {
   let urlPath = decodeURIComponent(req.url.split('?')[0]);
   if (urlPath === '/') urlPath = '/index.html';
+  if (urlPath === '/config/rules.json') { // 前端開局時取得同一份參數設定
+    fs.readFile(DEFAULT_RULES_PATH, (err, data) => {
+      if (err) { res.writeHead(404); res.end('{}'); return; }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(data);
+    });
+    return;
+  }
   const filePath = path.join(PUBLIC_DIR, path.normalize(urlPath));
   if (!filePath.startsWith(PUBLIC_DIR)) { res.writeHead(403); res.end(); return; }
   fs.readFile(filePath, (err, data) => {
@@ -162,6 +176,12 @@ function buildLineup(existing, total) {
     chosen.push(next);
   }
   return chosen.slice(0, total);
+}
+
+/** 產生一個 AI 座位:隨機策略性格 + 反映性格的梗名(前綴 [AI]) */
+function makeAISeat(charId, usedNames) {
+  const strategy = randomStrategy();
+  return { charId, playerName: strategyNickname(strategy, usedNames), isAI: true, strategy };
 }
 
 /** AI 回合驅動:當前玩家是 AI 時,以計時器逐步執行讓玩家看見過程 */
@@ -331,7 +351,9 @@ wss.on('connection', ws => {
       if (room.started) { err('遊戲已開始'); return; }
       const gameMode = m.mode || 'multi';
       let seats = [];
+      let aiFillNote = null; // 多人模式 AI 頂替提示
       room.aiChars = new Set();
+      const aiNames = new Set();
 
       const total = Math.min(RULES.maxPlayers, Math.max(2, room.config.expectedCount || 4));
 
@@ -344,11 +366,7 @@ wss.on('connection', ws => {
       } else if (gameMode === 'aiwar') {
         // AI 內戰:全部角色都是 AI,人類觀賞(人數 = 預計人數)
         const lineup = buildLineup([], total);
-        seats = lineup.map(id => ({
-          charId: id,
-          playerName: '🤖 ' + CHARACTERS.find(c => c.id === id).name,
-          isAI: true,
-        }));
+        seats = lineup.map(id => makeAISeat(id, aiNames));
         for (const id of lineup) room.aiChars.add(id);
         for (const c of room.clients.values()) c.charId = null; // 全員觀戰
       } else if (gameMode === 'ai') {
@@ -359,37 +377,57 @@ wss.on('connection', ws => {
           err(`選日本/韓國需要遊戲人數 ${RULES.jpkrMinPlayers} 以上`); return;
         }
         const lineup = buildLineup([client.charId], total);
-        seats = lineup.map(id => ({
-          charId: id,
-          playerName: id === client.charId ? client.name
-            : '🤖 ' + CHARACTERS.find(c => c.id === id).name,
-          isAI: id !== client.charId,
-        }));
+        seats = lineup.map(id => id === client.charId
+          ? { charId: id, playerName: client.name }
+          : makeAISeat(id, aiNames));
         for (const id of lineup) if (id !== client.charId) room.aiChars.add(id);
       } else {
-        // 多人連線(2 人 = 米牆對決,免台灣)
+        // 多人連線(2 人 = 米牆對決,免台灣);人數不足預計人數時以 AI 玩家頂替
         const seated = [...room.clients.values()].filter(c => c.mode === 'player' && c.charId);
         const factions = seated.map(c => CHARACTERS.find(x => x.id === c.charId).faction);
         const errs = [];
-        if (seated.length < 2) errs.push('至少需要 2 位玩家');
+        if (seated.length < 1) errs.push('至少需要 1 位玩家選好角色');
         if (seated.length > RULES.maxPlayers) errs.push(`最多 ${RULES.maxPlayers} 位玩家`);
-        if (seated.length === 2) {
-          // 雙人特殊規則:一米一牆,無台灣
-          if (!(factions.includes('US') && factions.includes('CN')))
-            errs.push('雙人對決必須一位米國、一位牆國');
-        } else {
-          if (!factions.includes('US')) errs.push('至少需要 1 位米國玩家');
-          if (!factions.includes('CN')) errs.push('至少需要 1 位牆國玩家');
-          if (!factions.includes('TW')) errs.push('至少需要 1 位台灣玩家');
+        const needAI = Math.max(0, total - seated.length);
+        if (needAI === 0) {
+          // 人數到齊:沿用原本的陣容檢查
+          if (seated.length === 2) {
+            // 雙人特殊規則:一米一牆,無台灣
+            if (!(factions.includes('US') && factions.includes('CN')))
+              errs.push('雙人對決必須一位米國、一位牆國');
+          } else {
+            if (!factions.includes('US')) errs.push('至少需要 1 位米國玩家');
+            if (!factions.includes('CN')) errs.push('至少需要 1 位牆國玩家');
+            if (!factions.includes('TW')) errs.push('至少需要 1 位台灣玩家');
+          }
+        } else if (total === 2 && factions.some(f => f !== 'US' && f !== 'CN')) {
+          errs.push('雙人對決必須選米國或牆國角色(AI 會頂替另一方)');
         }
         if ((factions.includes('JP') || factions.includes('KR')) && room.config.expectedCount < RULES.jpkrMinPlayers)
           errs.push(`日本/韓國需要預計人數 ${RULES.jpkrMinPlayers} 以上`);
         if (errs.length) { err(errs.join(';')); return; }
         seats = seated.map(c => ({ charId: c.charId, playerName: c.name }));
+        if (needAI > 0) {
+          // buildLineup 自動補齊米/牆/台等陣容限制,缺額由 AI 頂替
+          const lineup = buildLineup(seated.map(c => c.charId), total);
+          for (const id of lineup) {
+            if (seats.some(s => s.charId === id)) continue;
+            const seat = makeAISeat(id, aiNames);
+            seats.push(seat);
+            room.aiChars.add(id);
+          }
+          const aiList = seats.filter(s => s.isAI)
+            .map(s => `${s.playerName}(${CHARACTERS.find(c => c.id === s.charId).name})`).join('、');
+          aiFillNote = `🤖 連線人數不足(${seated.length}/${total}),由 ${seats.length - seated.length} 位 AI 玩家頂替:${aiList}`;
+        }
       }
 
       room.game = new Game(seats);
       room.started = true;
+      if (aiFillNote) {
+        room.game.addLog(aiFillNote);
+        for (const c of room.clients.values()) send(c.ws, { t: 'info', msg: aiFillNote });
+      }
       console.log(`🎮 房間 ${room.pin} 開始遊戲(模式 ${gameMode},${seats.length} 角色)`);
       broadcast(room);
       pumpAI(room);

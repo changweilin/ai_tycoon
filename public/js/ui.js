@@ -1,5 +1,5 @@
 // ============ 前端 UI 與流程(連線版) ============
-import { FACTIONS, CHARACTERS, TECH_CATEGORIES, RULES, REGIONS, RES_KEYS, RESOURCES } from './data.js';
+import { FACTIONS, CHARACTERS, TECH_CATEGORIES, RULES, REGIONS, RES_KEYS, RESOURCES, applyRulesOverrides } from './data.js';
 import { Board3D } from './board3d.js';
 import { Net } from './net.js';
 
@@ -647,6 +647,11 @@ function setupGameEvents() {
 }
 
 // ---------------- 初始化 ----------------
+// 先抓伺服器的數值參數設定(config/rules.json)套用,確保前後端顯示一致
+try {
+  const resp = await fetch('/config/rules.json');
+  if (resp.ok) applyRulesOverrides(await resp.json());
+} catch { /* 拿不到就用內建預設值 */ }
 setupConnect();
 setupLobbyEvents();
 setupGameEvents();
