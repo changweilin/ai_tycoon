@@ -28,6 +28,7 @@ const MIME = {
   '.json': 'application/json',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon', '.woff2': 'font/woff2',
+  '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream',
 };
 
 const httpServer = http.createServer((req, res) => {
@@ -441,7 +442,8 @@ wss.on('connection', ws => {
       const pIdx = playerIdxOf(room, client);
       if (pIdx < 0) { err('你不是此局玩家'); return; }
       const isTradeAction = String(m.kind).startsWith('trade');
-      if (g.turnIdx !== pIdx && m.kind !== 'noop' && !isTradeAction) { err('還沒輪到你'); return; }
+      // twChoose(台灣秘密選邊)不耗 AP 也不受輪次限制(限第 1 季)
+      if (g.turnIdx !== pIdx && m.kind !== 'noop' && m.kind !== 'twChoose' && !isTradeAction) { err('還沒輪到你'); return; }
 
       let res = { ok: false, msg: '未知行動' };
       switch (m.kind) {
@@ -454,6 +456,8 @@ wss.on('connection', ws => {
         case 'playCard': res = g.doPlayCard(m.handIdx, m.target); break;
         case 'endTurn': g.endTurn(); res = { ok: true }; break;
         case 'reveal': res = g.doReveal(); break;
+        case 'pivot': res = g.doPivot(); break;
+        case 'twChoose': res = g.doChooseSide(pIdx, m.side); break;
         case 'tradeOffer': res = g.doTradeOffer(pIdx, m.toId, m.give, m.receive); break;
         case 'tradeRespond': res = g.doTradeRespond(pIdx, m.offerId, !!m.accept); break;
         case 'tradeCancel': res = g.doTradeCancel(pIdx, m.offerId); break;

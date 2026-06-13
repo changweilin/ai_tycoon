@@ -172,7 +172,7 @@ export const CHARACTERS = [
   { id: 'jensen', faction: 'US', name: '皮衣刀客·黃仁薰', real: '黃仁勳 NVIDIA', industry: 'AI', industryDesc: 'GPU/算力霸權',
     perk: 'ai', perkText: '算力即正義:抽作戰卡不消耗資本', home: 'sv' },
   { id: 'zuck',   faction: 'US', name: '蜥蜴人·渣克伯',  real: '祖克伯 Meta', industry: '娛樂', industryDesc: '社群/VR/元宇宙',
-    perk: 'media', perkText: '演算法之王:打出假新聞類卡片不消耗資本', home: 'sv' },
+    perk: 'media', perkText: '演算法之王:打出假新聞類卡片不消耗資源,且打出後抽一張卡', home: 'sv' },
   { id: 'jobs',   faction: 'US', name: '果教教主·賈不死', real: '賈伯斯 Apple', industry: '硬體', industryDesc: '手機/信仰充值',
     perk: 'hardware', perkText: '供應鏈大師:發展科技卡費用 -3', home: 'sv' },
   { id: 'google', faction: 'US', name: '劈柴哥·孤狗',    real: '皮查伊 Google', industry: '資訊', industryDesc: '搜尋引擎/伺服器',
@@ -183,14 +183,14 @@ export const CHARACTERS = [
   { id: 'ren',    faction: 'CN', name: '菊廠廠長·任正飛', real: '任正非 華為', industry: '硬體', industryDesc: '手機/基地台',
     perk: 'hardware', perkText: '備胎轉正:發展科技卡費用 -3', home: 'shenzhen' },
   { id: 'pony',   faction: 'CN', name: '小馬哥·馬化疼',  real: '馬化騰 騰訊', industry: '娛樂', industryDesc: '遊戲/社群/像素級致敬',
-    perk: 'media', perkText: '輿論引導:打出假新聞類卡片不消耗資本', home: 'shenzhen' },
+    perk: 'media', perkText: '輿論引導:打出假新聞類卡片不消耗資源,且打出後抽一張卡', home: 'shenzhen' },
   { id: 'liang',  faction: 'CN', name: '量化鬼才·梁文瘋', real: '梁文鋒 DeepSeek', industry: 'AI', industryDesc: '低成本大模型',
     perk: 'ai', perkText: '開源屠榜:抽作戰卡不消耗資本', home: 'shanghai' },
   { id: 'robin',  faction: 'CN', name: '擺渡人·李彥虹',  real: '李彥宏 百度', industry: '資訊', industryDesc: '搜尋引擎/競價排名',
     perk: 'info', perkText: '競價排名:每回合收入 +2', home: 'beijing' },
   // 台灣
   { id: 'tsmc',   faction: 'TW', name: '護國神山·張中謀', real: '張忠謀 台積電', industry: '晶片', industryDesc: '先進製程壟斷',
-    perk: 'chip', perkText: '晶片稅:其他玩家每次發展科技卡須支付你 2 資本;你的硬體卡科技力 +1;可「表態」與「加入」陣營', home: 'hsinchu' },
+    perk: 'chip', perkText: '晶片稅:其他玩家每次發展科技卡須支付你 2 金錢;你的硬體卡科技力 +5 點;開局秘密自選支持陣營,可「轉向」一次與「表態」', home: 'hsinchu' },
   // 日本(7人以上)
   { id: 'toyota', faction: 'JP', name: '牛頭牌·豐田彰男', real: '豐田章男 Toyota', industry: '汽車', industryDesc: '油電混合/匠人精神',
     perk: 'auto', perkText: '改善哲學:發展費用 -2,每回合收入 +2(科技產出計入米國)', home: 'tokyo' },
@@ -324,6 +324,7 @@ export const RULES = {
   // 實得 = forfeitBase + 本國科技力 ÷ techIncomeDivisor(科技力越高收益越高)
   forfeitBase: 3,
   techIncomeDivisor: 100,  // 每 100 點本國科技力:每種資源收入 +1、放棄權利收益 +1
+  techBonusCap: 3,         // 科技力收益紅利上限(避免領先方無限滾雪球)
   exchangeRate: 2,         // 每回合一次:每 2 金錢換 1 石油或電力(不可反向)
   exchangeMax: 5,
   tradeMaxOffers: 3,       // 交易環節:每人最多提出 3 次交易
@@ -335,17 +336,20 @@ export const RULES = {
   specialtyDiscount: 0.2,  // 擅長領域研發費用 -20%
   specialtyTechBonus: 5,   // 擅長領域部署科技力 +5 點
   pointsPerYear: 20,       // 科技力領先 1 年 = 領先 20 點
-  // 各國初始科技力(點):米國 200、牆國 100、其他國家 150
-  techStart: { US: 200, CN: 100, TW: 150, JP: 150, KR: 150 },
+  // 各國初始科技力(點):米國 200、牆國 120、其他國家 150(CN=120 為模擬平衡值)
+  techStart: { US: 200, CN: 120, TW: 150, JP: 150, KR: 150 },
   cityBuildCooldown: 4,    // 已建造科技卡的城市要過 1 年(4 季)才可重新建造
   usWinLead: 10,           // 以下勝利門檻單位:年(×20 換算成點)
   cnWinLead: 0,
   twRevealPenalty: 5,
+  twPivotReserveKeep: 0.5, // 台灣「轉向」(整局一次):神山儲備保留比例
+  spoilerWinCards: 3,      // 日韓分享終局勝利/僵局獨勝所需的自身場上科技卡張數
   chipLevy: 2,             // 台灣優勢:晶片稅(金錢)
   cnOpsHalf: 0.5,          // 牆國優勢:灰色作戰卡費用是他國的一半
   jpMoveHalf: 0.5,         // 日本優勢:油電混合 — 移動石油費用減半(捨去)
   krUpgradeHalf: 0.5,      // 韓國優勢:基建狂魔 — 升級城市電力費用減半(進位)
-  jpWinLead: 5,
+  jpWinLead: 5,            // 終局米陣營勝利帶:米國領先 ≥5 年(日本同享)
+  cnEndLead: 1,            // 終局牆陣營勝利帶:差距 ≤1 年 = 實質追平(韓國同享)
   minPlayers: 3,
   maxPlayers: 8,
   jpkrMinPlayers: 6, // 遊戲人數 6 以上同時開放日本與韓國

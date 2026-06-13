@@ -25,6 +25,13 @@ export function botStep(g) {
   // 防守型留老本、攻擊型敢梭哈
   const reserve = Math.round(4 + s.defensive * 8 - s.aggressive * 4);
 
+  // 台灣 AI:押錯邊且大勢已去就「轉向」(整局一次,儲備折半)
+  if (p.faction === 'TW' && p.ap > 0 && !g.twRevealed && !g.twPivoted && g.twSupport && g.round >= 8) {
+    const lead = g.lead();
+    const doomed = g.twSupport === 'US' ? lead < 50 : lead > 130;
+    if (doomed && g.doPivot().ok) return true;
+  }
+
   // 台灣 AI:儲備夠多或時間不多就表態(注入神山儲備科技力)
   if (p.faction === 'TW' && p.ap > 0) {
     // 短期型早表態落袋為安、長期型憋到最後
@@ -60,6 +67,9 @@ export function botStep(g) {
 
   // 1. 打出手上最划算且付得起的科技卡
   //    短期型看交易力(立即收入)、長期型看科技力與高階卡、防守型看防護
+  //    日韓:場上卡不足 spoilerWinCards 張就無法分享終局勝利,蓋卡有額外急迫性
+  const spoilerNeed = (p.faction === 'JP' || p.faction === 'KR')
+    ? Math.max(0, RULES.spoilerWinCards - g.ownBoardCards(p)) : 0;
   let bestIdx = -1, bestScore = -1;
   p.hand.forEach((c, i) => {
     if (p.turnFlags.forfeitTech || c.kind !== 'tech') return;
@@ -73,6 +83,7 @@ export function botStep(g) {
       + c.tier * s.longTerm * 1.5
       + (c.special ? 3 : 0)
       + (c.cat === g.specialtyOf(p) ? 2 : 0)
+      + spoilerNeed * (2 + g.round * 0.5)
     ) / Math.max(1, totalRes(cost));
     if (score > bestScore) { bestScore = score; bestIdx = i; }
   });

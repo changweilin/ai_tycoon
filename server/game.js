@@ -63,12 +63,18 @@ export class Game {
     });
     this.hasTW = this.players.some(p => p.faction === 'TW');
 
+    // 牌庫與「米牆起跑差距」都依人數縮放:人少 → 總部署量少 → 差距該縮小才追得上。
+    // 用溫和曲線(0.5+0.5×scale),避免小局過度補償反讓牆國占優。
+    const scale = RULES.deckScale[Math.min(8, Math.max(2, seats.length))] || 1;
+    const gapMult = 0.5 + 0.5 * scale;
     this.tech = { ...RULES.techStart };
+    this.tech.CN = RULES.techStart.US
+      - Math.round((RULES.techStart.US - RULES.techStart.CN) * gapMult);
+    this.startLead = this.tech.US - this.tech.CN; // 開局讓分線:終局僵局時用它判定誰贏了冷戰
     this.round = 1;
     this.turnIdx = 0;
 
     // 混合牌庫:科技卡 + 灰色作戰卡全部洗成一疊(數量依遊玩人數調整)
-    const scale = RULES.deckScale[Math.min(8, Math.max(2, seats.length))] || 1;
     this.deck = [];
     this.discardPile = [];
     for (const catId in TECH_CATEGORIES) {
@@ -87,8 +93,12 @@ export class Game {
     this.eventDeck = shuffle(EVENT_CARDS.map(e => e.id));
     this.activeEvent = null;
 
-    this.twSupport = Math.random() < 0.5 ? 'US' : 'CN';
+    // 台灣立場:人類玩家在第 1 季內秘密自選(P1-2);AI 或無台灣時隨機
+    const twSeat = seats.find(s => CHARACTERS.find(c => c.id === s.charId)?.faction === 'TW');
+    this.twSupport = twSeat && !twSeat.isAI ? null : (Math.random() < 0.5 ? 'US' : 'CN');
+    this.twChosen = !!this.twSupport;
     this.twRevealed = false;
+    this.twPivoted = false;
     this.chipReserve = 0;
 
     this.log = [];
@@ -130,8 +140,11 @@ export class Game {
   /** 點 → 年(領先 1 年 = 20 點) */
   yearsOf(pts) { return Math.round(pts / RULES.pointsPerYear * 10) / 10; }
 
-  /** 科技力紅利:每 100 點「本國」科技力,每種資源收入 +1、放棄權利收益 +1 */
-  techBonusOf(p) { return Math.floor((this.tech[p.faction] || 0) / RULES.techIncomeDivisor); }
+  /** 科技力紅利:每 100 點「本國」科技力,每種資源收入 +1、放棄權利收益 +1(封頂,避免後期滾雪球) */
+  techBonusOf(p) {
+    const bonus = Math.floor((this.tech[p.faction] || 0) / RULES.techIncomeDivisor);
+    return Math.min(RULES.techBonusCap ?? Infinity, bonus);
+  }
   forfeitGainOf(p) { return RULES.forfeitBase + this.techBonusOf(p); }
   usThreshold() {
     return (RULES.usWinLead + (this.twRevealed && this.twSupport === 'US' ? RULES.twRevealPenalty : 0))
@@ -200,6 +213,23 @@ export class Game {
     this.activeEvent = this.eventDeck.pop();
     const ev = EVENT_CARDS.find(e => e.id === this.activeEvent);
     this.addLog(`🌏 集體事件【${ev.icon} ${ev.name}】:${ev.desc}`);
+  }
+
+  /** 玩家在場上的科技卡張數(日韓分享終局勝利需 ≥ RULES.spoilerWinCards 張) */
+  ownBoardCards(p) {
+    let n = 0;
+    for (const rid in this.regions)
+      for (const c of this.regions[rid].cards)
+        if (c.owner === p.id) n++;
+    return n;
+  }
+
+  /** 台灣立場保險絲:玩家逾期未選(第 1 季結束)或終局結算時仍未選 → 隨機決定 */
+  ensureTwSide() {
+    if (this.twSupport) return;
+    this.twSupport = Math.random() < 0.5 ? 'US' : 'CN';
+    this.twChosen = true;
+    this.addLog('⏰ 台灣未在第一季選定立場,命運替它擲了硬幣(立場保密)');
   }
 
   /** 玩家場上是否有指定特效,回傳總值 */
@@ -349,6 +379,7 @@ export class Game {
 
   // ---------- 交易環節(所有玩家行動結束時,自由交換資源) ----------
   enterTradePhase() {
+    if (this.hasTW) this.ensureTwSide(); // 第 1 季結束仍未選 → 隨機(P1-2 保險絲)
     this.phase = 'trade';
     this.tradeOffers = [];
     this.tradeOfferCount = {};
@@ -765,16 +796,52 @@ export class Game {
       r.fakeUntilRound = this.round + card.dur;
       r.fakeMult = card.mult;
       this.addLog(`📰 ${p.name} 對 ${r.name} 發動【${card.name}】,${card.dur} 輪內該城發展科技花費 ×${card.mult}!`);
+      // 媒體 perk:輿論操作順便撈情報(打出假新聞後抽一張卡)
+      if (p.char.perk === 'media' && this.drawCardFor(p))
+        this.addLog(`🎭 ${p.name} 的輿論網路順手撈到一張新情報(抽 1 張卡)`);
       return { ok: true };
     }
     return { ok: false, msg: '未知卡片' };
   }
 
   // ---------- 台灣專屬 ----------
+  /** 開局秘密選邊(P1-2):不耗 AP、不限輪到誰,但只能在第 1 季內選一次 */
+  doChooseSide(playerId, side) {
+    const p = this.players[playerId];
+    if (!p || p.faction !== 'TW') return { ok: false, msg: '只有台灣可以選擇立場' };
+    if (this.over) return { ok: false, msg: '遊戲已結束' };
+    if (this.twSupport) return { ok: false, msg: '立場已決定,之後只能用「轉向」改變' };
+    if (this.round > 1) return { ok: false, msg: '已超過第 1 季,立場已由系統隨機決定' };
+    if (side !== 'US' && side !== 'CN') return { ok: false, msg: '立場只能是米國或牆國' };
+    this.twSupport = side;
+    this.twChosen = true;
+    this.addLog(`🤫 ${p.name} 已在暗中選定支持的陣營(立場保密)`);
+    return { ok: true };
+  }
+
+  /** 轉向(P1-2):未表態前限一次,1 AP,秘密改變立場,神山儲備折損一半 */
+  doPivot() {
+    const p = this.cur();
+    if (p.faction !== 'TW') return { ok: false, msg: '只有台灣可以轉向' };
+    if (this.over) return { ok: false, msg: '遊戲已結束' };
+    if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
+    if (!this.twSupport) return { ok: false, msg: '請先選定秘密立場' };
+    if (this.twRevealed) return { ok: false, msg: '已經公開表態,無法轉向' };
+    if (this.twPivoted) return { ok: false, msg: '整局只能轉向一次' };
+    if (p.ap < 1) return { ok: false, msg: '行動點不足' };
+    p.ap -= 1;
+    this.twPivoted = true;
+    this.twSupport = this.twSupport === 'US' ? 'CN' : 'US';
+    this.chipReserve = Math.floor(this.chipReserve * RULES.twPivotReserveKeep);
+    this.addLog(`🔄 ${p.name} 暗中重新佈局,秘密立場已經改變!(情報外洩,神山儲備折損一半)`);
+    return { ok: true };
+  }
+
   doReveal() {
     const p = this.cur();
     if (p.faction !== 'TW') return { ok: false, msg: '只有台灣可以表態' };
     if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
+    if (!this.twSupport) return { ok: false, msg: '請先選定秘密立場' };
     if (this.twRevealed) return { ok: false, msg: '已經表態過了' };
     if (p.ap < 1) return { ok: false, msg: '行動點不足' };
     p.ap -= 1;
@@ -814,38 +881,92 @@ export class Game {
         if (this.twSupport === side) winners.push(p.id);
       } else if (p.faction === 'US' || p.faction === 'CN') {
         if (FACTIONS[p.faction].side === side) winners.push(p.id);
+      } else if (p.faction === 'JP' || p.faction === 'KR') {
+        // 日韓為陣營小弟:所屬陣營獲勝即分享,但需自身場上 ≥ spoilerWinCards 張科技卡(不能躺贏)
+        if (FACTIONS[p.faction].side === side && this.ownBoardCards(p) >= RULES.spoilerWinCards)
+          winners.push(p.id);
       }
     }
     this.concludeWinners(winners, reason);
   }
 
+  /** 終局結算(P1-1):打滿後必分陣營勝負,±5 年帶決定冷戰結果;商業勝利退場為極端例外。
+   *  日韓分享勝利/僵局獨勝皆需自身場上 ≥ spoilerWinCards 張科技卡(P1-3:不能躺贏)。 */
   endGameByRounds() {
+    if (this.hasTW) this.ensureTwSide();
     const lead = this.lead();
+    const band = RULES.jpWinLead * RULES.pointsPerYear;   // 米國終局帶:領先 ≥5 年(100 點)
+    const cnBand = RULES.cnEndLead * RULES.pointsPerYear; // 牆國終局帶:差距 ≤1 年 = 實質追平
+    const needCards = RULES.spoilerWinCards;
+    const spoilerOk = q => this.ownBoardCards(q) >= needCards;
     const jp = this.players.find(p => p.faction === 'JP');
     const kr = this.players.find(p => p.faction === 'KR');
-    const jpLeadPts = RULES.jpWinLead * RULES.pointsPerYear;
     let winners = [];
-    let reason = `3 年(${RULES.maxRounds} 季)結束,米牆雙方和局(差距 ${this.yearsOf(lead)} 年)。`;
-    if (jp && lead >= jpLeadPts) {
-      winners.push(jp.id);
-      reason += ` 米國領先 ${this.yearsOf(lead)} 年(≥5) → 日本達成勝利條件!`;
-    }
-    if (kr && lead < jpLeadPts) {
-      winners.push(kr.id);
-      reason += ` 米國領先不足 5 年且雙方和局 → 韓國達成勝利條件!`;
+    let forcedChampion = null;
+    let reason = `3 年(${RULES.maxRounds} 季)結束。`;
+    if (lead >= band) {
+      reason += ` 米國以 ${this.yearsOf(lead)} 年的科技領先主導冷戰終局 → 米陣營獲勝!`;
+      for (const p of this.players) {
+        if (p.faction === 'US') winners.push(p.id);
+        else if (p.faction === 'TW' && this.twSupport === 'US') winners.push(p.id);
+        else if (p.faction === 'JP' && spoilerOk(p)) winners.push(p.id);
+      }
+      // 米國贏了冷戰卻沒贏到提前門檻(10 年)= 日本精準押中的劇本:日本奪冠
+      if (jp && spoilerOk(jp)) {
+        forcedChampion = jp.id;
+        reason += ` 米國只贏「剛剛好」— 精準攪局的日本才是最大贏家!`;
+      } else if (jp) {
+        reason += ` 日本場上科技卡不足 ${needCards} 張,只能看著盟友領獎。`;
+      }
+    } else if (lead <= cnBand) {
+      reason += lead < 0
+        ? ` 牆國科技力反超 ${this.yearsOf(-lead)} 年 → 牆陣營獲勝!`
+        : ` 牆國把差距壓到 ${this.yearsOf(lead)} 年,實質追平 → 牆陣營獲勝!`;
+      for (const p of this.players) {
+        if (p.faction === 'CN') winners.push(p.id);
+        else if (p.faction === 'TW' && this.twSupport === 'CN') winners.push(p.id);
+        else if (p.faction === 'KR' && spoilerOk(p)) winners.push(p.id);
+      }
+      // 牆國熬到終局才追平 = 韓國左右逢源的劇本:韓國奪冠
+      if (kr && spoilerOk(kr)) {
+        forcedChampion = kr.id;
+        reason += ` 牆國熬到終局才追平 — 左右逢源的韓國才是最大贏家!`;
+      } else if (kr) {
+        reason += ` 韓國場上科技卡不足 ${needCards} 張,只能看著盟友領獎。`;
+      }
+    } else if (kr && spoilerOk(kr)) {
+      // 僵局帶 + 合格韓國:左右逢源者通吃
+      winners = [kr.id];
+      reason += ` 米牆差距僅 ${this.yearsOf(lead)} 年陷入僵局 — 韓國在夾縫中左右逢源 → 韓國獨勝!`;
+    } else {
+      // 僵局帶、無韓國收割:用開局讓分線判定誰真正贏了冷戰
+      //（守住/擴大開局領先 → 米陣營;把差距追近到讓分線以下 → 牆陣營)
+      const side = lead >= this.startLead ? 'US' : 'CN';
+      if (side === 'US')
+        reason += ` 米國守住了 ${this.yearsOf(lead)} 年的科技優勢(開局讓分 ${this.yearsOf(this.startLead)} 年)→ 米陣營贏得冷戰!`;
+      else
+        reason += ` 牆國把差距追近到 ${this.yearsOf(lead)} 年(開局落後 ${this.yearsOf(this.startLead)} 年)→ 牆陣營贏得冷戰!`;
+      for (const p of this.players) {
+        if (p.faction === side) winners.push(p.id);
+        else if (p.faction === 'TW' && this.twSupport === side) winners.push(p.id);
+        else if (p.faction === 'JP' && side === 'US' && spoilerOk(p)) winners.push(p.id);
+        else if (p.faction === 'KR' && side === 'CN' && spoilerOk(p)) winners.push(p.id);
+      }
     }
     if (winners.length === 0) {
       const richest = [...this.players].sort((a, b) => this.wealthOf(b) - this.wealthOf(a))[0];
       winners = [richest.id];
-      reason += ` 無陣營達成勝利 → 資源最雄厚的 ${richest.name} 獲得商業勝利!`;
+      reason += ` 無人收割冷戰 → 資源最雄厚的 ${richest.name} 獲得商業勝利!`;
     }
-    this.concludeWinners(winners, reason);
+    this.concludeWinners(winners, reason, forcedChampion);
   }
 
-  concludeWinners(winnerIds, reason) {
+  concludeWinners(winnerIds, reason, forcedChampion = null) {
     this.over = true;
     const ws = winnerIds.map(id => this.players[id]);
-    const champion = [...ws].sort((a, b) => this.wealthOf(b) - this.wealthOf(a))[0];
+    const champion = forcedChampion !== null && winnerIds.includes(forcedChampion)
+      ? this.players[forcedChampion]
+      : [...ws].sort((a, b) => this.wealthOf(b) - this.wealthOf(a))[0];
     this.result = { winners: winnerIds, champion: champion.id, reason, twSupport: this.twSupport };
     if (ws.length > 1) {
       this.addLog(reason);
@@ -885,6 +1006,7 @@ export class Game {
       turnIdx: this.turnIdx,
       usThreshold: this.usThreshold(), cnThreshold: this.cnThreshold(),
       twRevealed: this.twRevealed,
+      twPivoted: this.twPivoted,
       twSupportPublic: this.twRevealed ? this.twSupport : null,
       deckCount: this.deck.length + this.discardPile.length,
       phase: this.phase,
@@ -918,8 +1040,9 @@ export class Game {
       regions,
       deck: this.deck, discardPile: this.discardPile,
       eventDeck: this.eventDeck, activeEvent: this.activeEvent,
-      tech: this.tech, round: this.round, turnIdx: this.turnIdx,
+      tech: this.tech, startLead: this.startLead, round: this.round, turnIdx: this.turnIdx,
       twSupport: this.twSupport, twRevealed: this.twRevealed,
+      twChosen: this.twChosen, twPivoted: this.twPivoted,
       chipReserve: this.chipReserve,
       phase: this.phase, tradeOffers: this.tradeOffers,
       tradeReady: this.tradeReady, nextOfferId: this.nextOfferId,
@@ -949,7 +1072,10 @@ export class Game {
     g.deck = d.deck; g.discardPile = d.discardPile;
     g.eventDeck = d.eventDeck; g.activeEvent = d.activeEvent;
     g.tech = d.tech; g.round = d.round; g.turnIdx = d.turnIdx;
+    g.startLead = d.startLead ?? (d.tech.US - d.tech.CN);
     g.twSupport = d.twSupport; g.twRevealed = d.twRevealed;
+    g.twChosen = d.twChosen ?? !!d.twSupport;
+    g.twPivoted = d.twPivoted || false;
     g.chipReserve = d.chipReserve;
     g.phase = d.phase || 'play';
     g.tradeOffers = d.tradeOffers || [];

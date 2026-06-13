@@ -110,6 +110,7 @@ for (let i = 0; i < args.games; i++) {
   if (lead >= g.usThreshold()) { stats.reasons.US++; sideWon = 'US'; }
   else if (lead <= g.cnThreshold()) { stats.reasons.CN++; sideWon = 'CN'; }
   else stats.reasons.timeout++;
+  if (g.result?.reason?.includes('商業勝利')) stats.reasons.commercial = (stats.reasons.commercial || 0) + 1;
   stats.rounds.push(g.round);
   stats.leads.push(lead);
 
@@ -161,7 +162,8 @@ const pct = (n, d) => `${(n / Math.max(1, d) * 100).toFixed(1)}%`;
 console.log(`\n========== 模擬結果(${args.games} 局,${elapsed.toFixed(1)}s,${(args.games / elapsed).toFixed(0)} 局/秒)==========`);
 console.log(`平均局長:${avg(stats.rounds).toFixed(1)} 季|平均終局科技差(US−CN):${avg(stats.leads).toFixed(0)} 點`);
 console.log(`終局型態:米國門檻勝 ${pct(stats.reasons.US, args.games)}`
-  + `|牆國門檻勝 ${pct(stats.reasons.CN, args.games)}|打滿 12 季 ${pct(stats.reasons.timeout, args.games)}`);
+  + `|牆國門檻勝 ${pct(stats.reasons.CN, args.games)}|打滿 12 季 ${pct(stats.reasons.timeout, args.games)}`
+  + `(其中商業勝利 ${pct(stats.reasons.commercial || 0, args.games)})`);
 
 console.log('\n-- 先攻後攻:各座位冠軍率 --(均等應為 ' + pct(1, args.seats ? args.seats.length : args.players) + ')');
 for (const [seat, v] of Object.entries(stats.bySeat))
@@ -175,6 +177,10 @@ for (const [key, v] of Object.entries(stats.bySideCount).sort((a, b) => b[1].gam
 
 console.log('\n-- 冠軍陣營分布 --');
 for (const [f, n] of Object.entries(stats.byChampionFaction).sort((a, b) => b[1] - a[1]))
+  console.log(`  ${f.padEnd(3)} ${String(n).padStart(4)} (${pct(n, args.games)})`);
+
+console.log('\n-- 贏家陣營分布(含共同贏家,每局可多方)--');
+for (const [f, n] of Object.entries(stats.byWinnerFaction).sort((a, b) => b[1] - a[1]))
   console.log(`  ${f.padEnd(3)} ${String(n).padStart(4)} (${pct(n, args.games)})`);
 
 console.log('\n-- 冠軍角色分布 --');
@@ -203,6 +209,7 @@ if (args.json) {
       bySideCount: stats.bySideCount,
       firstSeatSide: stats.firstSeatSide,
       byChampionFaction: stats.byChampionFaction,
+      byWinnerFaction: stats.byWinnerFaction,
       byChampionChar: stats.byChampionChar,
       axisChampionAvg: Object.fromEntries(STRATEGY_AXES.map(a => [a, stats.axisChampion[a] / Math.max(1, args.games)])),
       axisAllAvg: Object.fromEntries(STRATEGY_AXES.map(a => [a, stats.axisAll[a] / totalPlayers])),

@@ -345,8 +345,12 @@ function renderMyPanel(m) {
     stats += '<br>' + priv.intel.map(it =>
       `🧬 ${TECH_CATEGORIES[it.cat].name}情報:下次發展 -${fmtRes(it.gain)}`).join('  ');
   }
-  if (priv?.twSupport) {
-    stats += `<br>🤫 秘密支持:<b style="color:${FACTIONS[priv.twSupport].css}">${FACTIONS[priv.twSupport].name}</b>  🏔️ 神山儲備:<b>${priv.chipReserve}</b> 年`;
+  if (me.faction === 'TW' && priv) {
+    if (priv.twSupport) {
+      stats += `<br>🤫 秘密支持:<b style="color:${FACTIONS[priv.twSupport].css}">${FACTIONS[priv.twSupport].name}</b>  🏔️ 神山儲備:<b>${priv.chipReserve}</b> 點`;
+    } else {
+      stats += `<br>🤫 秘密立場:<b style="color:#ff6">尚未選定 — 第 1 季內須選邊,逾期隨機!</b>`;
+    }
   }
   $('#curStats').innerHTML = stats;
   const ch = CHARACTERS.find(c => c.id === me.charId);
@@ -393,7 +397,7 @@ function renderActions(m) {
   const s = m.state;
 
   const inTrade = s.phase === 'trade';
-  for (const id of ['btnMove', 'btnDraw', 'btnEnd', 'btnReveal',
+  for (const id of ['btnMove', 'btnDraw', 'btnEnd', 'btnReveal', 'btnPivot',
     'btnForfTech', 'btnForfOps', 'btnForfMove', 'btnUpgrade', 'btnExchange'])
     $('#' + id).disabled = !myTurn || inTrade;
 
@@ -424,7 +428,23 @@ function renderActions(m) {
   $('#btnMove').classList.toggle('toggled', mode === 'move');
 
   const isTW = me.faction === 'TW';
-  $('#btnReveal').style.display = isTW && !s.twRevealed ? '' : 'none';
+  const twUnset = isTW && priv && !priv.twSupport && !s.over;
+  $('#btnTwChoose').style.display = twUnset ? '' : 'none';
+  $('#btnTwChoose').disabled = false; // 選邊不耗 AP、不受輪次限制(限第 1 季)
+  $('#btnPivot').style.display = isTW && !twUnset && !s.twRevealed && !s.twPivoted ? '' : 'none';
+  $('#btnReveal').style.display = isTW && !twUnset && !s.twRevealed ? '' : 'none';
+  if (twUnset && !twChoosePrompted) { twChoosePrompted = true; openTwChooseModal(); }
+}
+
+let twChoosePrompted = false;
+function openTwChooseModal() {
+  openModal('🤫 秘密選定立場(只有你看得到)',
+    `<p>台灣是天生的造王者:秘密選擇你支持的陣營,押對寶就與該陣營一同獲勝。<br>
+     第 1 季內未選擇將由命運隨機決定;選定後在表態前可用「🔄 秘密轉向」改變一次(1 AP,神山儲備折半)。</p>`,
+    [{ label: '🔵 支持米國', value: 'US' },
+     { label: '🔴 支持牆國', value: 'CN' },
+     { label: '再想想', value: null }],
+    val => { if (val) net.action('twChoose', { side: val }); });
 }
 
 function renderLog(s) {
@@ -573,7 +593,7 @@ function showResult(s) {
     <p>${r.reason}</p>
     <p>獲勝方:${winnerNames}</p>
     <p class="champion">👑 最終勝利者:<b style="color:${FACTIONS[champion.faction].css}">${champion.name}</b></p>
-    <p class="result-secret">台灣的秘密立場是:支持${FACTIONS[r.twSupport].name}</p>`;
+    ${r.twSupport ? `<p class="result-secret">台灣的秘密立場是:支持${FACTIONS[r.twSupport].name}</p>` : ''}`;
   $('#resultOverlay').style.display = 'flex';
 }
 
@@ -609,6 +629,14 @@ function setupGameEvents() {
   });
   $('#tradeReadyBtn').addEventListener('click', () => net.action('tradeReady'));
   $('#btnEnd').addEventListener('click', () => { setMode('idle'); net.action('endTurn'); });
+  $('#btnTwChoose').addEventListener('click', openTwChooseModal);
+  $('#btnPivot').addEventListener('click', () => {
+    openModal('🔄 秘密轉向(整局一次)',
+      `<p>花 1 AP 秘密改變支持的陣營。其他玩家會知道你轉向了,但不知道方向。<br>
+       <b>代價:情報外洩,神山儲備折損一半。</b>確定嗎?</p>`,
+      [{ label: '確定轉向!', value: true }, { label: '再想想', value: null }],
+      val => { if (val) net.action('pivot'); });
+  });
   $('#btnReveal').addEventListener('click', () => {
     openModal('⚡ 公開表態',
       `<p>表態後你秘密支持的陣營將被公開,該陣營勝利門檻 <b>+5 年</b>,但神山儲備的科技力會全數注入。確定嗎?</p>`,

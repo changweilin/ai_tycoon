@@ -216,11 +216,12 @@ for (const seats of seatSets) {
 
 // 科技力點數制驗證(初始值/門檻/日韓計入)
 {
+  // 6 人 → deckScale=1 → gapMult=1 → 牆國為基準值 techStart.CN
   const g = new Game([
     { charId: 'musk' }, { charId: 'jensen' }, { charId: 'jack' },
     { charId: 'ren' }, { charId: 'tsmc' }, { charId: 'toyota' },
   ]);
-  if (g.tech.US !== 200 || g.tech.CN !== 100 || g.tech.TW !== 150 || g.tech.JP !== 150 || g.tech.KR !== 150)
+  if (g.tech.US !== 200 || g.tech.CN !== RULES.techStart.CN || g.tech.TW !== 150 || g.tech.JP !== 150 || g.tech.KR !== 150)
     throw new Error('初始科技力錯誤:' + JSON.stringify(g.tech));
   if (g.usThreshold() !== 10 * RULES.pointsPerYear) throw new Error('米國勝利門檻應為 200 點');
   const jp = g.players.find(q => q.faction === 'JP');
@@ -228,7 +229,50 @@ for (const seats of seatSets) {
   if (g.tech.JP !== 160 || g.tech.US !== 210) throw new Error('日本科技應同時計入本國與米國');
   g.removeTechGain(jp, 10);
   if (g.tech.JP !== 150 || g.tech.US !== 200) throw new Error('扣回不對稱');
-  console.log('✅ 科技力點數制(200/100/150,1年=20點) 通過');
+  console.log(`✅ 科技力點數制(200/${RULES.techStart.CN}/150,1年=20點) 通過`);
+
+  // 小局讓分縮放:3 人 deckScale=0.5 → gapMult=0.75 → 開局差距縮小(否則牆國追不上)
+  const g3 = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
+  const fullGap = 200 - RULES.techStart.CN;
+  const expectGap = Math.round(fullGap * (0.5 + 0.5 * RULES.deckScale[3]));
+  if (g3.startLead !== expectGap || g3.tech.CN !== 200 - expectGap)
+    throw new Error('小局讓分縮放錯誤:' + JSON.stringify({ startLead: g3.startLead, cn: g3.tech.CN, expectGap }));
+  console.log(`✅ 小局讓分縮放(3人開局差距 ${expectGap} 點,而非 ${fullGap}) 通過`);
+}
+
+// 終局必分陣營勝負:打滿後不再有「比誰有錢」的商業勝利(僵局以開局讓分線判定)
+{
+  let commercial = 0;
+  for (let t = 0; t < 60; t++) {
+    const g = new Game([
+      { charId: 'jensen', isAI: true }, { charId: 'ren', isAI: true }, { charId: 'tsmc', isAI: true },
+    ]);
+    let guard = 0;
+    while (!g.over && guard++ < 8000) {
+      if (g.phase === 'trade') { for (const q of g.players) g.doTradeReady(q.id); continue; }
+      botStep(g);
+    }
+    if (g.result?.reason?.includes('商業勝利')) commercial++;
+  }
+  if (commercial > 3) throw new Error(`商業勝利過多(${commercial}/60),終局判定未必分陣營勝負`);
+  console.log(`✅ 終局必分陣營勝負(60 局僅 ${commercial} 局落入商業勝利) 通過`);
+}
+
+// 台灣:開局可秘密選邊 + 轉向一次(神山儲備折半)
+{
+  const g = new Game([
+    { charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' },
+  ]);
+  const twId = g.players.findIndex(p => p.faction === 'TW');
+  if (g.twSupport !== null) throw new Error('有人類台灣時開局立場應為未定');
+  if (!g.doChooseSide(twId, 'US').ok || g.twSupport !== 'US') throw new Error('秘密選邊失敗');
+  if (g.doChooseSide(twId, 'CN').ok) throw new Error('選邊後不應能再次直接選邊');
+  // 輪到台灣才能轉向
+  g.turnIdx = twId; g.players[twId].ap = 3; g.chipReserve = 10;
+  if (!g.doPivot().ok || g.twSupport !== 'CN' || g.chipReserve !== 5)
+    throw new Error('轉向應改立場並折半神山儲備:' + JSON.stringify({ s: g.twSupport, r: g.chipReserve }));
+  if (g.doPivot().ok) throw new Error('整局只能轉向一次');
+  console.log('✅ 台灣秘密選邊 + 轉向一次(儲備折半) 通過');
 }
 
 // 存檔/讀檔 roundtrip
