@@ -1987,11 +1987,14 @@ export class Board3D {
         pawn.rotation.y = -angle + Math.PI; // 面向城市中心
         pawn.userData.baseY = PAWN_BASE_Y;
 
-        // 玩家標記:頭頂 Q 版頭像 + 名牌(永遠面向鏡頭、不被建築遮擋)
+        // 玩家標記:頭頂 Q 版圓形頭像 + 名牌(垂直堆疊、置中對齊、互不遮擋;永遠面向鏡頭不被建築擋)
+        const isMe = this.myCharId && this.myCharId !== '*' && p.charId === this.myCharId;
         const av = new THREE.Sprite(new THREE.SpriteMaterial({ map: avatarTexture(p.charId), transparent: true, depthTest: false, depthWrite: false }));
-        av.scale.set(1.5, 1.5, 1); av.position.y = 3.5; av.renderOrder = 12; pawn.add(av);
-        const tag = makeNameTag((p.isAI ? '🤖 ' : '') + p.name, facCss);
-        tag.position.y = 2.5; pawn.add(tag);
+        const avS = isMe ? 1.85 : 1.5;
+        av.scale.set(avS, avS, 1); av.position.y = 4.15; av.renderOrder = 12; pawn.add(av);   // 上:頭像
+        const tag = makeNameTag((p.isAI ? '🤖 ' : '') + p.name + (isMe ? '(你)' : ''), isMe ? '#ffd02e' : facCss);
+        if (isMe) tag.scale.set(2.6, 0.65, 1);
+        tag.position.y = 2.7; tag.renderOrder = 14; pawn.add(tag);                              // 下:ID 名牌
         pawn.userData.marker = av;
         // 腳下陣營色光環(看得出棋子落點)
         const disc = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.72, 32),
@@ -2005,7 +2008,7 @@ export class Board3D {
           beam.position.y = 2.5; pawn.add(beam);
           pawn.userData.beam = beam;
           const arrow = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTexture('🔻'), transparent: true, depthTest: false, depthWrite: false }));
-          arrow.scale.set(0.9, 0.9, 1); arrow.position.y = 4.5; arrow.renderOrder = 13; pawn.add(arrow);
+          arrow.scale.set(0.9, 0.9, 1); arrow.position.y = 5.5; arrow.renderOrder = 13; pawn.add(arrow);
           pawn.userData.arrow = arrow;
         }
         pawn.userData.phase = i * 1.7 + rid.length;
@@ -2358,7 +2361,7 @@ export class Board3D {
         ud.disc.scale.set(ds, ds, ds);
       }
       if (ud.beam) ud.beam.material.opacity = 0.14 + Math.abs(Math.sin(t * 2.4)) * 0.16;
-      if (ud.arrow) ud.arrow.position.y = 4.5 + Math.sin(t * 4) * 0.2;
+      if (ud.arrow) ud.arrow.position.y = 5.5 + Math.sin(t * 4) * 0.2;
     });
 
     // 交通工具沿航線移動

@@ -429,6 +429,7 @@ function showSavesList(list) {
 // ---------------- 遊戲畫面 ----------------
 function refreshGame(m) {
   const s = m.state;
+  board.myCharId = myCharId;   // 讓 3D 標出「你」的棋子
   board.sync(s);
   processFx(s);
   renderTechBar(s);
