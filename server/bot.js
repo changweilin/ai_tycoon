@@ -12,6 +12,23 @@ function leadingPlayerIds(g) {
   return new Set(sorted.slice(0, Math.ceil(sorted.length / 3)).map(p => p.id));
 }
 
+/** 在手牌中找出 1~3 階科技卡湊成階級加總 target 的索引組合(回傳 null 表示湊不出) */
+function findTierSubset(hand, target) {
+  const items = hand.map((c, i) => ({ c, i })).filter(o => o.c.kind === 'tech' && o.c.tier <= 3);
+  let found = null;
+  (function dfs(start, remain, picked) {
+    if (found) return;
+    if (remain === 0) { found = [...picked]; return; }
+    if (start >= items.length || remain < 0) return;
+    for (let k = start; k < items.length && !found; k++) {
+      picked.push(items[k].i);
+      dfs(k + 1, remain - items[k].c.tier, picked);
+      picked.pop();
+    }
+  })(0, target, []);
+  return found;
+}
+
 /**
  * 執行 AI 的「一步」行動。回傳 false 表示已結束回合。
  * 由伺服器以計時器逐步呼叫,讓人類玩家看得到 AI 的動作。
@@ -99,14 +116,14 @@ export function botStep(g) {
   for (const type of opsOrder) {
     const idx = p.hand.findIndex(c => c.kind === 'ops' && c.type === type);
     if (idx < 0) continue;
-    const cost = g.opsCostFor(p, type);
-    if (!canPay(p, cost) || totalRes(p.res) < totalRes(cost) + Math.max(2, reserve)) continue;
-    const targets = g.cardTargets(type);
+    // 只考慮付得起的目標(費用含航線距離加成)
+    const targets = g.cardTargets(type).filter(t =>
+      canPay(p, t.cost) && totalRes(p.res) >= totalRes(t.cost) + Math.max(2, reserve));
     if (!targets.length) continue;
-    // 目標評分:科技力為主;自利型對領先者的卡加重
+    // 目標評分:科技力為主;自利型對領先者的卡加重(同分時挑較近/較便宜者)
     const scoreOf = t => {
       const ownerId = Object.values(g.regions).flatMap(r => r.cards).find(c => c.uid === t.uid)?.owner;
-      return t.tech + (leaders && leaders.has(ownerId) ? 8 : 0);
+      return t.tech + (leaders && leaders.has(ownerId) ? 8 : 0) - t.dist * 0.5;
     };
     const best = targets.reduce((a, b) => (scoreOf(b) > scoreOf(a) ? b : a));
     if (scoreOf(best) >= opsThreshold) {
@@ -120,8 +137,7 @@ export function botStep(g) {
     if (p.turnFlags.forfeitOps) break;
     const idx = p.hand.findIndex(c => c.kind === 'ops' && c.type === type);
     if (idx < 0 || p.hand.length < fakeHandGate) continue;
-    if (!canPay(p, g.opsCostFor(p, type))) continue;
-    const targets = g.cardTargets(type);
+    const targets = g.cardTargets(type).filter(t => canPay(p, t.cost));
     if (targets.length) { g.doPlayCard(idx, rand(targets)); return !g.over; }
   }
 
@@ -144,13 +160,20 @@ export function botStep(g) {
     if (g.doForfeit('move').ok) return true; // 不需要移動就換石油
   }
 
-  // 4. 手牌少且付得起就抽卡(長期型囤更多牌找高階卡)
-  const handGoal = 4 + (s.longTerm > 0.6 ? 1 : 0);
-  if (p.hand.length < handGoal && p.hand.length < RULES.handLimit) {
-    const dc = g.drawCost(p);
-    if (canPay(p, dc) && totalRes(p.res) >= totalRes(dc) + Math.max(6, reserve + 4)) {
-      const r = g.doDraw();
+  // 4. 捨牌升階換高階卡(每回合自動抽卡,沒有手動抽卡)。優先衝 5 階,其次 4 階
+  if (p.ap >= RULES.cardUpgradeAp) {
+    const t4InHand = p.hand.map((c, i) => [c, i])
+      .filter(([c]) => c.kind === 'tech' && c.tier === 4).map(([, i]) => i);
+    // 5 階:手上有足夠 4 階卡且牌庫有貨,長期/中後期升頂
+    if (g.tier5Deck.length > 0 && t4InHand.length >= RULES.tier5DiscardCount
+      && (s.longTerm > 0.4 || g.round >= 8)) {
+      const r = g.doUpgradeCard(t4InHand.slice(0, RULES.tier5DiscardCount), 5);
       if (r.ok) return true;
+    }
+    // 4 階:手牌偏多(有餘裕)、湊得出加總、牌庫有貨時升階
+    if (g.tier4Deck.length > 0 && p.hand.length >= 6 && (s.longTerm > 0.3 || g.round >= 5)) {
+      const subset = findTierSubset(p.hand, RULES.tier4DiscardSum);
+      if (subset) { const r = g.doUpgradeCard(subset, 4); if (r.ok) return true; }
     }
   }
 

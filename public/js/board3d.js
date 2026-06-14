@@ -46,6 +46,27 @@ function makeEmojiSprite(ch) {
   return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
 }
 
+// 卡牌背面貼圖(公共牌庫只露背面):暗底 + 霓虹外框 + 斜向電路紋 + 中央菱形徽記
+function makeCardBackTexture() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 358;
+  const ctx = c.getContext('2d');
+  const grd = ctx.createLinearGradient(0, 0, 256, 358);
+  grd.addColorStop(0, '#0c1430'); grd.addColorStop(1, '#1a0c30');
+  ctx.fillStyle = grd; ctx.fillRect(0, 0, 256, 358);
+  ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 10; ctx.strokeRect(12, 12, 232, 334);
+  ctx.strokeStyle = 'rgba(255,43,214,0.35)'; ctx.lineWidth = 3;
+  for (let i = -6; i < 12; i++) { ctx.beginPath(); ctx.moveTo(i * 40, 0); ctx.lineTo(i * 40 + 358, 358); ctx.stroke(); }
+  ctx.save(); ctx.translate(128, 179); ctx.rotate(Math.PI / 4);
+  ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 8; ctx.strokeRect(-58, -58, 116, 116);
+  ctx.fillStyle = 'rgba(123,43,255,0.5)'; ctx.fillRect(-34, -34, 68, 68);
+  ctx.restore();
+  ctx.fillStyle = '#eaffff'; ctx.textAlign = 'center';
+  ctx.font = 'bold 56px "Microsoft JhengHei", sans-serif'; ctx.fillText('?', 128, 200);
+  ctx.font = 'bold 26px "Microsoft JhengHei", sans-serif'; ctx.fillStyle = '#00f0ff'; ctx.fillText('CTW 2049', 128, 318);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 // 決定性偽隨機(市中心建築佈局用,每次載入長一樣)
 function mulberry32(seed) {
   return () => {
@@ -896,9 +917,11 @@ function weightedPick(weights) {
 }
 
 export class Board3D {
-  constructor(container, onRegionClick) {
+  constructor(container, onRegionClick, onPawnClick) {
     this.container = container;
     this.onRegionClick = onRegionClick;
+    this.onPawnClick = onPawnClick;     // 點擊棋子 → 查看玩家/角色
+    this.pawnPrevPos = {};              // charId → 上次所在城市(用來播移動動畫)
     this.regionMeshes = {};
     this.nodeGroup = new THREE.Group();
     this.pawnGroup = new THREE.Group();
@@ -929,8 +952,13 @@ export class Board3D {
     this.controls.target.set(0, 0, 0);
     this.controls.maxPolarAngle = Math.PI * 0.46;
     this.controls.minDistance = 10;
-    this.controls.maxDistance = 55;
+    this.controls.maxDistance = 62;
     this.controls.enableDamping = true;
+    // 操作:拖曳=平移地圖、雙指捏合=縮放(滾輪也可縮放);右鍵拖曳保留旋轉視角。
+    this.controls.screenSpacePanning = false;        // 沿地面平移(像看地圖)
+    this.controls.panSpeed = 0.9;
+    this.controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
+    this.controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN };
 
     // 提亮、偏柔和日光,讓消光低面數模型讀得清楚(intensity 會被天氣覆寫,色相保留)
     this.ambient = new THREE.AmbientLight(0x9fb4d6, 1.4);
@@ -955,6 +983,7 @@ export class Board3D {
     this._buildRegions();
     this._buildCities();
     this._buildRoutes();
+    this._buildDeck();
     this._buildStars();
     this._buildWeather();
     this._initWeatherBadge();
@@ -1287,6 +1316,62 @@ export class Board3D {
     item.parts = make[type]();
     item.parts.forEach(p => this.scene.add(p.mesh));
     this.traffic.push(item);
+  }
+
+  // 薄卡牌(背面朝上):背面貼圖在上下兩面,側邊暗霓虹;材質皆 transparent 供淡出
+  _makeCardMesh(w, h, d, tex) {
+    const back = new THREE.MeshStandardMaterial({ map: tex, metalness: 0, roughness: 1, flatShading: true, transparent: true });
+    const side = new THREE.MeshStandardMaterial({ color: 0x0c1430, emissive: NEON_CYAN, emissiveIntensity: 0.12, metalness: 0, roughness: 1, transparent: true });
+    return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [side, side, back, back, side, side]);
+  }
+
+  // ---------- 太平洋正中央的公共牌庫(只露卡背 + 抽牌效果) ----------
+  _buildDeck() {
+    const DX = 1.5, DZ = 4.0;
+    this.deckPos = { x: DX, z: DZ };
+    this.deckBaseY = 0.0;
+    this.cardBackTex = makeCardBackTexture();
+    const g = new THREE.Group(); g.position.set(DX, 0, DZ);
+    const buoy = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.15, 0.14, 6),
+      emissiveMat(0x10243f, 0.4, { metalness: 0.3, roughness: 0.6 }));
+    buoy.position.y = 0.05; g.add(buoy);
+    this.deckRing = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.04, 8, 6),
+      new THREE.MeshBasicMaterial({ color: NEON_CYAN, transparent: true, opacity: 0.8 }));
+    this.deckRing.rotation.x = Math.PI / 2; this.deckRing.position.y = 0.14; g.add(this.deckRing);
+    this.deckCards = [];
+    const N = 14;
+    for (let i = 0; i < N; i++) {
+      const card = this._makeCardMesh(0.95, 0.05, 1.3, this.cardBackTex);
+      card.position.set((Math.random() - 0.5) * 0.06, 0.18 + i * 0.05, (Math.random() - 0.5) * 0.06);
+      card.rotation.y = (Math.random() - 0.5) * 0.25;
+      g.add(card); this.deckCards.push(card);
+    }
+    this.deckIcon = makeEmojiSprite('🃏'); this.deckIcon.position.y = 1.5; this.deckIcon.scale.set(0.9, 0.9, 1); g.add(this.deckIcon);
+    const label = makeLabelSprite('公共牌庫', 'DRAW DECK', '#00f0ff');
+    label.position.y = 2.35; label.scale.set(3.6, 1.3, 1); g.add(label);
+    this.deckGroup = g;
+    this.scene.add(g);
+  }
+
+  // 抽牌效果:一張卡背從牌庫飛向抽牌者所在城市並旋轉淡出
+  fxDraw(toId) {
+    if (!this.deckPos) return;
+    const pb = this._regionPos(toId); if (!pb) return;
+    const a = new THREE.Vector3(this.deckPos.x, 0.95, this.deckPos.z);
+    const b = pb.clone().setY(0.7);
+    const mid = a.clone().add(b).multiplyScalar(0.5); mid.y = 1.8 + a.distanceTo(b) * 0.12;
+    const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+    const g = new THREE.Group();
+    const card = this._makeCardMesh(0.5, 0.03, 0.7, makeCardBackTexture());
+    g.add(card);
+    const _p = new THREE.Vector3();
+    this._registerFx(g, 1.1, age => {
+      const u = smooth(Math.min(1, age / 0.82));
+      curve.getPointAt(u, _p); card.position.copy(_p);
+      card.rotation.y = age * 14; card.rotation.x = Math.sin(age * 7) * 0.5;
+      const op = age > 0.82 ? Math.max(0, (1 - age) / 0.18) : 1;
+      for (const m of card.material) m.opacity = op;
+    });
   }
 
   _buildStars() {
@@ -1692,6 +1777,15 @@ export class Board3D {
     this.pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     this.raycaster.setFromCamera(this.pointer, this.camera);
+    // 棋子在最上層,先測棋子(點擊查看玩家/角色);找出被點到的棋子 root
+    if (this.onPawnClick && this.pawnGroup.children.length) {
+      const phits = this.raycaster.intersectObjects(this.pawnGroup.children, true);
+      if (phits.length) {
+        let o = phits[0].object;
+        while (o && o.parent !== this.pawnGroup) o = o.parent;
+        if (o && o.userData.charId) { this.onPawnClick(o.userData.charId, o.userData.regionId); return; }
+      }
+    }
     const hits = this.raycaster.intersectObjects(Object.values(this.regionMeshes));
     if (hits.length > 0) this.onRegionClick(hits[0].object.userData.regionId);
   }
@@ -1700,6 +1794,14 @@ export class Board3D {
   sync(state) {
     // 季節天氣:依回合季別(Q1春/Q2夏/Q3秋/Q4冬)切換當季氣候池
     this._applySeason(state.round);
+
+    // 公共牌庫:卡背堆疊高度約略反映剩餘牌量(以首次同步為滿)
+    if (state.deckCount !== undefined && this.deckCards) {
+      if (this.deckMax === undefined) this.deckMax = Math.max(1, state.deckCount);
+      const frac = Math.max(0, Math.min(1, state.deckCount / this.deckMax));
+      const show = Math.max(1, Math.round(frac * this.deckCards.length));
+      this.deckCards.forEach((c, i) => { c.visible = i < show; });
+    }
 
     // 城市等級變動 → 重建該城(地標長高 + 天際線增棟);首次同步不放升級煙火
     for (const rid in state.regions) {
@@ -1745,19 +1847,35 @@ export class Board3D {
       const ps = byRegion[rid];
       ps.forEach((p, i) => {
         const angle = (i / ps.length) * Math.PI * 2 + 0.6;
+        const tx = rDef.x + Math.cos(angle) * ringR, tz = rDef.z + Math.sin(angle) * ringR;
         const color = FACTIONS[p.faction].color;
         const builder = PAWN_BUILDERS[p.charId] || PAWN_BUILDERS._default;
         const pawn = buildModel('pawn:' + p.charId, () => builder(color), { fit: 1.2 });
-        pawn.position.set(rDef.x + Math.cos(angle) * ringR, PAWN_BASE_Y, rDef.z + Math.sin(angle) * ringR);
+        pawn.position.set(tx, PAWN_BASE_Y, tz);
         pawn.rotation.y = -angle + Math.PI; // 面向城市中心
         pawn.userData.baseY = PAWN_BASE_Y;
         pawn.userData.phase = i * 1.7 + rid.length;
         pawn.userData.charId = p.charId;
+        pawn.userData.regionId = rid;
+        pawn.userData.tx = tx; pawn.userData.tz = tz;
+        pawn.userData.faceY = -angle + Math.PI;
         pawn.userData.active = p.id === state.turnIdx && !state.over;
         pawn.userData.anim = pawn.userData.anim || [];
+        // 移動動畫:此角色上次在別座城市 → 從舊城弧線滑過來(跳躍弧線)
+        const prev = this.pawnPrevPos[p.charId];
+        if (prev && prev !== rid) {
+          const pr = REGIONS.find(x => x.id === prev);
+          if (pr) { pawn.userData.fromX = pr.x; pawn.userData.fromZ = pr.z; pawn.userData.moveT = 0; pawn.userData.moveDur = 0.9; }
+        }
+        // 隱形 hitbox:棋子小,放大點擊命中範圍(walk-up 會讀到 root 的 charId)
+        const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 1.7, 8),
+          new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }));
+        hit.position.y = 0.85; hit.userData.isHitbox = true; pawn.add(hit);
         this.pawnGroup.add(pawn);
       });
     }
+    // 記錄本次各角色位置,供下次同步判斷是否移動
+    state.players.forEach(p => { this.pawnPrevPos[p.charId] = p.pos; });
   }
 
   // 城市升級光環:綠色擴散環 + ⬆️
@@ -1963,6 +2081,56 @@ export class Board3D {
     });
   }
 
+  // 施法者光環:腳下擴散環 + 升起光柱 + 符文(誰在施展一眼可見;AI/玩家同步播放)
+  fxCast(regionId, css = '#00f0ff', emoji = '✨') {
+    const p = this._regionPos(regionId); if (!p) return;
+    const g = new THREE.Group(); g.position.copy(p);
+    const col = new THREE.Color(css);
+    const rings = [];
+    for (let i = 0; i < 2; i++) {
+      const r = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.62, 36),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+      r.rotation.x = -Math.PI / 2; r.position.y = 0.05; r.userData.delay = i * 0.18; g.add(r); rings.push(r);
+    }
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.34, 2.4, 18, 1, true),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false }));
+    pillar.position.y = 1.2; g.add(pillar);
+    const emo = this._floatEmoji(g, emoji);
+    this._registerFx(g, 1.1, age => {
+      rings.forEach(r => {
+        const a = Math.max(0, Math.min(1, (age - r.userData.delay) / (1 - r.userData.delay)));
+        r.scale.setScalar(0.5 + a * 2.2); r.material.opacity = 0.9 * (1 - a);
+      });
+      pillar.scale.set(1 - age, 1, 1 - age); pillar.material.opacity = 0.4 * (1 - age); pillar.rotation.y = age * 5;
+      emo(age);
+    });
+  }
+
+  // 施法連線:從施法者城市射出能量弧線到目標城市(看清楚誰打誰)
+  fxBeam(fromId, toId, css = '#ff2bd6') {
+    const pa = this._regionPos(fromId), pb = this._regionPos(toId);
+    if (!pa || !pb || fromId === toId) return;
+    const col = new THREE.Color(css);
+    const g = new THREE.Group();
+    const a = pa.clone().setY(0.55), b = pb.clone().setY(0.55);
+    const mid = a.clone().add(b).multiplyScalar(0.5);
+    mid.y = 1.0 + a.distanceTo(b) * 0.12;
+    const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+    const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(40));
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.9 }));
+    g.add(line);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 10),
+      new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 1, depthWrite: false }));
+    g.add(head);
+    const _p = new THREE.Vector3();
+    this._registerFx(g, 0.8, age => {
+      const u = Math.min(1, age / 0.6);
+      curve.getPointAt(u, _p); head.position.copy(_p); head.scale.setScalar(1 + Math.sin(age * 22) * 0.2);
+      line.material.opacity = 0.9 * (1 - Math.max(0, (age - 0.5) / 0.5));
+      head.material.opacity = 1 - Math.max(0, (age - 0.6) / 0.4);
+    });
+  }
+
   _animate() {
     requestAnimationFrame(() => this._animate());
     const dt = Math.min(this.clock.getDelta(), 0.05); // 夾住分頁切回時的大跳
@@ -1985,6 +2153,18 @@ export class Board3D {
       const ud = p.userData;
       const ph = ud.phase || 0;
       const baseY = ud.baseY || 0;
+      // 移動中:沿弧線從舊城跳到新城,並面向移動方向(略過待機/active 動畫)
+      if (ud.moveT !== undefined && ud.moveT < 1) {
+        ud.moveT = Math.min(1, ud.moveT + dt / (ud.moveDur || 0.9));
+        const k = smooth(ud.moveT);
+        p.position.x = lerp(ud.fromX, ud.tx, k);
+        p.position.z = lerp(ud.fromZ, ud.tz, k);
+        p.position.y = baseY + Math.sin(Math.PI * ud.moveT) * 0.6;
+        const dx = ud.tx - ud.fromX, dz = ud.tz - ud.fromZ;
+        if (dx * dx + dz * dz > 1e-4) p.rotation.y = Math.atan2(dx, dz);
+        if (ud.moveT >= 1) { p.position.set(ud.tx, baseY, ud.tz); p.rotation.y = ud.faceY ?? p.rotation.y; }
+        return;
+      }
       // 待機:輕浮動;當前回合者:明顯跳動 + 微旋身
       if (ud.active) {
         p.position.y = baseY + Math.abs(Math.sin(t * 3)) * 0.4;
@@ -2030,6 +2210,13 @@ export class Board3D {
     }
 
     if (this.stars) this.stars.rotation.y = t * 0.005;
+
+    // 公共牌庫:隨浪浮動 + 光環緩轉 + 圖示上下漂
+    if (this.deckGroup) {
+      this.deckGroup.position.y = this.deckBaseY + Math.sin(t * 1.2) * 0.05;
+      if (this.deckRing) this.deckRing.rotation.z = t * 0.6;
+      if (this.deckIcon) this.deckIcon.position.y = 1.5 + Math.sin(t * 2) * 0.08;
+    }
 
     // 海浪 + 天氣
     if (this.ocean) this._animateOcean(t, this.wxLive ? this.wxLive.wave : 0.3);

@@ -98,6 +98,9 @@ body {
 .mine-tip { color: #2eff8f; }
 
 /* ---------- 遊戲 HUD ---------- */
+/* 版面分欄:左欄(回合/玩家面板)、右欄(玩家列表/紀錄)固定寬度,
+   中央(科技條/行動列/手牌)夾在兩欄之間,彼此不重疊。 */
+#gameUI { --col-left: 344px; --col-right: 304px; }
 #canvas3d { position: fixed; inset: 0; }
 .hud {
   position: fixed; background: var(--panel); border: 1px solid var(--border);
@@ -105,7 +108,10 @@ body {
   box-shadow: 0 0 18px rgba(0,240,255,.12);
 }
 
-#techBar { top: 12px; left: 50%; transform: translateX(-50%); width: min(620px, 92vw); text-align: center; }
+#techBar {
+  top: 12px; left: var(--col-left); right: var(--col-right);
+  width: auto; max-width: 620px; margin-inline: auto; text-align: center;
+}
 .tech-row { display: flex; align-items: center; gap: 10px; }
 .tech-label { font-size: .95rem; white-space: nowrap; }
 .tech-label.us { color: #2e9fff; }
@@ -119,8 +125,9 @@ body {
 .tech-goal { color: #7a9aba; font-size: .75rem; }
 .tw-status { color: #2eff8f; font-size: .8rem; }
 
-.turn-banner { top: 12px; left: 12px; font-size: 1.05rem; }
-.spectator-tag { top: 60px; left: 200px; color: #ffd02e; }
+.turn-banner { top: 12px; left: 12px; max-width: 320px; font-size: 1.05rem; }
+/* 觀戰者沒有行動列/手牌 → 標籤放空著的底部置中欄,避開左上角(房主+觀戰會同時出現) */
+.spectator-tag { bottom: 16px; left: var(--col-left); right: var(--col-right); margin-inline: auto; width: fit-content; color: #ffd02e; }
 
 #playerPanel { top: 110px; left: 12px; max-width: 320px; font-size: .92rem; line-height: 1.7; }
 .perk-line { color: #aee9ff; font-size: .8rem; }
@@ -132,10 +139,32 @@ body {
 .pl-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pl-info { color: #9ab; font-size: .8rem; }
 
-#actionBar { bottom: 150px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 95vw; }
+/* 底部置中直欄:行動列在上、手牌在下,以 flex 排列 → 兩者永不重疊。
+   容器本身不吃點擊(讓 3D 可拖曳),只有子元素吃點擊。 */
+#bottomCenter {
+  position: fixed; bottom: 12px; left: var(--col-left); right: var(--col-right);
+  margin-inline: auto; max-width: 880px; z-index: 5;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  pointer-events: none;
+}
+#bottomCenter > * { pointer-events: auto; }
 
-#handWrap { bottom: 12px; left: 50%; transform: translateX(-50%); max-width: 95vw; overflow-x: auto; }
-#hand { display: flex; gap: 8px; }
+#actionBar {
+  position: static; max-width: 100%;
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+}
+
+/* 手牌:固定區塊內左右捲動;捲到非端點時該側淡出(--fl/--fr 由 JS 依捲動位置設定) */
+#handWrap {
+  position: static; width: 100%; max-width: 100%; max-height: 168px;
+  overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  --fl: 0px; --fr: 0px;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+          mask-image: linear-gradient(90deg, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
+}
+#handWrap::-webkit-scrollbar { display: none; }
+#hand { display: flex; gap: 8px; width: max-content; }
 .card {
   width: 128px; flex-shrink: 0; background: linear-gradient(160deg, #0c1430, #1a0c30);
   border: 1px solid var(--border); border-radius: 8px; padding: 8px; cursor: pointer; transition: all .15s;
@@ -175,8 +204,19 @@ body {
 #modalBody { margin-bottom: 14px; line-height: 1.8; }
 #modalOptions { display: flex; flex-direction: column; gap: 8px; }
 .modal-desc { color: #9ab; font-size: .85rem; }
+.upg-tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+.upg-list { max-height: 240px; overflow-y: auto; margin: 6px 0; display: flex; flex-direction: column; gap: 4px; }
+.upg-row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border: 1px solid rgba(0,240,255,.15); border-radius: 6px; cursor: pointer; }
+.upg-row:hover { background: rgba(0,240,255,.08); }
+.upg-row input { width: 16px; height: 16px; }
 .region-card-row { padding: 6px 0; border-bottom: 1px dashed rgba(0,240,255,.15); }
 .rc-stats { color: #9ab; font-size: .8rem; }
+
+/* 棋子資訊面板(點擊角色棋子) */
+.pawn-info { display: flex; flex-direction: column; gap: 6px; line-height: 1.6; }
+.pawn-info-head { font-size: 1.15rem; font-weight: bold; }
+.pawn-info-res { font-size: 1.05rem; color: #ffe08a; }
+.pawn-info-perk { color: #aee9ff; font-size: .85rem; margin-top: 2px; }
 
 .offer-row { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
 .tech-card {
@@ -197,6 +237,10 @@ body {
 .host-bar { top: 60px; left: 12px; display: flex; gap: 6px; padding: 6px 8px; }
 .small-btn { padding: 5px 10px; font-size: .8rem; }
 .save-players { color: #7a9aba; font-size: .75rem; }
+.saves-list { max-height: 50vh; overflow-y: auto; margin: 10px 0; display: flex; flex-direction: column; gap: 6px; }
+.save-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid rgba(0,240,255,.15); border-radius: 8px; }
+.save-meta { flex: 1; font-size: .85rem; line-height: 1.4; }
+.save-del, .save-clear { border-color: rgba(255,43,214,.5); }
 .modal-opt { text-align: left; line-height: 1.5; }
 .host-mode select {
   background: #060a1e; border: 1px solid var(--border); color: #fff;
@@ -261,12 +305,23 @@ body {
 }
 #toast.show { opacity: 1; }
 
+/* ---------- 小筆電 / 平板橫向:側欄與面板縮窄,讓中央 HUD 仍有足夠寬度 ---------- */
+@media (min-width: 761px) and (max-width: 1080px) {
+  #gameUI { --col-left: 210px; --col-right: 222px; }
+  .turn-banner { max-width: 188px; font-size: .92rem; }
+  #playerPanel { max-width: 186px; font-size: .8rem; line-height: 1.5; }
+  #playersList { min-width: 150px; font-size: .78rem; }
+  #log { width: 198px; height: 150px; }
+}
+
 /* ---------- 手機直向 ---------- */
 @media (max-width: 760px) {
   .lobby-grid { grid-template-columns: 1fr; }
+  /* 右欄(玩家列表/紀錄)隱藏 → 中央 HUD 改為近滿版,不再預留側欄寬度 */
+  #gameUI { --col-left: 8px; --col-right: 8px; }
   #playerPanel { top: auto; bottom: 340px; left: 8px; max-width: 60vw; font-size: .78rem; }
   #playersList { display: none; }
   #log { display: none; }
-  #actionBar { bottom: 140px; }
+  #handWrap { max-height: 150px; }
   .card { width: 104px; }
 }

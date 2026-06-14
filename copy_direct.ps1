@@ -54,11 +54,11 @@ Copy-Item -Path "$srcDir\logo_tsmc_1781319950000_1781358261270.png" -Destination
 Copy-Item -Path "$srcDir\logo_toyota_1781319960000_1781358273659.png" -Destination "$destDir\logos\toyota.png" -Force
 Copy-Item -Path "$srcDir\logo_samsung_1781319970000_1781358285291.png" -Destination "$destDir\logos\samsung.png" -Force
 
-# Flags (with adjusted versions)
-Copy-Item -Path "$srcDir\flag_us_adjusted_1781320030000_1781366027227.png" -Destination "$destDir\flags\flag_us.png" -Force
-Copy-Item -Path "$srcDir\flag_cn_adjusted_1781320040000_1781366041111.png" -Destination "$destDir\flags\flag_cn.png" -Force
-Copy-Item -Path "$srcDir\flag_tw_adjusted_1781320050000_1781366055016.png" -Destination "$destDir\flags\flag_tw.png" -Force
-Copy-Item -Path "$srcDir\flag_jp_1781320010000_1781358342624.png" -Destination "$destDir\flags\flag_jp.png" -Force
-Copy-Item -Path "$srcDir\flag_kr_adjusted_1781320060000_1781366066899.png" -Destination "$destDir\flags\flag_kr.png" -Force
+# Flags (with final adjusted versions)
+Copy-Item -Path "$srcDir\flag_us_final_1781320080000_1781407555201.png" -Destination "$destDir\flags\flag_us.png" -Force
+Copy-Item -Path "$srcDir\flag_cn_final_1781320090000_1781407569218.png" -Destination "$destDir\flags\flag_cn.png" -Force
+Copy-Item -Path "$srcDir\flag_tw_final_adjusted_1781320130000_1781408492119.png" -Destination "$destDir\flags\flag_tw.png" -Force
+Copy-Item -Path "$srcDir\flag_jp_final_1781320120000_1781407610993.png" -Destination "$destDir\flags\flag_jp.png" -Force
+Copy-Item -Path "$srcDir\flag_kr_final_1781320110000_1781407598054.png" -Destination "$destDir\flags\flag_kr.png" -Force
 
 Write-Output "Direct copy completed successfully!"

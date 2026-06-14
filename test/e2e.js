@@ -55,11 +55,15 @@ if (spec.last.priv !== null) throw new Error('觀戰者不該有私有資訊');
 const turnP = host.last.state.players[host.last.state.turnIdx];
 console.log('輪到:', turnP.name);
 
-// 輪到的人放棄打出作戰卡的權利換金錢(混合牌庫:開局手牌 4 張)
+// 輪到的人放棄打出作戰卡的權利換金錢
 const clients = { '皮衣刀客·黃仁薰': host, '菊廠廠長·任正飛': p2, '護國神山·張中謀': p3,
   '房主': host, '玩家二': p2, '玩家三': p3 };
 const actor = clients[turnP.name];
-if (actor.last.priv.hand.length !== 4) throw new Error('開局手牌應為 4 張');
+// 非當前玩家開局手牌 4 張;當前玩家回合開始已自動抽牌(算力 perk 抽 2 張)
+const nonCurrent = host.last.state.players.find(p => p.id !== turnP.id);
+const ncClient = clients[nonCurrent.name];
+if (ncClient.last.priv?.hand?.length !== 4) throw new Error('非當前玩家開局手牌應為 4 張');
+if (actor.last.priv.hand.length <= 4) throw new Error('當前玩家回合開始應已自動抽牌');
 const beforeMoney = turnP.res.money;
 const expectedGain = actor.last.priv.forfeitGain;
 actor.send({ t: 'action', kind: 'forfeit', kind2: 'ops' });
@@ -75,7 +79,7 @@ console.log('本季事件:', actor.last.state.event.name);
 // 非當前玩家行動應被拒
 const other = actor === host ? p2 : host;
 const before = other.errors.length;
-other.send({ t: 'action', kind: 'draw' });
+other.send({ t: 'action', kind: 'upgradeCard', handIdxs: [], toTier: 4 });
 await other.wait();
 if (other.errors.length === before) throw new Error('非當前玩家行動應被拒絕');
 

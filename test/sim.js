@@ -1,9 +1,12 @@
 // 無頭模擬:隨機跑完整局,驗證邏輯不會崩潰
 import { Game } from '../server/game.js';
 import { botStep } from '../server/bot.js';
-import { RES_KEYS, REGIONS, RULES } from '../public/js/data.js';
+import { RES_KEYS, REGIONS, RULES, CHARACTERS } from '../public/js/data.js';
 
 function rand(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+// 全部流通中的卡(開局時:公共牌庫 + 各家手牌 = 完整 1~3 階公牌;另含獨立的 4/5 階疊)。
+// 公牌變小後,直接 g.deck.find 指定類別/階級可能抽不到,改從完整流通池挑代表卡。
+function pool(g) { return [...g.deck, ...g.players.flatMap(p => p.hand), ...g.tier4Deck, ...g.tier5Deck]; }
 
 const seatSets = [
   ['jensen', 'ren'],                 // 雙人米牆對決(無台灣)
@@ -30,7 +33,7 @@ for (const seats of seatSets) {
         continue;
       }
       const p = g.cur();
-      const acts = ['move', 'plane', 'playTech', 'draw', 'playOps', 'forfeit', 'exchange', 'upgrade', 'end', 'end'];
+      const acts = ['move', 'plane', 'playTech', 'upgradeCard', 'playOps', 'forfeit', 'exchange', 'upgrade', 'end', 'end'];
       if (p.faction === 'TW') acts.push('reveal');
       const a = rand(acts);
       if (a === 'move') {
@@ -42,8 +45,16 @@ for (const seats of seatSets) {
       } else if (a === 'playTech') {
         const idxs = p.hand.map((c, i) => [c, i]).filter(([c]) => c.kind === 'tech');
         if (idxs.length) g.doPlayTech(rand(idxs)[1]);
-      } else if (a === 'draw') {
-        g.doDraw();
+      } else if (a === 'upgradeCard') {
+        // 隨機嘗試捨牌升階(2 張 4 階 → 5 階;或加總 6 的兩張 → 4 階)
+        const t4 = p.hand.map((c, i) => [c, i]).filter(([c]) => c.kind === 'tech' && c.tier === 4).map(([, i]) => i);
+        if (t4.length >= 2) g.doUpgradeCard(t4.slice(0, 2), 5);
+        else {
+          const lows = p.hand.map((c, i) => [c, i]).filter(([c]) => c.kind === 'tech' && c.tier <= 3);
+          outer: for (let i = 0; i < lows.length; i++)
+            for (let j = i + 1; j < lows.length; j++)
+              if (lows[i][0].tier + lows[j][0].tier === 6) { g.doUpgradeCard([lows[i][1], lows[j][1]], 4); break outer; }
+        }
       } else if (a === 'playOps') {
         const idxs = p.hand.map((c, i) => [c, i]).filter(([c]) => c.kind === 'ops');
         if (idxs.length) {
@@ -80,9 +91,10 @@ for (const seats of seatSets) {
   const p = g.cur();
   p.res = { money: 999, power: 999, oil: 999 };
   // 塞一張 1 階與一張 3 階同類科技卡進手牌
-  const t1 = g.deck.find(c => c.kind === 'tech' && c.tier === 1);
-  const t3 = g.deck.find(c => c.kind === 'tech' && c.tier === 3 && c.cat === t1.cat);
-  const t1b = g.deck.find(c => c.kind === 'tech' && c.tier === 1 && c.uid !== t1.uid);
+  const P = pool(g);
+  const t1 = P.find(c => c.kind === 'tech' && c.tier === 1);
+  const t3 = P.find(c => c.kind === 'tech' && c.tier === 3 && c.cat === t1.cat);
+  const t1b = P.find(c => c.kind === 'tech' && c.tier === 1 && c.uid !== t1.uid);
   p.hand = [t1, t3, t1b];
   if (!g.doPlayTech(0).ok) throw new Error('部署 1 階失敗');
   if (g.doPlayTech(1).ok) throw new Error('建造冷卻/一城一卡:同城立即再蓋應失敗');
@@ -101,7 +113,7 @@ for (const seats of seatSets) {
 {
   const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
   const us = g.players.find(q => q.faction === 'US');
-  const card = g.deck.find(c => c.kind === 'tech' && c.cat !== 'hardware'); // 避開角色折扣干擾
+  const card = pool(g).find(c => c.kind === 'tech' && c.cat !== 'hardware'); // 避開角色折扣干擾
   const costHome = g.developCostFor(us, card, 'sv');
   const costRival = g.developCostFor(us, card, 'beijing');
   const sum = c => RES_KEYS.reduce((s, k) => s + c[k], 0);
@@ -154,7 +166,7 @@ for (const seats of seatSets) {
   // 城市等級限制與升級
   p.res = { money: 999, power: 999, oil: 999 };
   const lv = g.regions[p.pos].level;
-  const high = g.deck.find(c => c.kind === 'tech' && c.tier === lv + 1);
+  const high = pool(g).find(c => c.kind === 'tech' && c.tier === lv + 1); // 4/5 階已移出公共牌庫
   if (g.canPlayTech(p, high).ok) throw new Error('城市等級不足仍可建造');
   if (!g.doUpgradeCity().ok) throw new Error('升級城市失敗');
   if (g.regions[p.pos].level !== lv + 1) throw new Error('升級後等級錯誤');
@@ -288,6 +300,105 @@ for (const seats of seatSets) {
   while (!g2.over && guard++ < 3000) botStep(g2);
   if (!g2.over) throw new Error('讀檔後對局未能跑完');
   console.log('✅ 存檔/讀檔 roundtrip 通過');
+}
+
+// 每個角色起始城市皆不同
+{
+  const homes = CHARACTERS.map(c => c.home);
+  if (new Set(homes).size !== homes.length) throw new Error('角色起始城市有重複:' + homes.join(','));
+  for (const c of CHARACTERS)
+    if (!REGIONS.find(r => r.id === c.home)) throw new Error(`角色 ${c.id} 的起始城市 ${c.home} 不存在`);
+  console.log('✅ 每個角色起始城市皆不同 通過');
+}
+
+// 公牌:公共牌庫只含 1/2/3 階;4/5 階各自獨立一疊
+{
+  const g = new Game([{ charId: 'musk' }, { charId: 'jensen' }, { charId: 'jack' },
+    { charId: 'ren' }, { charId: 'tsmc' }, { charId: 'toyota' }]); // 6 人 scale=1,比例精準
+  if (g.deck.some(c => c.kind === 'tech' && c.tier > 3)) throw new Error('公牌出現 4/5 階卡');
+  if (g.tier4Deck.some(c => c.tier !== 4) || g.tier5Deck.some(c => c.tier !== 5)) throw new Error('高階疊混入錯誤階級');
+  // 公牌總量(牌庫 + 已抽到各家手牌)的 1/2/3 階比例應為 4:3:2;高階卡不在公牌
+  const tc = { 1: 0, 2: 0, 3: 0 };
+  const all = [...g.deck, ...g.players.flatMap(p => p.hand)];
+  if (all.some(c => c.kind === 'tech' && c.tier > 3)) throw new Error('公牌循環中出現 4/5 階卡');
+  for (const c of all) if (c.kind === 'tech') tc[c.tier]++;
+  // 5 類 × (4,3,2) = 20:15:10
+  if (tc[1] !== 20 || tc[2] !== 15 || tc[3] !== 10)
+    throw new Error('公牌 1/2/3 階比例非 4:3:2:' + JSON.stringify(tc));
+  console.log('✅ 公牌只含 1/2/3 階(20:15:10 = 4:3:2)、4/5 階獨立疊 通過');
+}
+
+// 每回合自動抽一張卡(算力 perk 抽兩張) + 行動點每回合重置
+{
+  const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
+  // jensen(算力 perk):開局手牌 = startHand + 自動抽 2
+  if (g.players[0].hand.length !== RULES.startHand + 2) throw new Error('算力 perk 開局未多抽一張');
+  // ren(無此 perk):輪到他時自動抽 1,行動點重置為 3
+  g.cur().ap = 0; g.endTurn();
+  const ren = g.cur();
+  // 行動點每回合重置為當輪上限(可能受事件 apDelta 影響,故與 apPerTurn() 比對)
+  if (ren.ap !== g.apPerTurn()) throw new Error(`行動點未每回合重置(${ren.ap} ≠ ${g.apPerTurn()})`);
+  if (ren.hand.length !== RULES.startHand + 1) throw new Error('一般角色每回合未自動抽一張');
+  console.log('✅ 行動點每回合重置 + 每回合自動抽一張(算力 perk 抽兩張) 通過');
+}
+
+// 捨牌升階:加總 6 → 4 階卡;2 張 4 階 → 5 階卡
+{
+  const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
+  const p = g.cur(); p.ap = 3;
+  const t4pool = g.tier4Deck.length, t5pool = g.tier5Deck.length;
+  // 兩張 3 階(加總 6)→ 4 階
+  const t3s = pool(g).filter(c => c.kind === 'tech' && c.tier === 3).slice(0, 2);
+  p.hand = [...t3s];
+  if (!g.doUpgradeCard([0, 1], 4).ok) throw new Error('加總 6 換 4 階失敗');
+  if (g.tier4Deck.length !== t4pool - 1) throw new Error('4 階卡庫未減少');
+  if (p.hand.length !== 1 || p.hand[0].tier !== 4) throw new Error('未換得 4 階卡');
+  // 加總非 6 應失敗
+  const oneT3 = pool(g).find(c => c.kind === 'tech' && c.tier === 3);
+  p.hand.push(oneT3);
+  if (g.doUpgradeCard([1], 4).ok) throw new Error('加總非 6 不應能換 4 階');
+  // 2 張 4 階 → 5 階
+  p.ap = 3;
+  const fourA = g.tier4Deck.pop(), fourB = g.tier4Deck.pop();
+  p.hand = [fourA, fourB];
+  if (!g.doUpgradeCard([0, 1], 5).ok) throw new Error('2 張 4 階換 5 階失敗');
+  if (g.tier5Deck.length !== t5pool - 1) throw new Error('5 階卡庫未減少');
+  if (p.hand.length !== 1 || p.hand[0].tier !== 5) throw new Error('未換得 5 階卡');
+  if (g.doUpgradeCard([], 5).ok) throw new Error('空手不應能換 5 階');
+  console.log('✅ 捨牌升階(加總6→4階;2張4階→5階) 通過');
+}
+
+// 作戰卡:航線距離加成(每多 1 格 +50%) + 牆國攻擊範圍 +1
+{
+  const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
+  const sum = c => RES_KEYS.reduce((s, k) => s + c[k], 0);
+  const us = g.players.find(q => q.faction === 'US');
+  const cn = g.players.find(q => q.faction === 'CN');
+  const base = sum(g.opsCostFor(us, 'spy2', 0));
+  const d2 = sum(g.opsCostFor(us, 'spy2', 2)); // +50%
+  const d3 = sum(g.opsCostFor(us, 'spy2', 3)); // +100%
+  if (d2 <= base || d3 <= d2) throw new Error('航線距離未逐格加費:' + JSON.stringify({ base, d2, d3 }));
+  // 範圍:US=opsRange、CN=opsRange+bonus
+  if (g.opsRangeFor(us) !== RULES.opsRange) throw new Error('米國攻擊範圍錯誤');
+  if (g.opsRangeFor(cn) !== RULES.opsRange + RULES.cnOpsRangeBonus) throw new Error('牆國攻擊範圍未 +1');
+  console.log('✅ 作戰卡航線距離加成(每多1格+50%)+ 牆國範圍+1 通過');
+}
+
+// 飛機只能跨 planeRange 格;超過無法直達
+{
+  const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
+  const p = g.cur(); // jensen 在矽谷
+  p.res.oil = 99; p.ap = 3;
+  const dist = g.distancesFrom(p.pos);
+  let testedNear = false, testedFar = false;
+  for (const r of REGIONS) {
+    const d = dist[r.id];
+    if (d == null || d === 0 || g.adj[p.pos].includes(r.id)) continue;
+    if (d <= RULES.planeRange) { if (!g.canMoveTo(r.id)) throw new Error(`${r.id}(${d}格)應可搭機`); testedNear = true; }
+    else { if (g.canMoveTo(r.id)) throw new Error(`${r.id}(${d}格)超出航程不應可搭機`); testedFar = true; }
+  }
+  if (!testedNear || !testedFar) throw new Error('飛機航程測試未涵蓋遠近兩種情況');
+  console.log(`✅ 飛機僅可跨 ${RULES.planeRange} 格(超過無法直達) 通過`);
 }
 
 // AI 機器人全自動對局

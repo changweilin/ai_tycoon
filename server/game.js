@@ -1,7 +1,7 @@
 // ============ 權威遊戲邏輯(僅在伺服器執行) ============
 import {
   FACTIONS, CHARACTERS, REGIONS, EDGES, RULES,
-  TECH_CATEGORIES, TECH_CARDS, TIER_COPIES, INDUSTRY_CATEGORY,
+  TECH_CATEGORIES, TECH_CARDS, MAIN_TIER_COPIES, TIER4_COPIES, TIER5_COPIES, INDUSTRY_CATEGORY,
   OPS_CARDS, OPS_DECK_COMPOSITION, EVENT_CARDS,
   RES_KEYS, CATEGORY_RATIO, splitCost,
 } from '../public/js/data.js';
@@ -74,20 +74,31 @@ export class Game {
     this.round = 1;
     this.turnIdx = 0;
 
-    // 混合牌庫:科技卡 + 灰色作戰卡全部洗成一疊(數量依遊玩人數調整)
+    // 公共牌庫(公牌):只放 1/2/3 階科技卡(比例 4:3:2)+ 灰色作戰卡;
+    // 4 階與 5 階各自獨立一疊,只能用捨牌升階換取(數量依遊玩人數調整)
     this.deck = [];
     this.discardPile = [];
+    this.tier4Deck = [];
+    this.tier5Deck = [];
     for (const catId in TECH_CATEGORIES) {
       for (const def of TECH_CARDS[catId]) {
-        const copies = Math.max(1, Math.round(TIER_COPIES[def.tier - 1] * scale));
-        for (let i = 0; i < copies; i++) this.deck.push(makeTechCard(catId, def));
+        if (def.tier <= 3) {
+          const copies = Math.max(1, Math.round(MAIN_TIER_COPIES[def.tier - 1] * scale));
+          for (let i = 0; i < copies; i++) this.deck.push(makeTechCard(catId, def));
+        } else if (def.tier === 4) {
+          const copies = Math.max(1, Math.round(TIER4_COPIES * scale));
+          for (let i = 0; i < copies; i++) this.tier4Deck.push(makeTechCard(catId, def));
+        } else {
+          const copies = Math.max(1, Math.round(TIER5_COPIES * scale));
+          for (let i = 0; i < copies; i++) this.tier5Deck.push(makeTechCard(catId, def));
+        }
       }
     }
     for (const [type, n] of OPS_DECK_COMPOSITION) {
       const copies = Math.max(1, Math.round(n * scale));
       for (let i = 0; i < copies; i++) this.deck.push(makeOpsCard(type));
     }
-    shuffle(this.deck);
+    shuffle(this.deck); shuffle(this.tier4Deck); shuffle(this.tier5Deck);
 
     // 集體事件卡牌庫
     this.eventDeck = shuffle(EVENT_CARDS.map(e => e.id));
@@ -193,18 +204,23 @@ export class Game {
   /** 角色擅長的科技卡類別 */
   specialtyOf(p) { return INDUSTRY_CATEGORY[p.char.industry]; }
 
-  /** from 出發 maxDist 格內可達的城市集合(含自身) */
-  regionsWithin(from, maxDist) {
-    const seen = new Set([from]);
+  /** from 出發各城市的航線距離(BFS),回傳 { rid: dist };只計算 maxDist 格以內 */
+  distancesFrom(from, maxDist = Infinity) {
+    const dist = { [from]: 0 };
     let frontier = [from];
-    for (let d = 0; d < maxDist; d++) {
+    for (let d = 0; d < maxDist && frontier.length; d++) {
       const next = [];
       for (const rid of frontier)
         for (const n of this.adj[rid])
-          if (!seen.has(n)) { seen.add(n); next.push(n); }
+          if (dist[n] == null) { dist[n] = d + 1; next.push(n); }
       frontier = next;
     }
-    return seen;
+    return dist;
+  }
+
+  /** 灰色作戰卡的攻擊範圍(航線格數):牆國 +1 */
+  opsRangeFor(p) {
+    return RULES.opsRange + (p.faction === 'CN' ? (RULES.cnOpsRangeBonus || 0) : 0);
   }
 
   /** 科技/作戰卡的資源花費比例 */
@@ -256,8 +272,9 @@ export class Game {
     return false;
   }
 
-  /** 作戰卡費用(三種資源);牆國優勢:費用是他國的一半 */
-  opsCostFor(p, type) {
+  /** 作戰卡費用(三種資源);牆國優勢:費用是他國的一半。
+   *  dist:目標距離(航線格數)— 每多一個航線(超過 1 格)費用 +50% */
+  opsCostFor(p, type, dist = 0) {
     const c = OPS_CARDS[type];
     if (c.cat === 'fake' && (p.char.perk === 'media' || this.hasFakeFree(p))) return zeroRes();
     let cost = c.cost;
@@ -266,7 +283,10 @@ export class Game {
     cost -= this.specialSum(p, 'opsDiscount');
     const ev = this.eventEffect();
     if (ev?.type === 'opsCost') cost = Math.ceil(cost * ev.mult);
-    return splitCost(Math.max(0, cost), c.ratio);
+    cost = Math.max(0, cost);
+    const extra = Math.max(0, dist - 1); // 第 1 格內不加成,之後每格 +50%
+    if (extra > 0) cost = Math.ceil(cost * (1 + extra * RULES.opsDistSurcharge));
+    return splitCost(cost, c.ratio);
   }
 
   /** 玩家在此城市已有的科技卡(一城一卡) */
@@ -300,8 +320,14 @@ export class Game {
     return triple;
   }
 
-  drawCost(p) { return p.char.perk === 'ai' ? zeroRes() : { ...RULES.drawCost }; }
+  /** 把卡片放回對應牌堆:4/5 階各自回獨立疊,其餘(1~3 階科技卡 / 作戰卡)進公共棄牌堆 */
+  discardCard(card) {
+    if (card.kind === 'tech' && card.tier >= 5) this.tier5Deck.push(card);
+    else if (card.kind === 'tech' && card.tier >= 4) this.tier4Deck.push(card);
+    else this.discardPile.push(card);
+  }
 
+  /** 從公共牌庫(公牌)抽一張到手牌;牌庫空了就把棄牌堆洗回 */
   drawCardFor(p) {
     if (this.deck.length === 0) {
       if (this.discardPile.length === 0) return null;
@@ -312,6 +338,17 @@ export class Game {
     const c = this.deck.pop();
     p.hand.push(c);
     return c;
+  }
+
+  /** 可否從手牌湊出階級加總正好 target 的 1~3 階科技卡(子集和) */
+  canFormTierSum(p, target) {
+    const reach = new Set([0]);
+    for (const c of p.hand) {
+      if (c.kind !== 'tech' || c.tier > 3) continue;
+      for (const v of [...reach]) if (v + c.tier <= target) reach.add(v + c.tier);
+      if (reach.has(target)) return true;
+    }
+    return reach.has(target);
   }
 
   /** 有效防護力 = 卡片防護 + 同區域同擁有者其他卡的防護光環 */
@@ -363,14 +400,26 @@ export class Game {
     return Math.max(1, RULES.apPerTurn + (ev?.type === 'apDelta' ? ev.val : 0));
   }
 
+  /** 每回合自動抽牌張數(算力 perk:每回合多抽一張) */
+  autoDrawCount(p) { return p.char.perk === 'ai' ? 2 : 1; }
+
   beginTurn() {
     const p = this.cur();
-    p.ap = this.apPerTurn();
+    p.ap = this.apPerTurn(); // 行動點每回合重置(補滿)
     p.usedFreeMove = false;
     p.turnFlags = emptyTurnFlags();
     const income = this.incomeOf(p);
     addRes(p.res, income);
     this.addLog(`${p.name} 開始回合,獲得收入 ${resStr(income)}(行動點 ${p.ap})`);
+    // 每回合自動抽一張卡(算力 perk 多抽一張);不再有手動抽卡
+    let drawn = 0;
+    for (let i = 0; i < this.autoDrawCount(p); i++) if (this.drawCardFor(p)) drawn++;
+    if (drawn > 0) {
+      this.addLog(`🃏 ${p.name} 自動抽了 ${drawn} 張卡`);
+      this.addFx('draw', { region: p.pos, charId: p.char.id, faction: p.faction });
+    } else if (p.hand.length >= RULES.handLimit) {
+      this.addLog(`🃏 ${p.name} 手牌已滿,本回合略過自動抽卡`);
+    }
   }
 
   endTurn() {
@@ -507,6 +556,11 @@ export class Game {
     const adjacent = this.adj[p.pos].includes(rid);
     if (adjacent && p.char.perk === 'transport' && !p.usedFreeMove)
       return { oil: 0, free: true, plane: false };
+    if (!adjacent) {
+      // 搭飛機:最多可跨 planeRange 格(航線);超出航程無法直達
+      const dist = this.distancesFrom(p.pos, RULES.planeRange);
+      if (dist[rid] == null) return null;
+    }
     let oil = adjacent ? RULES.moveOilCost : RULES.planeOilCost;
     if (p.faction === 'JP') oil = Math.floor(oil * RULES.jpMoveHalf); // 日本優勢:油電混合
     return { oil, free: false, plane: !adjacent };
@@ -595,7 +649,7 @@ export class Game {
       r.cards = r.cards.filter(c => c.uid !== old.uid);
       this.removeTechGain(p, old.techApplied || 0);
       delete old.owner; delete old.techApplied; delete old.opsHit;
-      this.discardPile.push(old);
+      this.discardCard(old);
       this.addLog(`${p.name} 拆除了 ${r.name} 的【${old.name}】${old.cat === card.cat ? '(同類型折舊抵免費用)' : ''}`);
     }
 
@@ -616,18 +670,42 @@ export class Game {
     return { ok: true };
   }
 
-  doDraw() {
+  /** 捨牌升階(換取 4/5 階卡;每回合自動抽牌,沒有手動抽卡)。
+   *  toTier=4:捨棄階級加總正好 tier4DiscardSum(預設 6)的 1~3 階科技卡 → 抽 1 張 4 階卡
+   *  toTier=5:捨棄 tier5DiscardCount(預設 2)張 4 階卡 → 抽 1 張 5 階卡 */
+  doUpgradeCard(handIdxs, toTier) {
     const p = this.cur();
     if (this.over) return { ok: false, msg: '遊戲已結束' };
     if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
-    if (p.ap < 1) return { ok: false, msg: '行動點不足' };
-    const cost = this.drawCost(p);
-    if (!canPay(p, cost)) return { ok: false, msg: `資源不足(需要 ${resStr(cost)})` };
-    if (p.hand.length >= RULES.handLimit) return { ok: false, msg: '手牌已滿' };
-    p.ap -= 1;
-    pay(p, cost);
-    this.drawCardFor(p);
-    this.addLog(`${p.name} 抽了一張卡`);
+    toTier = Number(toTier);
+    if (toTier !== 4 && toTier !== 5) return { ok: false, msg: '只能升階到 4 或 5 階' };
+    if (p.ap < RULES.cardUpgradeAp) return { ok: false, msg: '行動點不足' };
+    const raw = Array.isArray(handIdxs) ? handIdxs.map(Number) : [];
+    const idxs = [...new Set(raw)];
+    if (idxs.length !== raw.length || idxs.some(i => !Number.isInteger(i) || i < 0 || i >= p.hand.length))
+      return { ok: false, msg: '選擇的卡片不合法' };
+    const cards = idxs.map(i => p.hand[i]);
+    if (cards.some(c => !c || c.kind !== 'tech')) return { ok: false, msg: '只能捨棄科技卡來升階' };
+    const pool = toTier === 4 ? this.tier4Deck : this.tier5Deck;
+    if (pool.length === 0) return { ok: false, msg: `${toTier} 階卡庫已空,無法升階` };
+    if (toTier === 4) {
+      if (cards.some(c => c.tier > 3)) return { ok: false, msg: '請用 1~3 階科技卡湊加總' };
+      const sum = cards.reduce((s, c) => s + c.tier, 0);
+      if (sum !== RULES.tier4DiscardSum)
+        return { ok: false, msg: `需捨棄階級加總正好 ${RULES.tier4DiscardSum} 的科技卡(目前 ${sum})` };
+    } else {
+      if (cards.length !== RULES.tier5DiscardCount || cards.some(c => c.tier !== 4))
+        return { ok: false, msg: `需捨棄 ${RULES.tier5DiscardCount} 張 4 階卡` };
+    }
+    p.ap -= RULES.cardUpgradeAp;
+    for (const i of [...idxs].sort((a, b) => b - a)) { // 由大到小移除避免索引位移
+      const [c] = p.hand.splice(i, 1);
+      this.discardCard(c);
+    }
+    const nc = pool.pop();
+    p.hand.push(nc);
+    this.addLog(`⏫ ${p.name} 捨棄 ${cards.length} 張卡,升階抽得【${nc.name}】(${nc.tier}階)`);
+    this.addFx('draw', { region: p.pos, charId: p.char.id, faction: p.faction });
     return { ok: true };
   }
 
@@ -716,12 +794,12 @@ export class Game {
     const card = OPS_CARDS[type];
     if (!card) return [];
     const mySide = this.secretSideOf(p);
-    const inRange = this.regionsWithin(p.pos, RULES.opsRange);
+    const dist = this.distancesFrom(p.pos, this.opsRangeFor(p));
 
     if (card.cat === 'spy' || card.cat === 'steal') {
       const targets = [];
       for (const rid in this.regions) {
-        if (!inRange.has(rid)) continue;
+        if (dist[rid] == null) continue;       // 超出航線可及範圍
         for (const c of this.regions[rid].cards) {
           if (c.owner === p.id) continue;
           if (c.opsHit) continue; // 已被作戰卡鎖定過
@@ -729,18 +807,23 @@ export class Game {
           if (p.faction !== 'TW' && this.secretSideOf(owner) === mySide) continue; // 不打自己陣營
           const def = this.effDef(rid, c);
           if (card.atk < def) continue; // 防護力太高
+          const cost = this.opsCostFor(p, type, dist[rid]);
           targets.push({
-            regionId: rid, uid: c.uid, tier: c.tier, tech: c.tech,
-            label: `${this.regions[rid].name}|${owner.name}【${c.name}】${c.tier}階(防護${def})`,
+            regionId: rid, uid: c.uid, tier: c.tier, tech: c.tech, dist: dist[rid], cost,
+            label: `${this.regions[rid].name}(${dist[rid]}格·${resStr(cost)})|${owner.name}【${c.name}】${c.tier}階(防護${def})`,
           });
         }
       }
       return targets;
     }
     if (card.cat === 'fake') {
-      return Object.values(this.regions)
-        .filter(r => inRange.has(r.id) && r.fakeUntilRound <= this.round)
-        .map(r => ({ regionId: r.id, label: r.name }));
+      const out = [];
+      for (const r of Object.values(this.regions)) {
+        if (dist[r.id] == null || r.fakeUntilRound > this.round) continue;
+        const cost = this.opsCostFor(p, type, dist[r.id]);
+        out.push({ regionId: r.id, dist: dist[r.id], cost, label: `${r.name}(${dist[r.id]}格·${resStr(cost)})` });
+      }
+      return out;
     }
     return [];
   }
@@ -755,21 +838,21 @@ export class Game {
     const type = hc.type;
     const card = OPS_CARDS[type];
     if (p.ap < 1) return { ok: false, msg: '行動點不足' };
-    const cost = this.opsCostFor(p, type);
-    if (!canPay(p, cost)) return { ok: false, msg: `資源不足(需要 ${resStr(cost)})` };
 
-    // 驗證目標仍合法
+    // 先驗證目標仍合法,費用依目標距離(航線格數)決定
     const valid = this.cardTargets(type);
     let chosen = null;
     if (card.cat === 'fake') chosen = valid.find(t => t.regionId === target?.regionId);
     else chosen = valid.find(t => t.uid === target?.uid);
     if (!chosen) return { ok: false, msg: '目標不合法或已消失' };
+    const cost = chosen.cost; // 已含航線距離加成(伺服器端重算,不信任客戶端)
+    if (!canPay(p, cost)) return { ok: false, msg: `資源不足(需要 ${resStr(cost)})` };
 
     p.ap -= 1;
     pay(p, cost);
     p.hand.splice(handIdx, 1);
     p.turnFlags.playedOps = true;
-    this.discardPile.push(hc);
+    this.discardCard(hc);
 
     if (card.cat === 'spy') {
       const r = this.regions[chosen.regionId];
@@ -778,7 +861,7 @@ export class Game {
       r.cards = r.cards.filter(c => c.uid !== tc.uid);
       const loss = tc.techApplied || tc.tech;
       delete tc.owner; delete tc.techApplied; delete tc.opsHit;
-      this.discardPile.push(tc);
+      this.discardCard(tc);
       const ownerSide = this.removeTechGain(owner, loss);
       if (ownerSide) {
         this.addLog(`💣 ${p.name} 用【${card.name}】摧毀了 ${owner.name} 在 ${r.name} 的【${tc.name}】!${FACTIONS[ownerSide].name}科技力 -${loss} 點`);
@@ -1023,6 +1106,8 @@ export class Game {
       twPivoted: this.twPivoted,
       twSupportPublic: this.twRevealed ? this.twSupport : null,
       deckCount: this.deck.length + this.discardPile.length,
+      tier4Count: this.tier4Deck.length,
+      tier5Count: this.tier5Deck.length,
       phase: this.phase,
       tradeOffers: this.phase === 'trade' ? this.tradeOffers : [],
       tradeReady: this.phase === 'trade' ? [...this.tradeReady] : [],
@@ -1046,7 +1131,7 @@ export class Game {
         builtRound: this.regions[rid].builtRound,
       };
     return {
-      version: 2,
+      version: 3,
       players: this.players.map(p => ({
         id: p.id, name: p.name, charId: p.char.id, res: p.res, intel: p.intel,
         hand: p.hand, pos: p.pos, ap: p.ap, usedFreeMove: p.usedFreeMove,
@@ -1054,6 +1139,7 @@ export class Game {
       })),
       regions,
       deck: this.deck, discardPile: this.discardPile,
+      tier4Deck: this.tier4Deck, tier5Deck: this.tier5Deck,
       eventDeck: this.eventDeck, activeEvent: this.activeEvent,
       tech: this.tech, startLead: this.startLead, round: this.round, turnIdx: this.turnIdx,
       twSupport: this.twSupport, twRevealed: this.twRevealed,
@@ -1068,7 +1154,7 @@ export class Game {
   }
 
   static fromSave(d) {
-    if (d.version !== 2) throw new Error('存檔版本不相容(舊版規則存檔無法載入)');
+    if (d.version !== 3) throw new Error('存檔版本不相容(舊版規則存檔無法載入)');
     const g = Object.create(Game.prototype);
     g.regions = {};
     for (const r of REGIONS)
@@ -1085,6 +1171,7 @@ export class Game {
     }));
     g.hasTW = g.players.some(p => p.faction === 'TW');
     g.deck = d.deck; g.discardPile = d.discardPile;
+    g.tier4Deck = d.tier4Deck || []; g.tier5Deck = d.tier5Deck || [];
     g.eventDeck = d.eventDeck; g.activeEvent = d.activeEvent;
     g.tech = d.tech; g.round = d.round; g.turnIdx = d.turnIdx;
     g.startLead = d.startLead ?? (d.tech.US - d.tech.CN);
@@ -1122,7 +1209,6 @@ export class Game {
           myCost: this.developCostFor(p, c), playMsg: chk.ok ? null : chk.msg,
         };
       }),
-      drawCost: this.drawCost(p),
       intel: p.intel.map(it => ({ cat: it.cat, gain: it.gain })),
       turnFlags: { ...p.turnFlags },
       forfeitGain: this.forfeitGainOf(p),
@@ -1142,6 +1228,17 @@ export class Game {
         level: r.level,
         max: RULES.cityMaxLevel,
         cost: r.level < RULES.cityMaxLevel ? this.upgradeCostAt(p, p.pos) : null,
+      };
+      // 捨牌升階(換 4/5 階卡)
+      const t4count = p.hand.filter(c => c.kind === 'tech' && c.tier === 4).length;
+      priv.cardUpgrade = {
+        ap: RULES.cardUpgradeAp,
+        sum: RULES.tier4DiscardSum,
+        need5: RULES.tier5DiscardCount,
+        pool4: this.tier4Deck.length,
+        pool5: this.tier5Deck.length,
+        can4: p.ap >= RULES.cardUpgradeAp && this.tier4Deck.length > 0 && this.canFormTierSum(p, RULES.tier4DiscardSum),
+        can5: p.ap >= RULES.cardUpgradeAp && this.tier5Deck.length > 0 && t4count >= RULES.tier5DiscardCount,
       };
       priv.moveTargets = REGIONS
         .filter(r => r.id !== p.pos && this.canMoveTo(r.id))

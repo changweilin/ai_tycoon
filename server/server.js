@@ -68,6 +68,11 @@ function genPin() {
   return pin;
 }
 
+// 連線 session token:斷線重連時用來認回原本的座位(保留房主/角色身分)
+function genToken() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
 function lanUrls() {
   const urls = [];
   const ifaces = os.networkInterfaces();
@@ -128,6 +133,26 @@ function listSaves() {
     .sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || ''));
 }
 
+// 刪除單一存檔(防目錄穿越)
+function deleteSave(file) {
+  const f = path.basename(String(file || ''));
+  if (!f.endsWith('.json')) return false;
+  const full = path.join(SAVE_DIR, f);
+  if (!fs.existsSync(full)) return false;
+  fs.unlinkSync(full); return true;
+}
+
+// 清除所有自動存檔(_autosave_*.json),保留玩家手動存檔
+function clearAutosaves() {
+  let n = 0;
+  for (const f of fs.readdirSync(SAVE_DIR)) {
+    if (f.startsWith('_autosave_') && f.endsWith('.json')) {
+      try { fs.unlinkSync(path.join(SAVE_DIR, f)); n++; } catch { /* 忽略 */ }
+    }
+  }
+  return n;
+}
+
 /** 廣播房間狀態(每個 client 拿到自己視角的 payload) */
 function broadcast(room) {
   const lobby = {
@@ -147,7 +172,7 @@ function broadcast(room) {
       const pIdx = playerIdxOf(room, c);
       if (pIdx >= 0) priv = room.game.privateStateFor(pIdx);
     }
-    send(c.ws, { t: 'sync', youId: id, isHost: id === room.hostId, lobby, state: pub, priv });
+    send(c.ws, { t: 'sync', youId: id, token: c.token, isHost: id === room.hostId, lobby, state: pub, priv });
   }
 }
 
@@ -205,7 +230,7 @@ function pumpAI(room) {
 const wss = new WebSocketServer({ server: httpServer });
 
 wss.on('connection', ws => {
-  const clientId = nextClientId++;
+  let clientId = nextClientId++; // reattach 時會改綁回原座位 id
   let room = null;
   let client = null;
 
@@ -223,7 +248,7 @@ wss.on('connection', ws => {
         clients: new Map(), chars: new Map(),
         config: { gameName: sanitizeName(m.gameName) , expectedCount: 4 },
       };
-      client = { ws, name: m.name || `玩家${clientId}`, mode: 'player', charId: null };
+      client = { ws, name: m.name || `玩家${clientId}`, mode: 'player', charId: null, token: genToken(), connected: true };
       room.clients.set(clientId, client);
       rooms.set(pin, room);
       console.log(`🏠 房間 ${pin} 已建立`);
@@ -255,7 +280,7 @@ wss.on('connection', ws => {
         try { room.game = Game.fromSave(data.game); }
         catch (e) { rooms.delete(pin); room = null; err('載入失敗:' + e.message); return; }
       }
-      client = { ws, name: m.name || `玩家${clientId}`, mode: 'player', charId: null };
+      client = { ws, name: m.name || `玩家${clientId}`, mode: 'player', charId: null, token: genToken(), connected: true };
       room.clients.set(clientId, client);
       rooms.set(pin, room);
       console.log(`📂 從存檔「${data.name}」建立房間 ${pin}`);
@@ -267,10 +292,36 @@ wss.on('connection', ws => {
       const r = rooms.get(String(m.pin));
       if (!r) { err('找不到此 PIN 的房間'); return; }
       room = r;
-      client = { ws, name: m.name || `玩家${clientId}`, mode: m.mode === 'spectator' ? 'spectator' : 'player', charId: null };
+      client = { ws, name: m.name || `玩家${clientId}`, mode: m.mode === 'spectator' ? 'spectator' : 'player', charId: null, token: genToken(), connected: true };
       room.clients.set(clientId, client);
       console.log(`👤 ${client.name} 加入房間 ${room.pin}(${client.mode})`);
       broadcast(room);
+      return;
+    }
+    // ----- 斷線重連:用 token 認回原座位(保留房主/角色) -----
+    if (m.t === 'reattach') {
+      const r = rooms.get(String(m.pin));
+      if (!r) { err('房間已不存在(可能已結束),請重新加入'); return; }
+      let foundId = null, found = null;
+      for (const [id, c] of r.clients) { if (c.token && c.token === m.token) { foundId = id; found = c; break; } }
+      if (!found) { err('連線階段已失效,請重新加入'); return; }
+      room = r; client = found; clientId = foundId; // 採用原座位身分
+      if (client.dcTimer) { clearTimeout(client.dcTimer); client.dcTimer = null; }
+      client.ws = ws; client.connected = true;
+      console.log(`🔄 ${client.name} 重新連回房間 ${room.pin}`);
+      broadcast(room);
+      pumpAI(room);
+      return;
+    }
+    // ----- 清除暫存檔/刪除存檔(不需在房間內,連線畫面可用;前端需要時自行重抓 listSaves) -----
+    if (m.t === 'clearAutosaves') {
+      const n = clearAutosaves();
+      send(ws, { t: 'info', msg: n ? `🗑️ 已清除 ${n} 個自動存檔` : '沒有自動存檔可清除' });
+      return;
+    }
+    if (m.t === 'deleteSave') {
+      const ok = deleteSave(m.file);
+      send(ws, { t: 'info', msg: ok ? '🗑️ 已刪除存檔' : '找不到該存檔' });
       return;
     }
     if (!room || !client) { err('尚未加入房間'); return; }
@@ -452,7 +503,7 @@ wss.on('connection', ws => {
         case 'forfeit': res = g.doForfeit(m.kind2); break;
         case 'exchange': res = g.doExchange(m.res, m.amount); break;
         case 'upgradeCity': res = g.doUpgradeCity(); break;
-        case 'draw': res = g.doDraw(); break;
+        case 'upgradeCard': res = g.doUpgradeCard(m.handIdxs, m.toTier); break;
         case 'playCard': res = g.doPlayCard(m.handIdx, m.target); break;
         case 'endTurn': g.endTurn(); res = { ok: true }; break;
         case 'reveal': res = g.doReveal(); break;
@@ -473,15 +524,21 @@ wss.on('connection', ws => {
 
   ws.on('close', () => {
     if (!room || !client) return;
-    room.clients.delete(clientId);
-    // 角色鎖保留(可用 PIN 重新認領);房間無人時銷毀
-    if (room.clients.size === 0) {
-      rooms.delete(room.pin);
-      console.log(`🗑️ 房間 ${room.pin} 已關閉`);
-    } else {
-      if (clientId === room.hostId) room.hostId = [...room.clients.keys()][0];
-      broadcast(room);
-    }
+    client.connected = false;
+    const dcRoom = room, dcId = clientId, dcClient = client;
+    // 斷線寬限:保留座位 60 秒,讓短暫斷線/重整可用 token 認回(避免單人房瞬間銷毀)
+    dcClient.dcTimer = setTimeout(() => {
+      if (dcClient.connected) return; // 已重連
+      dcRoom.clients.delete(dcId);
+      if (dcRoom.clients.size === 0) {
+        if (dcRoom.aiTimer) { clearTimeout(dcRoom.aiTimer); dcRoom.aiTimer = null; }
+        rooms.delete(dcRoom.pin);
+        console.log(`🗑️ 房間 ${dcRoom.pin} 已關閉`);
+      } else {
+        if (dcId === dcRoom.hostId) dcRoom.hostId = [...dcRoom.clients.keys()][0];
+        broadcast(dcRoom);
+      }
+    }, 60000);
   });
 });
 

@@ -8,6 +8,7 @@ const $ = sel => document.querySelector(sel);
 let net = null;
 let board = null;
 let last = null;        // 最近一次 sync payload
+let sessionToken = null; // 斷線重連用的座位 token(由 sync 帶回)
 let mode = 'idle';      // idle | move
 let myCharId = null;
 let resultShown = false;
@@ -79,11 +80,25 @@ function setupConnect() {
     ensureNet();
     net.send({ t: 'listSaves' });
   };
+  $('#clearSavesBtn').onclick = () => {
+    openModal('🗑️ 清除暫存檔',
+      '<p>清除所有自動存檔(每回合的暫存),玩家手動存檔會保留。確定嗎?</p>',
+      [{ label: '清除暫存檔', value: true }, { label: '取消', value: null }],
+      val => { if (val) { ensureNet(); net.send({ t: 'clearAutosaves' }); } });
+  };
 }
 
 function ensureNet() {
   if (net) return;
-  net = new Net(onSync, msg => toast(msg), onOther);
+  net = new Net(onSync, msg => toast(msg), onOther, onReconnect);
+}
+
+// 斷線重連:用 token 認回原座位(房主/角色保留),接著伺服器會重送 sync
+function onReconnect() {
+  if (sessionToken && last?.lobby?.pin) {
+    net.sendNow({ t: 'reattach', pin: last.lobby.pin, token: sessionToken });
+    toast('🔄 已重新連線');
+  }
 }
 
 function onOther(m) {
@@ -98,6 +113,7 @@ function setMyPin(pin) { localStorage.setItem('ctw_pin', pin); }
 // ---------------- 同步處理 ----------------
 function onSync(m) {
   last = m;
+  if (m.token) sessionToken = m.token; // 記住座位 token,斷線可重連認回
   const me = m.lobby.clients.find(c => c.id === m.youId);
   myCharId = me ? me.charId : null;
 
@@ -114,7 +130,7 @@ function onSync(m) {
     $('#connect').style.display = 'none';
     $('#lobby').style.display = 'none';
     $('#gameUI').style.display = 'block';
-    if (!board) board = new Board3D($('#canvas3d'), onRegionClick);
+    if (!board) board = new Board3D($('#canvas3d'), onRegionClick, onPawnClick);
     refreshGame(m);
   }
 }
@@ -197,8 +213,7 @@ function updateModeVisibility() {
   const mode = $('#gameMode').value;
   const n = parseInt($('#expectedCount').value, 10);
   $('#modeHint').textContent = {
-    multi: n === 2 ? '⚔️ 2 人=米牆對決(無台灣規則)' : `共 ${n} 位玩家連線對戰`,
-    ai: `你 1 人 + ${n - 1} 個 AI(AI 數量 = 遊戲人數 - 1)`,
+    multi: n === 2 ? '⚔️ 2 人=米牆對決(無台灣規則)' : `共 ${n} 位玩家連線對戰(人數不足由 AI 頂替)`,
     aiwar: `${n} 個 AI 互鬥,所有人觀戰看戲`,
     god: `你一人輪流操控全部 ${n} 個角色`,
   }[mode] || '';
@@ -261,16 +276,37 @@ function setupLobbyEvents() {
 
 // ---------------- 存檔/載入 ----------------
 function showSavesList(list) {
-  if (!list.length) { toast('目前沒有任何存檔'); return; }
-  const body = '<p class="modal-desc">選擇要載入的存檔(會建立新房間,玩家以原 PIN 認領角色):</p>';
-  const opts = list.slice(0, 12).map(s => ({
-    label: `${s.auto ? '🔄 ' : '💾 '}${s.name}|第 ${s.round ?? '-'} 輪${s.over ? '(已結束)' : ''}|${(s.savedAt || '').slice(0, 16).replace('T', ' ')}<br><span class="save-players">${(s.players || []).join('、')}</span>`,
-    value: s.file,
-  })).concat([{ label: '取消', value: null }]);
-  openModal('📂 載入遊戲', body, opts, val => {
-    if (!val) return;
-    net.send({ t: 'loadGame', file: val, name: $('#myName')?.value?.trim() || localStorage.getItem('ctw_name') || '' });
-  });
+  const myName = () => $('#myName')?.value?.trim() || localStorage.getItem('ctw_name') || '';
+  $('#modalTitle').innerHTML = '📂 載入遊戲';
+  $('#modalBody').innerHTML = '<p class="modal-desc">載入會建立新房間,玩家以原 PIN 認領角色。🗑️ 可刪除單筆存檔。</p>'
+    + (list.length ? '<div class="saves-list">' + list.slice(0, 20).map(s => `
+        <div class="save-row">
+          <button class="btn small-btn save-load" data-file="${s.file}">▶️ 載入</button>
+          <div class="save-meta">
+            <div>${s.auto ? '🔄' : '💾'} ${s.name}|第 ${s.round ?? '-'} 輪${s.over ? '(已結束)' : ''}</div>
+            <div class="save-players">${(s.players || []).join('、')}　${(s.savedAt || '').slice(0, 16).replace('T', ' ')}</div>
+          </div>
+          <button class="btn small-btn save-del" data-file="${s.file}" title="刪除此存檔">🗑️</button>
+        </div>`).join('') + '</div>'
+      : '<p class="modal-desc">(目前沒有任何存檔)</p>');
+  $('#modalOptions').innerHTML =
+    '<button class="btn save-clear">🗑️ 清除所有暫存檔(自動存檔)</button>'
+    + '<button class="btn save-close">關閉</button>';
+  $('#modal').style.display = 'flex';
+  $('#modalBody').onclick = e => {
+    const load = e.target.closest('.save-load'), del = e.target.closest('.save-del');
+    if (load) {
+      $('#modal').style.display = 'none';
+      net.send({ t: 'loadGame', file: load.dataset.file, name: myName() });
+    } else if (del) {
+      net.send({ t: 'deleteSave', file: del.dataset.file });
+      net.send({ t: 'listSaves' }); // 重抓列表 → onOther 重繪此 modal
+    }
+  };
+  $('#modalOptions').onclick = e => {
+    if (e.target.closest('.save-clear')) { net.send({ t: 'clearAutosaves' }); net.send({ t: 'listSaves' }); }
+    else if (e.target.closest('.save-close')) $('#modal').style.display = 'none';
+  };
 }
 
 // ---------------- 遊戲畫面 ----------------
@@ -392,6 +428,16 @@ function renderHand(m) {
       <div class="card-desc">${c.desc}</div>
     </div>`;
   }).join('') || '<div class="hand-empty">沒有手牌</div>';
+  requestAnimationFrame(updateHandFade); // 重繪後依內容寬度更新左右淡出
+}
+
+// 手牌太多時:固定區塊內左右捲動,捲到非端點時該側邊緣淡出(--fl/--fr 控制 mask)
+function updateHandFade() {
+  const w = $('#handWrap');
+  if (!w) return;
+  const max = w.scrollWidth - w.clientWidth;
+  w.style.setProperty('--fl', w.scrollLeft > 4 ? '34px' : '0px');
+  w.style.setProperty('--fr', w.scrollLeft < max - 4 ? '34px' : '0px');
 }
 
 function renderActions(m) {
@@ -401,13 +447,19 @@ function renderActions(m) {
   const s = m.state;
 
   const inTrade = s.phase === 'trade';
-  for (const id of ['btnMove', 'btnDraw', 'btnEnd', 'btnReveal', 'btnPivot',
+  for (const id of ['btnMove', 'btnUpgradeCard', 'btnEnd', 'btnReveal', 'btnPivot',
     'btnForfTech', 'btnForfOps', 'btnForfMove', 'btnUpgrade', 'btnExchange'])
     $('#' + id).disabled = !myTurn || inTrade;
 
   if (myTurn && priv && !inTrade) {
-    $('#btnDraw').textContent = `🃏 抽卡(${fmtRes(priv.drawCost)})`;
-    $('#btnDraw').disabled = me.ap < 1 || RES_KEYS.some(k => me.res[k] < (priv.drawCost[k] || 0));
+    const cu = priv.cardUpgrade;
+    if (cu) {
+      $('#btnUpgradeCard').textContent = `⏫ 升階卡片(4階庫${cu.pool4}/5階庫${cu.pool5})`;
+      $('#btnUpgradeCard').disabled = !(cu.can4 || cu.can5);
+    } else {
+      $('#btnUpgradeCard').textContent = '⏫ 升階卡片';
+      $('#btnUpgradeCard').disabled = true;
+    }
     const f = priv.turnFlags || {};
     const g = priv.forfeitGain ?? RULES.forfeitBase;
     $('#btnForfTech').textContent = f.forfeitTech ? '♻️ 已放棄科技' : `♻️ 放棄科技 → ⚡${g}`;
@@ -427,7 +479,7 @@ function renderActions(m) {
     $('#btnExchange').textContent = f.exchanged ? '💱 本回合已兌換' : `💱 金錢兌換(${RULES.exchangeRate}💰=1)`;
     $('#btnExchange').disabled = f.exchanged || me.res.money < RULES.exchangeRate;
   } else {
-    $('#btnDraw').textContent = '🃏 抽卡';
+    $('#btnUpgradeCard').textContent = '⏫ 升階卡片';
   }
   $('#btnMove').classList.toggle('toggled', mode === 'move');
 
@@ -438,6 +490,59 @@ function renderActions(m) {
   $('#btnPivot').style.display = isTW && !twUnset && !s.twRevealed && !s.twPivoted ? '' : 'none';
   $('#btnReveal').style.display = isTW && !twUnset && !s.twRevealed ? '' : 'none';
   if (twUnset && !twChoosePrompted) { twChoosePrompted = true; openTwChooseModal(); }
+}
+
+// 捨牌升階(換 4/5 階卡):勾選要捨棄的手牌,湊出加總/張數後確定
+function openCardUpgradeModal() {
+  const priv = last?.priv;
+  const cu = priv?.cardUpgrade;
+  if (!priv || !cu) { toast('目前無法升階'); return; }
+  const hand = priv.hand;
+  const draw = toTier => {
+    const eligible = hand.map((c, i) => ({ c, i }))
+      .filter(o => o.c.kind === 'tech' && (toTier === 4 ? o.c.tier <= 3 : o.c.tier === 4));
+    const need = toTier === 4 ? `階級加總正好 ${cu.sum}` : `${cu.need5} 張 4 階卡`;
+    const pool = toTier === 4 ? cu.pool4 : cu.pool5;
+    const tabs = `<div class="upg-tabs">
+      <button class="btn small-btn ${toTier === 4 ? 'toggled' : ''}" data-totier="4" ${cu.pool4 ? '' : 'disabled'}>換 4 階卡(庫存 ${cu.pool4})</button>
+      <button class="btn small-btn ${toTier === 5 ? 'toggled' : ''}" data-totier="5" ${cu.pool5 ? '' : 'disabled'}>換 5 階卡(庫存 ${cu.pool5})</button>
+    </div>`;
+    const rows = eligible.length ? eligible.map(o =>
+      `<label class="upg-row"><input type="checkbox" class="upg-ck" data-idx="${o.i}" data-tier="${o.c.tier}">
+        ${TECH_CATEGORIES[o.c.cat].icon}【${o.c.name}】${o.c.tier}階</label>`).join('')
+      : `<div class="modal-desc">(沒有可用於換 ${toTier} 階卡的手牌科技卡)</div>`;
+    $('#modalTitle').innerHTML = '⏫ 捨牌升階';
+    $('#modalBody').innerHTML = tabs
+      + `<p class="modal-desc">捨棄手牌科技卡換取 1 張 ${toTier} 階卡(消耗 ${cu.ap} 行動點)。需${need};該階卡庫剩 ${pool} 張。</p>`
+      + `<div class="upg-list">${rows}</div><div id="upgSum" class="modal-desc"></div>`;
+    $('#modalOptions').innerHTML =
+      `<button class="btn" id="upgConfirm">確定升階</button><button class="btn" id="upgCancel">取消</button>`;
+    $('#modal').style.display = 'flex';
+    const updateSum = () => {
+      const cks = [...$('#modalBody').querySelectorAll('.upg-ck:checked')];
+      const sum = cks.reduce((t, e) => t + parseInt(e.dataset.tier, 10), 0);
+      const ok = toTier === 4 ? sum === cu.sum : cks.length === cu.need5;
+      $('#upgSum').textContent = toTier === 4
+        ? `已選階級加總:${sum} / ${cu.sum}` : `已選 ${cks.length} / ${cu.need5} 張 4 階卡`;
+      $('#upgConfirm').disabled = !ok || pool === 0;
+    };
+    updateSum();
+    $('#modalBody').onclick = e => {
+      if (e.target.classList.contains('upg-ck')) { updateSum(); return; }
+      const tab = e.target.closest('button[data-totier]');
+      if (tab) draw(parseInt(tab.dataset.totier, 10));
+    };
+    $('#modalOptions').onclick = e => {
+      if (e.target.id === 'upgConfirm') {
+        const idxs = [...$('#modalBody').querySelectorAll('.upg-ck:checked')].map(x => parseInt(x.dataset.idx, 10));
+        net.action('upgradeCard', { handIdxs: idxs, toTier });
+        $('#modal').style.display = 'none';
+      } else if (e.target.id === 'upgCancel') {
+        $('#modal').style.display = 'none';
+      }
+    };
+  };
+  draw(cu.can4 || !cu.can5 ? 4 : 5);
 }
 
 let twChoosePrompted = false;
@@ -467,11 +572,40 @@ function onRegionClick(rid) {
   }
 }
 
+// 點擊棋子:移動模式下視為點該城市(可移動),否則彈出該玩家/角色資訊
+function onPawnClick(charId, rid) {
+  if (!last?.state) return;
+  if (mode === 'move' && isMyTurn()) { onRegionClick(rid); return; }
+  showPlayerInfo(charId);
+}
+
+function showPlayerInfo(charId) {
+  const s = last.state;
+  const p = s.players.find(x => x.charId === charId);
+  if (!p) return;
+  const ch = CHARACTERS.find(c => c.id === charId);
+  const fac = FACTIONS[p.faction];
+  const tech = s.tech[p.faction] ?? 0;
+  const here = REGIONS.find(r => r.id === p.pos);
+  const active = p.id === s.turnIdx && !s.over;
+  const me = myPlayer();
+  const isMe = me && p.id === me.id;
+  const body = `<div class="pawn-info">
+    <div class="pawn-info-head" style="color:${fac.css}">${p.isAI ? '🤖 ' : ''}${ch ? ch.name : p.name}${isMe ? '(你)' : ''}　【${fac.name}】${active ? '　⏳ 行動中' : ''}</div>
+    ${ch ? `<div class="modal-desc">${ch.real}|🏭 ${ch.industry}(${ch.industryDesc})</div>` : ''}
+    <div class="pawn-info-res">💰 ${p.res.money}　⚡ ${p.res.power}　🛢️ ${p.res.oil}</div>
+    <div class="modal-desc">📍 ${here ? here.name : p.pos}　🎯 行動點 ${p.ap}　🃏 手牌 ${p.handCount}</div>
+    <div class="modal-desc">🔬 ${fac.name}科技力 <b>${tech}</b> 點　📈 收入 ${fmtRes(p.income)}/回合</div>
+    ${ch ? `<div class="pawn-info-perk">✨ ${ch.perkText}</div>` : ''}
+  </div>`;
+  openModal(`${ch ? ch.name : p.name}`, body, [{ label: '關閉', value: null }]);
+}
+
 function setMode(m2) {
   mode = m2;
   if (mode === 'move' && last?.priv?.moveTargets) {
     board.highlight(last.priv.moveTargets.map(t => t.regionId));
-    toast('點擊發光城市移動(相鄰 🛢️1;✈️ 搭飛機直達任一城市 🛢️5)');
+    toast(`點擊發光城市移動(相鄰 🛢️1;✈️ 搭飛機 ${RULES.planeRange} 格內 🛢️5)`);
   } else {
     board.highlight([]);
   }
@@ -517,8 +651,8 @@ function onCardClick(idx) {
   } else {
     const targets = priv.targets?.[c.id] || [];
     if (priv.turnFlags?.forfeitOps) body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出作戰卡的權利</p>`;
-    else if (targets.length) opts.push({ label: `${c.icon} 使用(${fmtRes(c.myCost)})`, value: { a: 'target' } });
-    else body += `<p class="modal-desc" style="color:#ff6">⚠️ 沒有合法目標(限兩格內城市/防護太高/已被鎖定過)</p>`;
+    else if (targets.length) opts.push({ label: `${c.icon} 選擇目標(基本費 ${fmtRes(c.myCost)},每多 1 格 +50%)`, value: { a: 'target' } });
+    else body += `<p class="modal-desc" style="color:#ff6">⚠️ 沒有合法目標(超出航線範圍/防護太高/已被鎖定過)</p>`;
   }
   opts.push({ label: '取消', value: null });
 
@@ -591,19 +725,35 @@ function processFx(s) {
   const maxId = fx.length ? fx[fx.length - 1].id : 0;
   if (lastFxId === null) lastFxId = maxId <= 2 ? 0 : maxId; // 新局播開場;重連略過歷史
   if (maxId <= lastFxId) { lastFxId = maxId; return; }      // 無新特效(或伺服器讀檔重置)
-  for (const f of fx) { if (f.id > lastFxId) dispatchFx(f); }
+  for (const f of fx) { if (f.id > lastFxId) dispatchFx(f, s); }
   lastFxId = maxId;
 }
 
-function dispatchFx(f) {
+// 派發特效:施法者(含 AI)出現施法光環,作戰類再射出能量弧線到目標,目標播放對應特效
+function dispatchFx(f, s) {
   if (!board) return;
+  const facCss = id => FACTIONS[id]?.css || '#00f0ff';
+  // 施法者目前位置(由 charId 回查;作戰卡不移動、科技卡在原地建造)
+  const caster = f.charId ? s.players.find(p => p.charId === f.charId) : null;
   switch (f.type) {
     case 'event': showEventFx(f.event); break;
-    case 'build': { const c = TECH_CATEGORIES[f.cat]; board.fxBuild(f.region, f.cat, c?.css || '#00f0ff', c?.icon || '🏗️'); break; }
-    case 'destroy': board.fxDestroy(f.region); break;
-    case 'steal': board.fxSteal(f.region); break;
-    case 'fake': board.fxFake(f.region); break;
+    case 'build': {
+      const c = TECH_CATEGORIES[f.cat];
+      // 建造本身在施法者所在城市,fxBuild 即為施展特效(不再疊光環避免雜亂)
+      board.fxBuild(f.region, f.cat, c?.css || '#00f0ff', c?.icon || '🏗️');
+      break;
+    }
+    case 'destroy':
+      if (caster) { board.fxCast(caster.pos, facCss(f.faction), '💣'); board.fxBeam(caster.pos, f.region, facCss(f.faction)); }
+      board.fxDestroy(f.region); break;
+    case 'steal':
+      if (caster) { board.fxCast(caster.pos, facCss(f.faction), '🕵️'); board.fxBeam(caster.pos, f.region, '#2eff8f'); }
+      board.fxSteal(f.region); break;
+    case 'fake':
+      if (caster) { board.fxCast(caster.pos, facCss(f.faction), '📰'); board.fxBeam(caster.pos, f.region, '#ff2bd6'); }
+      board.fxFake(f.region); break;
     case 'move': board.fxMove(f.from, f.to, f.plane); break;
+    case 'draw': board.fxDraw(f.region); break;
   }
 }
 
@@ -665,7 +815,7 @@ function showResult(s) {
 // ---------------- 事件繫結 ----------------
 function setupGameEvents() {
   $('#btnMove').addEventListener('click', () => setMode(mode === 'move' ? 'idle' : 'move'));
-  $('#btnDraw').addEventListener('click', () => net.action('draw'));
+  $('#btnUpgradeCard').addEventListener('click', openCardUpgradeModal);
   $('#btnForfTech').addEventListener('click', () => net.action('forfeit', { kind2: 'tech' }));
   $('#btnForfOps').addEventListener('click', () => net.action('forfeit', { kind2: 'ops' }));
   $('#btnForfMove').addEventListener('click', () => net.action('forfeit', { kind2: 'move' }));
@@ -712,6 +862,15 @@ function setupGameEvents() {
     const card = e.target.closest('.card');
     if (card) onCardClick(parseInt(card.dataset.idx, 10));
   });
+  // 手牌捲動:垂直滾輪轉成水平捲動,捲動/縮放時更新左右淡出
+  const handWrap = $('#handWrap');
+  handWrap.addEventListener('scroll', updateHandFade, { passive: true });
+  handWrap.addEventListener('wheel', e => {
+    if (e.deltaY && !e.shiftKey && handWrap.scrollWidth > handWrap.clientWidth) {
+      handWrap.scrollLeft += e.deltaY; e.preventDefault();
+    }
+  }, { passive: false });
+  window.addEventListener('resize', updateHandFade);
   $('#btnSave').addEventListener('click', () => {
     openModal('💾 儲存遊戲',
       `<p>輸入存檔名稱(也會自動每回合暫存):</p>
