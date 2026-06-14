@@ -11,12 +11,23 @@
    `public/assets/models/tokyo_tower.glb`、`public/assets/models/musk.glb`
 2. 打開 `public/js/board3d.js`,在 `MODEL_MANIFEST` 登記:
    ```js
-   const MODEL_MANIFEST = {
+   const MODEL_MANIFEST = Object.assign({
      'city:tokyo': 'assets/models/tokyo_tower.glb', // 蓋掉東京地標
      'pawn:musk':  'assets/models/musk.glb',        // 蓋掉馬斯克棋子
-   };
+   }, (typeof window !== 'undefined' && window.MODEL_MANIFEST_EXTRA) || {});
    ```
 3. 重新整理頁面即可。模型會自動縮放到棋盤尺度(地標高 ≈1.7、棋子高 ≈1.2)並讓底部坐在地面。
+
+> **不想動原始碼?** 在 `public/index.html` 載入 `js/ui.js` 之前加一段一般 `<script>`
+> 定義 `window.MODEL_MANIFEST_EXTRA = { 'city:tokyo': '...' }`,`board3d.js` 會自動併入
+> `MODEL_MANIFEST`(同 key 覆蓋)。整批掛載成套資產(如 Quaternius 開發包)時最方便。
+
+## 🧩 Quaternius CC0 開發包
+
+成套低面數、風格統一的 CC0 資產(城市建築 / 載具 / 人物)放在子資料夾
+**`quaternius/`**,對應表、致謝與抽單體步驟見 [`quaternius/README.md`](quaternius/README.md)。
+**此資料夾已預載 23 個 Quaternius CC0 模型並由 `board3d.js` 預設掛載**(純扁平 matte 風);
+要回到全程式生成,把 `MODEL_MANIFEST` 的 `city:* / pawn:*` 清空即可。
 
 ### key 命名規則
 - 城市地標:`city:<regionId>` — regionId 見 `public/js/data.js` 的 `REGIONS`

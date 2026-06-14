@@ -11,6 +11,7 @@ let last = null;        // 最近一次 sync payload
 let mode = 'idle';      // idle | move
 let myCharId = null;
 let resultShown = false;
+let lastFxId = null;    // 已播放的最後一個特效 id(增量播放,首次同步不重播歷史)
 
 function fmtRes(c) {
   const parts = RES_KEYS.filter(k => c && c[k] > 0).map(k => `${RESOURCES[k].icon}${c[k]}`);
@@ -105,7 +106,9 @@ function onSync(m) {
     $('#gameUI').style.display = 'none';
     $('#lobby').style.display = 'block';
     $('#resultOverlay').style.display = 'none';
+    $('#eventFx').classList.remove('show');
     resultShown = false;
+    lastFxId = null;        // 回到大廳:下一局重新基準,新局開場事件會播放
     renderLobby(m);
   } else {
     $('#connect').style.display = 'none';
@@ -274,6 +277,7 @@ function showSavesList(list) {
 function refreshGame(m) {
   const s = m.state;
   board.sync(s);
+  processFx(s);
   renderTechBar(s);
   renderPlayersList(s);
   renderLog(s);
@@ -581,18 +585,79 @@ function readTradeInputs(prefix) {
   return out;
 }
 
-// ---------------- 結算 ----------------
+// ---------------- 視覺特效派發(伺服器 fx 饋送)----------------
+function processFx(s) {
+  const fx = s.fx || [];
+  const maxId = fx.length ? fx[fx.length - 1].id : 0;
+  if (lastFxId === null) lastFxId = maxId <= 2 ? 0 : maxId; // 新局播開場;重連略過歷史
+  if (maxId <= lastFxId) { lastFxId = maxId; return; }      // 無新特效(或伺服器讀檔重置)
+  for (const f of fx) { if (f.id > lastFxId) dispatchFx(f); }
+  lastFxId = maxId;
+}
+
+function dispatchFx(f) {
+  if (!board) return;
+  switch (f.type) {
+    case 'event': showEventFx(f.event); break;
+    case 'build': { const c = TECH_CATEGORIES[f.cat]; board.fxBuild(f.region, f.cat, c?.css || '#00f0ff', c?.icon || '🏗️'); break; }
+    case 'destroy': board.fxDestroy(f.region); break;
+    case 'steal': board.fxSteal(f.region); break;
+    case 'fake': board.fxFake(f.region); break;
+    case 'move': board.fxMove(f.from, f.to, f.plane); break;
+  }
+}
+
+function showEventFx(ev) {
+  if (!ev) return;
+  const el = $('#eventFx');
+  el.querySelector('.evfx-icon').textContent = ev.icon || '🌏';
+  el.querySelector('.evfx-name').textContent = ev.name || '';
+  el.querySelector('.evfx-desc').textContent = ev.desc || '';
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); // 重置動畫
+  clearTimeout(showEventFx._t);
+  showEventFx._t = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// ---------------- 結算(勝負效果 + 排行榜)----------------
 function showResult(s) {
   const r = s.result;
   const champion = s.players[r.champion];
-  const winnerNames = r.winners.map(id => {
-    const q = s.players[id];
-    return `<span style="color:${FACTIONS[q.faction].css}">${q.name}</span>(${fmtRes(q.res)})`;
-  }).join('、');
+  const me = myPlayer();
+  const winnerSet = new Set(r.winners);
+  const iWon = me && winnerSet.has(me.id);
+
+  const box = $('#resultOverlay .result-box');
+  box.classList.remove('win', 'lose');
+  const h1 = box.querySelector('h1');
+  if (me) { box.classList.add(iWon ? 'win' : 'lose'); h1.textContent = iWon ? '🏆 勝利!' : '🏁 落敗'; }
+  else h1.textContent = '🏁 終局';
+
+  const ranked = [...s.players].sort((a, b) => {
+    const wa = a.id === r.champion ? 2 : winnerSet.has(a.id) ? 1 : 0;
+    const wb = b.id === r.champion ? 2 : winnerSet.has(b.id) ? 1 : 0;
+    if (wa !== wb) return wb - wa;
+    return totalRes(b.res) - totalRes(a.res);
+  });
+  const rows = ranked.map((q, i) => {
+    const ch = CHARACTERS.find(c => c.id === q.charId);
+    const isMe = me && q.id === me.id;
+    const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1);
+    const tech = s.tech[q.faction] ?? 0;
+    return `<tr class="${q.id === r.champion ? 'champ' : ''} ${isMe ? 'me' : ''}">
+      <td class="rk">${medal}</td>
+      <td><span class="pl-dot" style="background:${FACTIONS[q.faction].css}"></span>
+        <b style="color:${FACTIONS[q.faction].css}">${q.name}</b>${isMe ? '(你)' : ''}${winnerSet.has(q.id) ? ' 👑' : ''}
+        <div class="res">${ch ? ch.name : ''}【${FACTIONS[q.faction].name}】</div></td>
+      <td class="res">${tech} 點</td>
+      <td class="res">${fmtRes(q.res)}</td>
+    </tr>`;
+  }).join('');
+
   $('#resultBody').innerHTML = `
     <p>${r.reason}</p>
-    <p>獲勝方:${winnerNames}</p>
     <p class="champion">👑 最終勝利者:<b style="color:${FACTIONS[champion.faction].css}">${champion.name}</b></p>
+    <table class="lb"><thead><tr><th class="rk">#</th><th>玩家</th><th>陣營科技力</th><th>資源</th></tr></thead>
+      <tbody>${rows}</tbody></table>
     ${r.twSupport ? `<p class="result-secret">台灣的秘密立場是:支持${FACTIONS[r.twSupport].name}</p>` : ''}`;
   $('#resultOverlay').style.display = 'flex';
 }

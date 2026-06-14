@@ -102,6 +102,8 @@ export class Game {
     this.chipReserve = 0;
 
     this.log = [];
+    this.fx = [];        // 結構化視覺特效饋送(純裝飾,客戶端只播新 id)
+    this._fxSeq = 0;
     this.over = false;
     this.result = null;
 
@@ -127,6 +129,11 @@ export class Game {
     return `第${y}年Q${q}`;
   }
   addLog(msg) { this.log.push(`[${this.roundLabel()}] ${msg}`); }
+  /** 發出一則視覺特效描述子(客戶端依 id 增量播放,上限 40 則) */
+  addFx(type, data = {}) {
+    this.fx.push({ id: ++this._fxSeq, type, ...data });
+    if (this.fx.length > 40) this.fx.shift();
+  }
 
   sideOf(p) {
     if (p.faction === 'TW') return this.twRevealed ? this.twSupport : null;
@@ -213,6 +220,7 @@ export class Game {
     this.activeEvent = this.eventDeck.pop();
     const ev = EVENT_CARDS.find(e => e.id === this.activeEvent);
     this.addLog(`🌏 集體事件【${ev.icon} ${ev.name}】:${ev.desc}`);
+    this.addFx('event', { event: { id: ev.id, name: ev.name, icon: ev.icon, desc: ev.desc } });
   }
 
   /** 玩家在場上的科技卡張數(日韓分享終局勝利需 ≥ RULES.spoilerWinCards 張) */
@@ -521,8 +529,10 @@ export class Game {
     if (mc.free) p.usedFreeMove = true;
     else { p.ap -= 1; p.res.oil -= mc.oil; }
     p.turnFlags.moved = true;
+    const from = p.pos;
     p.pos = rid;
     this.addLog(`${p.name} ${mc.plane ? `✈️ 搭飛機直飛(🛢️${mc.oil})` : '移動'}到 ${this.regions[rid].name}${mc.free ? '(免費移動)' : ''}`);
+    this.addFx('move', { from, to: rid, charId: p.char.id, faction: p.faction, plane: !!mc.plane });
     return { ok: true };
   }
 
@@ -601,6 +611,7 @@ export class Game {
       this.addLog(`${p.name} 在 ${r.name} 部署【${card.name}】(${card.tier}階,${resStr(cost)}),神山儲備增加(秘密)`);
     }
     card.techApplied = gain; // 被毀/拆除時要扣回的量
+    this.addFx('build', { region: p.pos, cat: card.cat, tier: card.tier, faction: p.faction, charId: p.char.id, name: card.name });
     this.checkVictory();
     return { ok: true };
   }
@@ -774,6 +785,7 @@ export class Game {
       } else {
         this.addLog(`💣 ${p.name} 用【${card.name}】摧毀了 ${owner.name} 在 ${r.name} 的【${tc.name}】!神山儲備受損(秘密)`);
       }
+      this.addFx('destroy', { region: chosen.regionId, faction: p.faction, targetFaction: owner.faction, charId: p.char.id, name: tc.name, ops: card.name });
       this.checkVictory();
       return { ok: true };
     }
@@ -788,6 +800,7 @@ export class Game {
       const gain = splitCost(amount, ratio);
       p.intel.push({ cat: tc.cat, gain });
       this.addLog(`🕵️ ${p.name} 用【${card.name}】竊取了 ${owner.name}【${tc.name}】的情報:下次發展${TECH_CATEGORIES[tc.cat].name}科技卡花費 -${resStr(gain)}`);
+      this.addFx('steal', { region: chosen.regionId, faction: p.faction, cat: tc.cat, charId: p.char.id, ops: card.name });
       return { ok: true };
     }
 
@@ -796,6 +809,7 @@ export class Game {
       r.fakeUntilRound = this.round + card.dur;
       r.fakeMult = card.mult;
       this.addLog(`📰 ${p.name} 對 ${r.name} 發動【${card.name}】,${card.dur} 輪內該城發展科技花費 ×${card.mult}!`);
+      this.addFx('fake', { region: chosen.regionId, faction: p.faction, mult: card.mult, dur: card.dur, charId: p.char.id, ops: card.name });
       // 媒體 perk:輿論操作順便撈情報(打出假新聞後抽一張卡)
       if (p.char.perk === 'media' && this.drawCardFor(p))
         this.addLog(`🎭 ${p.name} 的輿論網路順手撈到一張新情報(抽 1 張卡)`);
@@ -1015,6 +1029,7 @@ export class Game {
       tradeOfferCount: this.phase === 'trade' ? { ...this.tradeOfferCount } : {},
       tradeDone: this.phase === 'trade' ? [...this.tradeDone] : [],
       log: this.log.slice(-60),
+      fx: this.fx,
       over: this.over, result: this.result,
     };
   }
@@ -1084,6 +1099,7 @@ export class Game {
     g.tradeDone = d.tradeDone || [];
     g.nextOfferId = d.nextOfferId || 1;
     g.log = d.log;
+    g.fx = []; g._fxSeq = 0; // 特效饋送是 transient,不隨存檔還原
     g.over = d.over; g.result = d.result;
     cardUid = Math.max(cardUid, d.cardUid || 1);
     return g;

@@ -12,7 +12,8 @@ tools: Read, Edit, Write, Grep, Glob, Bash
 2. **讀現況**:
    - `public/js/board3d.js` — 唯一的 3D 實作檔(地標 `LANDMARK_BUILDERS`、棋子 `PAWN_BUILDERS`、混合管線 `buildModel/loadGltf/fitToHeight`、`Board3D` 類)。
    - `public/js/data.js` — 資料來源(`REGIONS` 城市座標/國家、`CHARACTERS` 角色/綽號/真實人物、`FACTIONS` 陣營色)。
-   - `public/assets/models/README.md` — 外部模型升級槽用法。
+   - `public/assets/models/README.md` — 外部模型升級槽用法(`MODEL_MANIFEST` / `window.MODEL_MANIFEST_EXTRA`)。
+   - `public/assets/models/quaternius/README.md` — **Quaternius CC0 開發包**對應表與掛載步驟(成套低面數資產首選來源)。
    - `public/js/ui.js` 中 `Board3D` 的呼叫點(`new Board3D` / `sync` / `highlight`)— 不可破壞此介面。
 3. **守住鐵則**(不可違反):程式生成是預設、外部模型必有 fallback、`sync()` 重建群組前先 `disposeGroup`、動畫狀態掛 `userData`、座標/尺度/顏色語意一致、不破壞 `Board3D` 介面。
 4. **設計時**:每個新地標/棋子先想「俯視一眼怎麼認出來」(頭頂剪影 > 臉部細節),再選 1–3 個梗特徵用 primitive 拼,掛上一個待機動作(`spin/spinz/rock/bob/flick`)。
@@ -31,4 +32,5 @@ tools: Read, Edit, Write, Grep, Glob, Bash
 - **梗與美學是資產**:角色維持惡搞諧音剪影,**不做真人寫實肖像**(美術基調 + 肖像權);地標選最有梗的城市象徵。
 - **加法要克制、效能要顧**:能用程式 primitive 就不引外部檔;8 棋子同畫面要保 60fps;重建即釋放,不每幀 new 物件。
 - **混合管線雙保險**:外部 `.glb` 是 opt-in 升級,程式生成永遠是可運作的底線。
+- **成套資產走 Quaternius(CC0)**:要鋪量天際線 / 載具時,首選 Quaternius 開發包(`public/assets/models/quaternius/`)—— CC0 免署名、低面數、風格統一。整批掛載用 `window.MODEL_MANIFEST_EXTRA`(不動原始碼)。注意 `NoAI` 標註(可入遊戲、不可拿去訓練 AI)、GLTF 會清空零件級待機動畫(棋子優先保留程式生成的惡搞剪影),別把不存在的檔寫進 manifest(會 404)。
 - **產出格式**:呈現目標(要傳達什麼城市/人物特徵)→ 造型拆解(用哪些 primitive + 梗來源)→ 動作設計 → 實作落點(board3d.js 的哪個 builder/區塊)→ 驗證結果(node --check / npm test / server 200)+ 需人工目視的提醒。

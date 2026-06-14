@@ -207,8 +207,48 @@ body {
 
 .result-box { text-align: center; }
 .result-box h1 { color: var(--pink); text-shadow: 0 0 16px var(--pink); margin-bottom: 14px; }
+.result-box.win h1 { color: #ffd02e; text-shadow: 0 0 26px #ffd02e; animation: winpulse 1.2s ease-in-out infinite; }
+.result-box.lose h1 { color: #ff5e6e; text-shadow: 0 0 18px #ff5e6e; }
+@keyframes winpulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 .champion { font-size: 1.25rem; margin: 10px 0; }
 .result-secret { color: #2eff8f; font-size: .9rem; }
+
+/* 結算排行榜 */
+.lb { width: 100%; border-collapse: collapse; margin: 14px 0; }
+.lb th, .lb td { padding: 7px 8px; border-bottom: 1px solid rgba(0,240,255,.12); text-align: left; vertical-align: middle; }
+.lb th { color: #8fb6d6; font-weight: 600; font-size: .76rem; letter-spacing: 1px; }
+.lb .rk { width: 2.4em; text-align: center; font-size: 1.1rem; font-weight: 800; }
+.lb tr.me { background: rgba(0,240,255,.08); }
+.lb tr.champ { background: linear-gradient(90deg, rgba(255,208,46,.18), transparent); }
+.lb .res { color: #bfe9ff; font-size: .82rem; }
+
+/* 事件卡全螢幕動畫 */
+#eventFx {
+  position: fixed; inset: 0; z-index: 60; display: flex;
+  align-items: center; justify-content: center; pointer-events: none;
+  opacity: 0; visibility: hidden; transition: opacity .35s ease;
+}
+#eventFx.show { opacity: 1; visibility: visible; }
+#eventFx::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(circle at center, rgba(0,240,255,.14), rgba(2,4,12,.82) 70%);
+}
+.evfx-inner { position: relative; text-align: center; }
+#eventFx.show .evfx-inner { animation: evpop .6s cubic-bezier(.2,1.5,.4,1); }
+.evfx-tag { color: var(--cyan); letter-spacing: 6px; font-size: clamp(13px,2vw,18px); font-weight: 700; opacity: .85; }
+.evfx-icon { font-size: clamp(86px,16vw,210px); line-height: 1.1; filter: drop-shadow(0 0 26px rgba(0,240,255,.7)); }
+#eventFx.show .evfx-icon { animation: evspin 2.4s ease-out; }
+.evfx-name { font-size: clamp(30px,6vw,68px); font-weight: 900; color: #eaffff; letter-spacing: 4px; text-shadow: 0 0 20px var(--pink); margin-top: 4px; }
+.evfx-desc { font-size: clamp(14px,2.4vw,22px); color: #bfe9ff; margin: 12px auto 0; max-width: 80vw; line-height: 1.6; }
+.evfx-inner::before, .evfx-inner::after {
+  content: ''; position: absolute; left: -32vw; right: -32vw; top: 46%; height: 3px;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent); transform: scaleX(0);
+}
+#eventFx.show .evfx-inner::before { animation: evsweep .9s ease-out; }
+#eventFx.show .evfx-inner::after { animation: evsweep .9s ease-out .12s; }
+@keyframes evpop { from { transform: scale(.55); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes evspin { from { transform: rotate(-14deg) scale(1.5); } 55% { transform: rotate(7deg) scale(1); } to { transform: rotate(0) scale(1); } }
+@keyframes evsweep { from { transform: scaleX(0); opacity: 1; } to { transform: scaleX(1); opacity: 0; } }
 
 .rules-box { max-width: min(760px, 94vw); }
 .rules-content p { margin-bottom: 10px; font-size: .88rem; line-height: 1.8; color: #cfeaff; }

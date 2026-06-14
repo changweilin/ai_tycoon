@@ -38,6 +38,7 @@ pawnBase(color, opts) → {root,head,body,base,anim,topY}  // 棋子共享文法
 ```
 
 - **key 慣例**:`city:<regionId>` / `pawn:<charId>`。外部模型放 `public/assets/models/`,在 `MODEL_MANIFEST` 登記。詳見該資料夾 README。
+- **批次掛載開關**:`MODEL_MANIFEST` 會自動併入 `window.MODEL_MANIFEST_EXTRA`(同 key 覆蓋)。要成套掛上資產(如 Quaternius 開發包)時,不必動原始碼 —— 在 `index.html` 載入 `ui.js` 前加一段 `<script>` 定義該全域即可;沒定義就維持零外部請求。
 - **待機動作**:builder 把要動的零件 push 進 `anim` 陣列,型別 `spin`(繞 y)/`spinz`(繞 z)/`rock`(左右搖)/`bob`(上下浮)/`flick`(火焰閃爍,需 `transparent`)。`_animate` 統一播放;當前回合棋子動作會自動加速 ~1.9×+大跳。
 
 ---
@@ -54,6 +55,15 @@ pawnBase(color, opts) → {root,head,body,base,anim,topY}  // 棋子共享文法
 | **Kenney** (kenney.nl/assets) | CC0 | 原型神器,城市/載具/UI 套件 | 快速鋪量、UI |
 | **Poly Haven** (polyhaven.com) | CC0 | HDRI/材質為主 | 環境光、材質升級 |
 | **Sketchfab**(篩 Downloadable+CC) | 視作者 | 寫實地標、名人風格化頭像 | 指標性地標 |
+
+#### ⭐ Quaternius CC0 開發包 — 建議使用方法(本專案首選成套來源)
+本專案已內建 Quaternius 升級槽:`public/assets/models/quaternius/`(+ 對應 README)。
+- **授權**:CC0 公眾領域 → 可商用、**免署名**(致謝仍佳)。部分包標 **`NoAI`**:可放進遊戲呈現,但**不可拿去訓練生成式 AI**——別把這些檔丟進訓練資料集。
+- **格式**:官網每包提供 glTF/GLB/FBX/OBJ/Blend,**一律用 `.glb`**(單檔含貼圖)。
+- **取得單體**:① Poly Pizza 搜作者 `Quaternius` 可直接下單一 `.glb`(最快);② 官網整包是「一大檔含多 mesh」,用 Blender 選取目標物件 → `Export glTF 2.0 (.glb)` 勾 Selected Objects;③ `.gltf+.bin+貼圖` 可用 `npx gltf-pipeline -i in.gltf -o out.glb` 併成單檔。
+- **掛載**:檔案放 `quaternius/`,用 `MODEL_MANIFEST`(改原始碼)或 `window.MODEL_MANIFEST_EXTRA`(改 `index.html`,適合整批)登記;`fitToHeight` 會自動縮放到棋盤尺度。
+- **最適用途**:**城市天際線 / 摩天樓地標**(Downtown City MegaKit、Sci-Fi/Cyberpunk Buildings)與**載具**(Ultimate Vehicles,⚠️ 載具尚未開槽,需先在 board3d 加 key)。Quaternius 是通用素材,對位不完美時**拿來鋪量 / 當底,梗特徵仍用 primitive 疊**,識別度優先於寫實。
+- **注意**:`buildModel` 載入 GLTF 後會清空 `userData.anim`(失去零件級待機動畫);棋子建議仍以程式生成保留惡搞剪影與「會動一點點」,GLTF 優先用在地標。完整對應表見 `public/assets/models/quaternius/README.md`。
 
 ### AI 文字/圖片 → 3D(需要特定造型時)
 | 工具 | 授權 | 重點 |
@@ -110,12 +120,17 @@ pawnBase(color, opts) → {root,head,body,base,anim,topY}  // 棋子共享文法
 
 ## 七、本專案 3D 現況速查(2026-06)
 
-- **地圖**:風格化環太平洋海岸線(`LANDMASSES`,世界座標 = 原始 `[x,z]` 點)+ 裝飾小島 + 海面網格 + 星空。
-- **地形(`_buildTerrain`)**:用 `pointInPolygon` 在陸塊內、避開城市(距離 >2.6)決定性散布**山(InstancedMesh 岩錐+雪冠)** 與 **森林(InstancedMesh 松樹,逐株 HSL 變色)**;空白處即平原。既有島嶼加小丘、再散布 12 座太平洋小島。地形坐 `TERRAIN_Y=-0.16`。InstancedMesh 一律 `frustumCulled=false`(否則單一包圍球會整批誤剔)。
+- **地圖(2026-06 擬真重畫)**:風格化但更貼近現實的環太平洋輪廓(`LANDMASSES`:northAmerica/eurasia〔含印度次大陸+阿拉伯半島〕/korea〔新增朝鮮半島〕/japan/taiwan/australia,每塊帶 `biome` 欄位)+ 裝飾小島 + 海面網格 + 星空。**城市座標 `REGIONS.x/z` 與 `EDGES` 不可動**;改海岸線後務必跑 `pointInPolygon` 斷言 21 城各落對的陸塊(x 正=美洲側、z 負=北寒、z 正=南熱)。
+- **地形/氣候帶(`_buildTerrain`+`_biomeOf`)**:依緯度/區域分氣候帶 —— 寒(z<-4.5)針葉林+雪冠山、溫帶混合林、熱帶(z>4.5)高瘦棕櫚無雪、沙漠(中東 x<-13 z3.5~8.5、澳洲內陸)沙丘+仙人掌。各類 InstancedMesh(樹/仙人掌/沙丘/山/雪冠)`frustumCulled=false`。地形坐 `TERRAIN_Y=-0.16`。
 - **海洋(`_buildOcean`/`_animateOcean`)**:60×60 分段平面(`geo.rotateX` 烘進旋轉,位移頂點 y),浪高 = 天氣 `wave` 參數;法線每 5 幀重算一次省效能。
-- **天氣系統(`_buildWeather`/`_updateWeather`/`setWeather`)**:8 種天氣 `WEATHER`(晴天/海浪/季風/梅雨/下雪/雷雨/颱風/龍捲風),各自一組參數(rain/snow/cloud/wind/wave/light/amb/flash/funnel/funnelGround/fog/bg),`weightedPick` 加權隨機、`WX_BLEND_DUR` 平滑過渡、`wxHold` 後再換。元件:雨(LineSegments 帶風斜)、雪(柔邊 Points)、雲(高空 sprite 隨風飄+轉烏雲)、閃電(瞬間 PointLight)、漏斗(颱風=高空寬旋臂 / 龍捲=觸地窄漏斗,會遊走)。左上角有天氣徽章 DOM。`setWeather(key, immediate)` 公開,**未來可由遊戲事件(季節/EVENT_CARDS)驅動**。
-- **城市地標**:21 座城市全部有專屬 `LANDMARK_BUILDERS`(太空針、金門大橋、東京鐵塔、東方明珠、護國神山、自由女神、好萊塢、雷峰塔、黃鶴樓、大熊貓、鄭王廟、哈里發塔…)+ 周圍程序化天際線。
-- **棋子**:13 位角色各有惡搞特徵剪影(火箭人/皮衣 GPU/蜥蜴 VR/蘋果高領/多彩 G/阿里金幣/華為菊花/QQ 企鵝/深海鯨/百度熊掌/神山晶圓/方向盤/三星)+ 待機動作,當前回合者大跳。
+- **天氣系統(`_buildWeather`/`_updateWeather`/`setWeather`)**:8 種天氣 `WEATHER`(晴天/海浪/季風/梅雨/下雪/雷雨/颱風/龍捲風),各自一組參數(rain/snow/cloud/wind/wave/light/amb/flash/funnel/funnelGround/fog/bg),`weightedPick` 加權隨機、`WX_BLEND_DUR` 平滑過渡、`wxHold` 後再換。元件:雨/雪/雲/閃電/漏斗 + **季節落物**(春櫻花瓣 / 秋落葉 Points)。**已接季節(2026-06)**:`sync(state)` 呼叫 `_applySeason(state.round)` 依季別(Q1春/Q2夏/Q3秋/Q4冬,`SEASONS` 表)切當季天氣加權池(`_pickWeather` 改用季池)+ 落物 + 徽章標季節。`setWeather(key, immediate)` 仍公開。
+- **棋格(`_buildRegions`)**:每格半徑 = `0.46×最近鄰城市距離`(上限 1.55)→ **保證不重疊**;`this.tileR[rid]` 供城市群組/科技建築/棋子環依格縮放。**陣營色**:tile 底色/邊框/標籤用 `FACTIONS[country].color`(中立=灰),晶片城疊綠框;待機自發光走 `mesh.userData.idleEmissive`(陣營色)。
+- **城市地標(混合 + 升級成長)**:正中央 = 程式生成 `LANDMARK_BUILDERS`(21 城專屬、對應現實:太空針/金門/東京鐵塔/東方明珠/護國神山/哈里發塔…),整體高度隨城市 `level` 成長 + 基座 level 顆發光柱;外圈 = Quaternius 天際線(`SKYLINE_BUILDINGS` clone,棟數/高度隨 level)。`_buildCity(rid,level)` 建、存 `cityGroups/cityLevels/cityFlickers`;`sync` 偵測 `region.level` 變動才 `_rebuildCity`+`fxUpgrade`(避免每幀重建)。
+- **科技卡 → 建築(`TECH_BUILDERS`)**:科技卡在 `sync` 以類別專屬小建築呈現(power 發射塔/hardware 晶圓廠/info 機房/ai 資料中心/fun LED 看板),高度隨 tier、陣營色 + 類別色點綴,置於 4 slot(依 tileR 縮放)。
+- **棋子**:13 角色預設用 Quaternius CC0 模型(惡搞對位,見 quaternius/README),載入失敗退回程式生成惡搞剪影(`PAWN_BUILDERS`);當前回合者大跳。
 - **航線**:plane/ship/train 三型,各自有移動的載具模型。
-- **升級槽**:`public/assets/models/` + `MODEL_MANIFEST`(預設空)。
-- **動畫主迴圈**:`_animate` 用 `clock.getDelta()`(夾 0.05)累加成 `this._elapsed`,海浪與天氣吃 `dt`。新增每幀動畫請走這裡、避免每幀 new 物件。
+- **升級槽 / 預設 Quaternius matte(2026-06 起)**:23 個 Quaternius CC0 模型(`public/assets/models/quaternius/`,全 CC0 1.0)—— **棋子**走 `MODEL_MANIFEST` 的 `pawn:*`、**城市天際線**走 `SKYLINE_BUILDINGS`(地標本身改回程式生成,故 `MODEL_MANIFEST` **不再放 `city:*`**)。外觀走**純扁平 matte**:`emissiveMat` 已改消光 flat、新增 `HemisphereLight`、海/陸/天際線/地形/卡格材質去霓虹;GLTF 載入跑 `matteify`(消金屬+flat+去自發光,保留頂點/材質色)與 `fitToSize`(依最長邊縮放,扁長的車/魚/平台不爆)。角色多為 skinned mesh,`loadGltf` 用 `SkeletonUtils.clone` 正確複製骨架。要回全程式生成霓虹版:清空 `pawn:*`+`SKYLINE_BUILDINGS` 並還原 `emissiveMat`/光照。`window.MODEL_MANIFEST_EXTRA` 仍會併入(可拿來覆蓋 `city:*` 地標)。
+- **動畫主迴圈**:`_animate` 用 `clock.getDelta()`(夾 0.05)累加成 `this._elapsed`,海浪/天氣/特效吃 `dt`。新增每幀動畫請走這裡、避免每幀 new 物件。
+- **視覺特效饋送(server→client)**:`server/game.js` 的 `addFx(type, data)` 在 drawEvent/doMove/doPlayTech/doPlayCard 發出結構化特效描述子(`event/move/build/destroy/steal/fake`),`publicState().fx`(上限 40,帶遞增 id)。`ui.js` 的 `processFx(s)` 增量派發(首次同步:新局 id≤2 播開場、重連略過歷史;讀檔重置會對齊)。**新增動作型特效時:server 加 `addFx`、ui `dispatchFx` 加 case、board3d 加 `fxXxx` 方法。** fx 純裝飾,不可影響規則(tests 不檢查 fx)。
+- **board3d 短命特效**:`fxBuild/fxDestroy/fxSteal/fxFake/fxMove` 把物件加進 `this.fxGroup`、登記到 `this.fxItems`({t0,life,update(age,t),dispose}),`_animate` 統一推進並 `disposeFx`(連 CanvasTexture 一起釋放)。emoji 用 `makeEmojiSprite` 當語意標籤;移動依 `EDGE_TYPES`/plane 旗標選 ✈️/🚄/🚢 + 拖尾。
+- **DOM overlay**:事件全螢幕 `#eventFx`(CSS 動畫在 `.show` 下,重播要 `remove→reflow→add`)、結算 `#resultOverlay`(勝/負 `.win/.lose` class + `.lb` 排行榜,依勝者/champion/資源排序)。樣式在 `public/css/style.css`。

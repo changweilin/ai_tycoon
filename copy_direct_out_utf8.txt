@@ -1,0 +1,10 @@
+﻿powershell : 拒絕存取路徑 'C:\Users\user\Documents\app\ai_tycoon\copy_direct.ps1'。
+位於 線路:1 字元:1
++ powershell -ExecutionPolicy Bypass -File C:\Users\user\Documents\app\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (拒絕存取路徑 'C:\User...py_direct.ps1'。:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+    + CategoryInfo          : ObjectNotFound: (:String) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
