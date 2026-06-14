@@ -92,7 +92,17 @@ body {
 .seat-name-ro { min-width: 80px; }
 .seat-char { flex: 1; font-size: .88rem; }
 
-.char-pool { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.char-pool { display: flex; flex-direction: column; gap: 18px; }
+.char-group { border-left: 3px solid var(--fc); padding-left: 12px; }
+.char-group-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px; padding-bottom: 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--fc) 35%, transparent);
+}
+.char-group-head .fac-flag { height: 1.5em; margin: 0; }
+.cg-name { color: var(--fc); font-weight: bold; font-size: 1.15rem; letter-spacing: .06em; }
+.cg-desc { color: #9fc4e6; font-size: .82rem; }
+.cg-count { margin-left: auto; color: #7a9aba; font-size: .8rem; }
+.char-group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
 .char-card {
   background: var(--panel); border: 1px solid var(--fc, var(--border));
   border-radius: 10px; padding: 14px; cursor: pointer; position: relative; transition: all .15s;
@@ -355,6 +365,18 @@ body {
   width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1rem; line-height: 1;
 }
 .cd-close:hover { box-shadow: 0 0 12px rgba(0, 240, 255, .5); }
+.cd-nav {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+  width: 42px; height: 64px; border-radius: 10px; cursor: pointer; font-size: 2rem; line-height: 1;
+  background: rgba(4, 6, 16, .55); border: 1px solid var(--fc); color: #eaffff;
+  display: flex; align-items: center; justify-content: center;
+}
+.cd-nav:hover { background: color-mix(in srgb, var(--fc) 30%, rgba(4,6,16,.7)); box-shadow: 0 0 14px var(--fc); }
+.cd-prev { left: 8px; }
+.cd-next { right: 8px; }
+@media (max-width: 640px) {
+  .cd-nav { top: auto; bottom: 10px; transform: none; width: 48px; height: 40px; }
+}
 .cd-grid { display: flex; gap: 22px; align-items: flex-start; }
 .cd-portrait-wrap { position: relative; flex: 0 0 auto; width: min(280px, 40vw); }
 .cd-portrait {

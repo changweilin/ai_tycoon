@@ -182,7 +182,8 @@ function renderLobby(m) {
   const mustTW = expected >= 3 && !lobby.takenChars.includes('tsmc') &&
     playerClients.length >= expected &&
     unselected.length === 1 && unselected[0].id === m.youId;
-  $('#charPool').innerHTML = CHARACTERS.map(c => {
+  // 角色卡 HTML(單張)
+  const cardHtml = c => {
     const lockedJPKR = (c.faction === 'JP' || c.faction === 'KR') && !allowJPKR;
     const lockedTW = mustTW && c.id !== 'tsmc';
     const taken = lobby.takenChars.includes(c.id);
@@ -193,7 +194,6 @@ function renderLobby(m) {
         <img class="char-avatar" src="${charAvatar(c)}" alt="${c.name}" data-detail="${c.id}"
              title="點擊查看立繪 / 生平 / 能力特長" onerror="this.style.display='none'">
         <div class="char-head-text">
-          <div class="char-faction"><img class="fac-flag" src="${factionFlag(c.faction)}" alt="" onerror="this.style.display='none'">${FACTIONS[c.faction].name}</div>
           <div class="char-name">${c.name}</div>
           <div class="char-real">${c.real}</div>
         </div>
@@ -206,6 +206,24 @@ function renderLobby(m) {
       ${taken && !isMine ? '<div class="lock-tip">已被鎖定(可輸入 PIN 認領)</div>' : ''}
       ${isMine ? '<div class="lock-tip mine-tip">✔ 你的角色</div>' : ''}
     </div>`;
+  };
+  // 依陣營/國籍分組顯示
+  const FACTION_ORDER = ['US', 'CN', 'TW', 'JP', 'KR'];
+  const FACTION_DESC = { US: '矽谷霸權', CN: '神州科技', TW: '護國神山', JP: '匠人精神', KR: '財閥帝國' };
+  $('#charPool').innerHTML = FACTION_ORDER.map(fid => {
+    const list = CHARACTERS.filter(c => c.faction === fid);
+    if (!list.length) return '';
+    const fac = FACTIONS[fid];
+    const jpkrLocked = (fid === 'JP' || fid === 'KR') && !allowJPKR;
+    return `<section class="char-group" style="--fc:${fac.css}">
+      <div class="char-group-head">
+        <img class="fac-flag" src="${factionFlag(fid)}" alt="" onerror="this.style.display='none'">
+        <span class="cg-name">${fac.name}</span>
+        <span class="cg-desc">${FACTION_DESC[fid] || ''}</span>
+        <span class="cg-count">${list.length} 位${jpkrLocked ? `・需 ${RULES.jpkrMinPlayers}+ 人` : ''}</span>
+      </div>
+      <div class="char-group-grid">${list.map(cardHtml).join('')}</div>
+    </section>`;
   }).join('');
 
   $('#hostModeBox').style.display = m.isHost ? '' : 'none';
@@ -285,10 +303,18 @@ function strengthBars(ch) {
   }).join('');
 }
 
-// 角色詳情:全版立繪 / 角色生平(網路梗)/ 能力特長加權
+// 角色詳情:全版立繪 / 角色生平(網路梗)/ 能力特長加權;支援左右切換
+let cdCurrentId = null, cdOpts = {};
+function cdNavigate(dir) {
+  const ids = CHARACTERS.map(c => c.id);
+  let i = ids.indexOf(cdCurrentId);
+  if (i < 0) return;
+  openCharDetail(ids[(i + dir + ids.length) % ids.length], cdOpts);
+}
 function openCharDetail(charId, opts = {}) {
   const ch = CHARACTERS.find(c => c.id === charId);
   if (!ch) return;
+  cdCurrentId = charId; cdOpts = opts;
   const fac = FACTIONS[ch.faction];
   const cat = TECH_CATEGORIES[catOf(ch)];
   $('#charDetailOverlay .char-detail-box').style.setProperty('--fc', fac.css);
@@ -333,6 +359,14 @@ function setupLobbyEvents() {
   $('#charDetailClose').addEventListener('click', () => $('#charDetailOverlay').style.display = 'none');
   $('#charDetailOverlay').addEventListener('click', e => {
     if (e.target.id === 'charDetailOverlay') e.currentTarget.style.display = 'none';
+  });
+  $('#cdPrev').addEventListener('click', () => cdNavigate(-1));
+  $('#cdNext').addEventListener('click', () => cdNavigate(1));
+  document.addEventListener('keydown', e => {
+    if ($('#charDetailOverlay').style.display !== 'flex') return;
+    if (e.key === 'ArrowLeft') cdNavigate(-1);
+    else if (e.key === 'ArrowRight') cdNavigate(1);
+    else if (e.key === 'Escape') $('#charDetailOverlay').style.display = 'none';
   });
   $('#charPool').addEventListener('click', e => {
     // 點頭像/放大鏡 → 查看立繪/生平/能力(即使該角色已鎖定或不可選也能瀏覽)
