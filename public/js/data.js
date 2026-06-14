@@ -170,39 +170,87 @@ export const OPS_DECK_COMPOSITION = [
 ];
 
 // ---- 科技巨頭角色(網路梗綽號 + 諧音名) ----
+// avatar/portrait 路徑由 id 推導(images/avatars/<id>_chibi.png、images/characters/<id>.png);
+// logo 為公司旗幟貼圖(images/logos/<logo>.png),建造科技卡時於城市升起。
+// strengths 為角色能力特長加權(1~5):tech 科技/ops 作戰/econ 經濟/mobility 機動/strategy 謀略。
 export const CHARACTERS = [
   // 米國
   { id: 'musk',   faction: 'US', name: '醫龍·馬一龍',   real: '馬斯克 Tesla/SpaceX', industry: '交通', industryDesc: '電動車/火箭/星鏈',
-    perk: 'transport', perkText: '星鏈導航:每回合第一次移動不消耗行動點', home: 'austin' },
+    perk: 'transport', perkText: '星鏈導航:每回合第一次移動不消耗行動點', home: 'austin',
+    logo: 'tesla_spacex', strengths: { tech: 4, ops: 2, econ: 3, mobility: 5, strategy: 3 },
+    bio: '把社群網站買下來只改成一個字母「X」、用發射塔筷子夾回收火箭、還要去火星開殖民地的男人。信奉「Funding secured」與狗狗幣,自稱 Technoking,一則推文能讓股價上沖下洗。座右銘:把人類變成跨行星物種(順便嘴一下對手)。' },
   { id: 'jensen', faction: 'US', name: '皮衣刀客·黃仁薰', real: '黃仁勳 NVIDIA', industry: 'AI', industryDesc: 'GPU/算力霸權',
-    perk: 'ai', perkText: '算力即正義:每回合自動多抽一張卡(每回合共抽 2 張)', home: 'sv' },
+    perk: 'ai', perkText: '算力即正義:每回合自動多抽一張卡(每回合共抽 2 張)', home: 'sv',
+    logo: 'nvidia', strengths: { tech: 5, ops: 2, econ: 3, mobility: 2, strategy: 5 },
+    bio: '永遠一件皮衣的 AI 教父。名言「買越多,省越多」(The more you buy, the more you save),一張顯卡撐起全世界的算力焦慮。缺貨時他是地表最賺,簽名能簽到粉絲手軟。黃氏定律:算力即正義。' },
   { id: 'zuck',   faction: 'US', name: '蜥蜴人·渣克伯',  real: '祖克伯 Meta', industry: '娛樂', industryDesc: '社群/VR/元宇宙',
-    perk: 'media', perkText: '演算法之王:打出假新聞類卡片不消耗資源,且打出後抽一張卡', home: 'la' },
+    perk: 'media', perkText: '演算法之王:打出假新聞類卡片不消耗資源,且打出後抽一張卡', home: 'la',
+    logo: 'meta', strengths: { tech: 3, ops: 5, econ: 3, mobility: 2, strategy: 4 },
+    bio: '被全網認證的「蜥蜴人」,聽證會喝水的姿勢比機器人還機器人。把公司改名 Meta 重押元宇宙,結果虛擬人偶連腿都沒有;後來改練 MMA、衝浪舉國旗、放生開源大模型。本人鄭重聲明:我也是人類。' },
   { id: 'jobs',   faction: 'US', name: '果教教主·賈不死', real: '賈伯斯 Apple', industry: '硬體', industryDesc: '手機/信仰充值',
-    perk: 'hardware', perkText: '供應鏈大師:發展科技卡費用 -3', home: 'phoenix' },
+    perk: 'hardware', perkText: '供應鏈大師:發展科技卡費用 -3', home: 'phoenix',
+    logo: 'apple', strengths: { tech: 5, ops: 2, econ: 4, mobility: 2, strategy: 3 },
+    bio: '黑色高領毛衣配牛仔褲的果教教主,擁有傳說中的「現實扭曲力場」。發表會結尾總有那句「One more thing…」;你嫌訊號差,他說「你拿手機的姿勢不對」。賣的不是手機,是信仰充值。' },
   { id: 'google', faction: 'US', name: '劈柴哥·孤狗',    real: '皮查伊 Google', industry: '資訊', industryDesc: '搜尋引擎/伺服器',
-    perk: 'info', perkText: '大數據變現:每回合收入 +2', home: 'seattle' },
+    perk: 'info', perkText: '大數據變現:每回合收入 +2', home: 'seattle',
+    logo: 'google', strengths: { tech: 3, ops: 2, econ: 5, mobility: 2, strategy: 3 },
+    bio: '本名劈柴(Pichai 諧音),掌管搜尋引擎帝國。嘴上說「我們有最強的 AI」,結果聊天機器人 demo 當場答錯題,市值一夜蒸發上千億。公司格言「Don\'t be evil」已經悄悄被刪掉了。' },
   // 牆國
   { id: 'jack',   faction: 'CN', name: '風清揚·馬已今服', real: '馬雲 阿里巴巴', industry: '交通', industryDesc: '物流/伺服器/金融',
-    perk: 'transport', perkText: '菜鳥物流:每回合第一次移動不消耗行動點', home: 'hangzhou' },
+    perk: 'transport', perkText: '菜鳥物流:每回合第一次移動不消耗行動點', home: 'hangzhou',
+    logo: 'alibaba', strengths: { tech: 3, ops: 3, econ: 4, mobility: 5, strategy: 3 },
+    bio: '退休後最愛唱《滄海一聲笑》的電商教父,人稱「爸爸」。語錄包括「我對錢沒有興趣」「996 是修來的福報」。螞蟻上市前夕一句話講太滿,然後就……低調了一陣子,再出現已是在西班牙海邊。' },
   { id: 'ren',    faction: 'CN', name: '菊廠廠長·任正飛', real: '任正非 華為', industry: '硬體', industryDesc: '手機/基地台',
-    perk: 'hardware', perkText: '備胎轉正:發展科技卡費用 -3', home: 'shenzhen' },
+    perk: 'hardware', perkText: '備胎轉正:發展科技卡費用 -3', home: 'shenzhen',
+    logo: 'huawei', strengths: { tech: 5, ops: 4, econ: 3, mobility: 2, strategy: 3 },
+    bio: '菊廠掌門,主打「備胎轉正」與「遙遙領先」。被列實體清單照樣端出自研系統與晶片,女兒的歸國航班全網直播。低調務實,辦公室掛著被打成篩子的戰機照片自勉。' },
   { id: 'pony',   faction: 'CN', name: '小馬哥·馬化疼',  real: '馬化騰 騰訊', industry: '娛樂', industryDesc: '遊戲/社群/像素級致敬',
-    perk: 'media', perkText: '輿論引導:打出假新聞類卡片不消耗資源,且打出後抽一張卡', home: 'chengdu' },
+    perk: 'media', perkText: '輿論引導:打出假新聞類卡片不消耗資源,且打出後抽一張卡', home: 'chengdu',
+    logo: 'tencent', strengths: { tech: 3, ops: 5, econ: 4, mobility: 2, strategy: 4 },
+    bio: '鵝廠掌門小馬哥,從一隻企鵝起家。江湖傳聞擅長「像素級致敬」——你做什麼火,他就上線一個「Plus」版。為人低調到像透明人,但你的社群、遊戲與錢包,十之八九都在他手裡。' },
   { id: 'liang',  faction: 'CN', name: '量化鬼才·梁文瘋', real: '梁文鋒 DeepSeek', industry: 'AI', industryDesc: '低成本大模型',
-    perk: 'ai', perkText: '開源屠榜:每回合自動多抽一張卡(每回合共抽 2 張)', home: 'shanghai' },
+    perk: 'ai', perkText: '開源屠榜:每回合自動多抽一張卡(每回合共抽 2 張)', home: 'shanghai',
+    logo: 'deepseek', strengths: { tech: 5, ops: 3, econ: 3, mobility: 2, strategy: 5 },
+    bio: '量化私募出身的演算法鬼才,帶著開源大模型橫空出世。傳說只花 557 萬美元訓練,一夜之間「屠榜」海放矽谷,輝達股價跌掉一個英特爾。被網友封為「國運級」的男人。' },
   { id: 'robin',  faction: 'CN', name: '擺渡人·李彥虹',  real: '李彥宏 百度', industry: '資訊', industryDesc: '搜尋引擎/競價排名',
-    perk: 'info', perkText: '競價排名:每回合收入 +2', home: 'beijing' },
+    perk: 'info', perkText: '競價排名:每回合收入 +2', home: 'beijing',
+    logo: 'baidu', strengths: { tech: 3, ops: 3, econ: 5, mobility: 2, strategy: 3 },
+    bio: '「百度一下,你就知道」的搜尋大佬。靠競價排名賺得盆滿缽滿,也因此屢屢翻車上熱搜。AI 開發者大會上台演講時被觀眾衝上來潑了一身水,場面一度十分 social。' },
   // 台灣
   { id: 'tsmc',   faction: 'TW', name: '護國神山·張中謀', real: '張忠謀 台積電', industry: '晶片', industryDesc: '先進製程壟斷',
-    perk: 'chip', perkText: '晶片稅:其他玩家每次發展科技卡須支付你 2 金錢;你的硬體卡科技力 +5 點;開局秘密自選支持陣營,可「轉向」一次與「表態」', home: 'hsinchu' },
+    perk: 'chip', perkText: '晶片稅:其他玩家每次發展科技卡須支付你 2 金錢;你的硬體卡科技力 +5 點;開局秘密自選支持陣營,可「轉向」一次與「表態」', home: 'hsinchu',
+    logo: 'tsmc', strengths: { tech: 4, ops: 2, econ: 4, mobility: 2, strategy: 5 },
+    bio: '54 歲才創業、打造「護國神山」的晶圓代工之父。全世界最先進的晶片幾乎都得排隊請他代工,被稱為地表「地緣政治上最重要的公司」。一座新竹廠,就是一面「矽盾」。' },
   // 日本(7人以上)
   { id: 'toyota', faction: 'JP', name: '牛頭牌·豐田彰男', real: '豐田章男 Toyota', industry: '汽車', industryDesc: '油電混合/匠人精神',
-    perk: 'auto', perkText: '改善哲學:發展費用 -2,每回合收入 +2(科技產出計入米國)', home: 'tokyo' },
+    perk: 'auto', perkText: '改善哲學:發展費用 -2,每回合收入 +2(科技產出計入米國)', home: 'tokyo',
+    logo: 'toyota', strengths: { tech: 4, ops: 2, econ: 5, mobility: 4, strategy: 3 },
+    bio: '創辦家族第四代、會親自下場跑賽道的賽車手社長。死忠擁護油電混合,逢人就唱衰純電車「別把雞蛋放在同一個籃子」。信奉匠人精神與「改善(Kaizen)」哲學,主打一台「開不壞的 Toyota」。' },
   // 韓國(8人)
   { id: 'lee',    faction: 'KR', name: '三星太子·李在熔', real: '李在鎔 Samsung', industry: '手機', industryDesc: '財閥/螢幕/記憶體',
-    perk: 'phone', perkText: '財閥手腕:打出作戰卡費用 -2(科技產出計入牆國)', home: 'seoul' },
+    perk: 'phone', perkText: '財閥手腕:打出作戰卡費用 -2(科技產出計入牆國)', home: 'seoul',
+    logo: 'samsung', strengths: { tech: 4, ops: 4, econ: 4, mobility: 2, strategy: 3 },
+    bio: '三星太子,半導體與摺疊機帝國的接班人。曾因某代手機電池「自帶煙火效果」被禁止帶上飛機而名揚四海。游走於看守所與董事會之間,財閥手腕一流,韓國經濟的半壁江山都看他臉色。' },
 ];
+
+// 角色能力特長加權的顯示軸(雷達/長條共用)
+export const STRENGTH_AXES = [
+  { key: 'tech',     name: '科技', icon: '🔬' },
+  { key: 'ops',      name: '作戰', icon: '💣' },
+  { key: 'econ',     name: '經濟', icon: '💰' },
+  { key: 'mobility', name: '機動', icon: '🚀' },
+  { key: 'strategy', name: '謀略', icon: '🧠' },
+];
+
+// 角色頭像/立繪/公司旗幟資源路徑(統一由此推導,前後端共用)
+export const charAvatar   = c => `images/avatars/${typeof c === 'string' ? c : c.id}_chibi.png`;
+export const charPortrait = c => `images/characters/${typeof c === 'string' ? c : c.id}.png`;
+export const charLogo     = c => {
+  const ch = typeof c === 'string' ? CHARACTERS.find(x => x.id === c) : c;
+  return ch?.logo ? `images/logos/${ch.logo}.png` : null;
+};
+// 陣營國旗(images/flags/flag_<faction>.png:us/cn/tw/jp/kr)
+export const factionFlag  = fac => `images/flags/flag_${(typeof fac === 'string' ? fac : fac.id).toLowerCase()}.png`;
 
 // ---- 環太平洋地圖 ----
 // country:城市所屬國家。米國玩家在牆國地盤(及反之)發展科技花費加倍,其他國家不在此限。

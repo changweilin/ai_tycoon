@@ -19,6 +19,8 @@
 
 <!-- ========= 連線畫面 ========= -->
 <div id="connect" class="screen">
+  <img class="game-logo" src="images/game_logo.png" alt="賽博貿易戰 2049"
+       onerror="this.style.display='none'">
   <h1 class="title">賽博貿易戰 <span class="title-year">2049</span></h1>
   <p class="subtitle">環太平洋科技冷戰 // 3~8 人陣營對抗桌遊</p>
   <div class="connect-box">
@@ -39,6 +41,8 @@
 
 <!-- ========= 大廳 ========= -->
 <div id="lobby" class="screen" style="display:none">
+  <img class="game-logo small-logo" src="images/game_logo.png" alt="賽博貿易戰 2049"
+       onerror="this.style.display='none'">
   <h1 class="title small-title">作戰大廳</h1>
   <div class="lobby-grid">
     <div class="lobby-left">
@@ -83,6 +87,8 @@
 <!-- ========= 遊戲畫面 ========= -->
 <div id="gameUI" style="display:none">
   <div id="canvas3d"></div>
+  <img id="gameLogoHud" src="images/game_logo.png" alt="賽博貿易戰 2049"
+       onerror="this.style.display='none'">
 
   <!-- 科技力對比 -->
   <div id="techBar" class="hud">
@@ -161,6 +167,32 @@
     <div id="tradeOffers" class="trade-offers"></div>
     <div id="tradeStatus" class="trade-status"></div>
     <button id="tradeReadyBtn" class="btn big">✅ 結束交易(全員結束後進入下一季)</button>
+  </div>
+</div>
+
+<!-- ========= 角色詳情(立繪 / 生平 / 能力特長)========= -->
+<div id="charDetailOverlay" class="overlay" style="display:none">
+  <div class="modal-box char-detail-box">
+    <button id="charDetailClose" class="cd-close" title="關閉">✕</button>
+    <div class="cd-grid">
+      <div class="cd-portrait-wrap">
+        <img id="cdPortrait" class="cd-portrait" src="" alt=""
+             onerror="this.style.visibility='hidden'">
+        <img id="cdLogo" class="cd-logo" src="" alt="" onerror="this.style.display='none'">
+      </div>
+      <div class="cd-info">
+        <div id="cdFaction" class="cd-faction"></div>
+        <h2 id="cdName" class="cd-name"></h2>
+        <div id="cdReal" class="cd-real"></div>
+        <div id="cdIndustry" class="cd-industry"></div>
+        <div id="cdPerk" class="cd-perk"></div>
+        <div class="cd-section-title">📖 角色生平</div>
+        <div id="cdBio" class="cd-bio"></div>
+        <div class="cd-section-title">📊 能力特長加權</div>
+        <div id="cdStrengths" class="cd-strengths"></div>
+        <div id="cdActions" class="cd-actions"></div>
+      </div>
+    </div>
   </div>
 </div>
 

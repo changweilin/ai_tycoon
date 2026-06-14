@@ -1,5 +1,6 @@
 // ============ 前端 UI 與流程(連線版) ============
-import { FACTIONS, CHARACTERS, TECH_CATEGORIES, RULES, REGIONS, RES_KEYS, RESOURCES, applyRulesOverrides } from './data.js';
+import { FACTIONS, CHARACTERS, TECH_CATEGORIES, RULES, REGIONS, RES_KEYS, RESOURCES, STRENGTH_AXES,
+  charAvatar, charPortrait, charLogo, factionFlag, applyRulesOverrides } from './data.js';
 import { Board3D } from './board3d.js';
 import { Net } from './net.js';
 
@@ -188,11 +189,18 @@ function renderLobby(m) {
     const isMine = myCharId === c.id;
     return `<div class="char-card ${taken && !isMine ? 'taken' : ''} ${lockedJPKR || lockedTW ? 'locked' : ''} ${isMine ? 'mine' : ''}"
       data-char="${c.id}" style="--fc:${FACTIONS[c.faction].css}">
-      <div class="char-faction">${FACTIONS[c.faction].name}</div>
-      <div class="char-name">${c.name}</div>
-      <div class="char-real">${c.real}</div>
+      <div class="char-head">
+        <img class="char-avatar" src="${charAvatar(c)}" alt="${c.name}" data-detail="${c.id}"
+             title="點擊查看立繪 / 生平 / 能力特長" onerror="this.style.display='none'">
+        <div class="char-head-text">
+          <div class="char-faction"><img class="fac-flag" src="${factionFlag(c.faction)}" alt="" onerror="this.style.display='none'">${FACTIONS[c.faction].name}</div>
+          <div class="char-name">${c.name}</div>
+          <div class="char-real">${c.real}</div>
+        </div>
+      </div>
       <div class="char-ind">🏭 ${c.industry}|${c.industryDesc}(${TECH_CATEGORIES[catOf(c)].name})</div>
       <div class="char-perk">✨ ${c.perkText}</div>
+      <div class="char-detail-hint" data-detail="${c.id}">🔍 查看立繪 / 生平 / 能力特長</div>
       ${lockedJPKR ? `<div class="lock-tip">遊戲人數 ${RULES.jpkrMinPlayers}+ 開放</div>` : ''}
       ${lockedTW && !lockedJPKR ? '<div class="lock-tip">最後一位須選台灣</div>' : ''}
       ${taken && !isMine ? '<div class="lock-tip">已被鎖定(可輸入 PIN 認領)</div>' : ''}
@@ -223,47 +231,116 @@ function catOf(c) {
   return { '交通': 'power', '汽車': 'power', '硬體': 'hardware', '手機': 'hardware', '晶片': 'hardware', '資訊': 'info', 'AI': 'ai', '娛樂': 'fun' }[c.industry];
 }
 
+// 選擇/認領角色(大廳卡片與角色詳情共用)
+function selectChar(charId) {
+  if (!last?.lobby || last.lobby.started) return;
+  const ch = CHARACTERS.find(c => c.id === charId);
+  if (!ch) return;
+  const taken = last.lobby.takenChars.includes(charId) && myCharId !== charId;
+  if (taken) {
+    // 別人的角色:輸入該角色的 PIN 認領(換裝置/載入存檔重連)
+    openModal(`🔑 認領角色 — ${ch.name}`,
+      `<p>此角色已被鎖定。輸入正確的角色 PIN 即可從這台裝置接管它。</p>
+       <input id="charPinInput" class="pin-input" type="password" inputmode="numeric" maxlength="8" placeholder="角色 PIN">`,
+      [{ label: '認領', value: true }, { label: '取消', value: null }],
+      val => {
+        if (!val) return;
+        const pin = $('#charPinInput').value;
+        if (pin) setMyPin(pin); // 認領成功的 PIN 之後沿用
+        net.send({ t: 'selectChar', charId, charPin: pin });
+      });
+    setTimeout(() => $('#charPinInput')?.focus(), 50);
+    return;
+  }
+  if (!getMyPin()) {
+    // 第一次:設定個人 PIN,之後切換角色都沿用
+    openModal(`🔒 設定你的 PIN — 只需設定一次`,
+      `<p>設定一組個人 PIN(至少 4 位數)。之後切換角色、換裝置重連都用同一組,不必重設。</p>
+       <input id="charPinInput" class="pin-input" type="password" inputmode="numeric" maxlength="8" placeholder="你的 PIN">`,
+      [{ label: '設定並選擇角色', value: true }, { label: '取消', value: null }],
+      val => {
+        if (!val) return;
+        const pin = $('#charPinInput').value;
+        if (!pin || pin.length < 4) { toast('PIN 至少 4 位數'); return; }
+        setMyPin(pin);
+        net.send({ t: 'selectChar', charId, charPin: pin });
+      });
+    setTimeout(() => $('#charPinInput')?.focus(), 50);
+    return;
+  }
+  // 已有個人 PIN:直接切換角色
+  net.send({ t: 'selectChar', charId, charPin: getMyPin() });
+}
+
+// 角色能力特長加權的長條
+function strengthBars(ch) {
+  const MAX = 5;
+  return STRENGTH_AXES.map(ax => {
+    const v = Math.max(0, Math.min(MAX, ch.strengths?.[ax.key] ?? 0));
+    return `<div class="cd-str-row">
+      <span class="cd-str-label">${ax.icon} ${ax.name}</span>
+      <span class="cd-str-track"><span class="cd-str-fill" style="width:${v / MAX * 100}%"></span></span>
+      <span class="cd-str-val">${v}</span>
+    </div>`;
+  }).join('');
+}
+
+// 角色詳情:全版立繪 / 角色生平(網路梗)/ 能力特長加權
+function openCharDetail(charId, opts = {}) {
+  const ch = CHARACTERS.find(c => c.id === charId);
+  if (!ch) return;
+  const fac = FACTIONS[ch.faction];
+  const cat = TECH_CATEGORIES[catOf(ch)];
+  $('#charDetailOverlay .char-detail-box').style.setProperty('--fc', fac.css);
+  const portrait = $('#cdPortrait');
+  portrait.style.visibility = 'visible';
+  portrait.src = charPortrait(ch);
+  portrait.alt = ch.name;
+  const logoEl = $('#cdLogo');
+  const logo = charLogo(ch);
+  if (logo) { logoEl.style.display = ''; logoEl.src = logo; } else { logoEl.style.display = 'none'; }
+  const facEl = $('#cdFaction');
+  facEl.innerHTML = `<img class="fac-flag" src="${factionFlag(ch.faction)}" alt="" onerror="this.style.display='none'">${fac.name}陣營`;
+  facEl.style.color = fac.css;
+  const nameEl = $('#cdName');
+  nameEl.textContent = ch.name; nameEl.style.color = fac.css;
+  $('#cdReal').textContent = ch.real;
+  $('#cdIndustry').textContent = `🏭 ${ch.industry}｜${ch.industryDesc}（${cat.icon} ${cat.name}）`;
+  $('#cdPerk').textContent = `✨ ${ch.perkText}`;
+  $('#cdBio').textContent = ch.bio || '(暫無生平)';
+  $('#cdStrengths').innerHTML = strengthBars(ch);
+
+  // 大廳開啟時提供「選擇此角色」捷徑
+  const actions = $('#cdActions');
+  actions.innerHTML = '';
+  if (opts.fromLobby && last && !last.lobby?.started) {
+    const taken = last.lobby.takenChars.includes(charId) && myCharId !== charId;
+    const isMine = myCharId === charId;
+    if (isMine) {
+      actions.innerHTML = '<div class="cd-mine">✔ 這是你目前的角色</div>';
+    } else {
+      const btn = document.createElement('button');
+      btn.className = 'btn big';
+      btn.textContent = taken ? '🔑 認領此角色' : '✅ 選擇此角色';
+      btn.onclick = () => { $('#charDetailOverlay').style.display = 'none'; selectChar(charId); };
+      actions.appendChild(btn);
+    }
+  }
+  $('#charDetailOverlay').style.display = 'flex';
+}
+
 function setupLobbyEvents() {
+  $('#charDetailClose').addEventListener('click', () => $('#charDetailOverlay').style.display = 'none');
+  $('#charDetailOverlay').addEventListener('click', e => {
+    if (e.target.id === 'charDetailOverlay') e.currentTarget.style.display = 'none';
+  });
   $('#charPool').addEventListener('click', e => {
+    // 點頭像/放大鏡 → 查看立繪/生平/能力(即使該角色已鎖定或不可選也能瀏覽)
+    const detailEl = e.target.closest('[data-detail]');
+    if (detailEl) { openCharDetail(detailEl.dataset.detail, { fromLobby: true }); return; }
     const card = e.target.closest('.char-card');
     if (!card || card.classList.contains('locked')) return;
-    const charId = card.dataset.char;
-    const ch = CHARACTERS.find(c => c.id === charId);
-    const taken = last.lobby.takenChars.includes(charId) && myCharId !== charId;
-
-    if (taken) {
-      // 別人的角色:輸入該角色的 PIN 認領(換裝置/載入存檔重連)
-      openModal(`🔑 認領角色 — ${ch.name}`,
-        `<p>此角色已被鎖定。輸入正確的角色 PIN 即可從這台裝置接管它。</p>
-         <input id="charPinInput" class="pin-input" type="password" inputmode="numeric" maxlength="8" placeholder="角色 PIN">`,
-        [{ label: '認領', value: true }, { label: '取消', value: null }],
-        val => {
-          if (!val) return;
-          const pin = $('#charPinInput').value;
-          if (pin) setMyPin(pin); // 認領成功的 PIN 之後沿用
-          net.send({ t: 'selectChar', charId, charPin: pin });
-        });
-      setTimeout(() => $('#charPinInput')?.focus(), 50);
-      return;
-    }
-    if (!getMyPin()) {
-      // 第一次:設定個人 PIN,之後切換角色都沿用
-      openModal(`🔒 設定你的 PIN — 只需設定一次`,
-        `<p>設定一組個人 PIN(至少 4 位數)。之後切換角色、換裝置重連都用同一組,不必重設。</p>
-         <input id="charPinInput" class="pin-input" type="password" inputmode="numeric" maxlength="8" placeholder="你的 PIN">`,
-        [{ label: '設定並選擇角色', value: true }, { label: '取消', value: null }],
-        val => {
-          if (!val) return;
-          const pin = $('#charPinInput').value;
-          if (!pin || pin.length < 4) { toast('PIN 至少 4 位數'); return; }
-          setMyPin(pin);
-          net.send({ t: 'selectChar', charId, charPin: pin });
-        });
-      setTimeout(() => $('#charPinInput')?.focus(), 50);
-      return;
-    }
-    // 已有個人 PIN:直接切換角色
-    net.send({ t: 'selectChar', charId, charPin: getMyPin() });
+    selectChar(card.dataset.char);
   });
   $('#gameMode').addEventListener('change', updateModeVisibility);
   $('#gameName').addEventListener('change', () =>
@@ -378,7 +455,10 @@ function renderTechBar(s) {
 function renderMyPanel(m) {
   const me = myPlayer();
   const priv = m.priv;
-  $('#curName').innerHTML = `<span style="color:${FACTIONS[me.faction].css}">${me.name}</span> 【${FACTIONS[me.faction].name}】`;
+  $('#curName').innerHTML = `<img class="panel-avatar" src="${charAvatar(me.charId)}" alt=""
+      data-detail="${me.charId}" title="查看角色詳情" onerror="this.style.display='none'">
+    <span class="panel-name" style="color:${FACTIONS[me.faction].css}">${me.name}</span>
+    <span class="panel-fac">【${FACTIONS[me.faction].name}】</span>`;
   const myTech = last.state.tech[me.faction] ?? 0;
   let stats = `💰 <b>${me.res.money}</b>  ⚡ <b>${me.res.power}</b>  🛢️ <b>${me.res.oil}</b>  🎯 行動點 <b>${me.ap}</b>  📍 ${REGIONS.find(r => r.id === me.pos).name}<br>📈 收入 ${fmtRes(me.income)}/回合  🔬 本國科技力 <b>${myTech}</b> 點(每 100 點收益 +1)`;
   if (priv?.intel?.length) {
@@ -401,7 +481,8 @@ function renderPlayersList(s) {
   $('#playersList').innerHTML = s.players.map(q => {
     const active = q.id === s.turnIdx && !s.over;
     return `<div class="pl-row ${active ? 'active' : ''}">
-      <span class="pl-dot" style="background:${FACTIONS[q.faction].css}"></span>
+      <img class="pl-avatar" src="${charAvatar(q.charId)}" alt="" data-detail="${q.charId}"
+           title="查看角色詳情" style="border-color:${FACTIONS[q.faction].css}" onerror="this.style.display='none'">
       <span class="pl-name">${q.isAI ? '🤖' : ''}${q.name}</span>
       <span class="pl-info">💰${q.res.money} ⚡${q.res.power} 🛢️${q.res.oil} 🃏${q.handCount}</span>
     </div>`;
@@ -591,14 +672,22 @@ function showPlayerInfo(charId) {
   const me = myPlayer();
   const isMe = me && p.id === me.id;
   const body = `<div class="pawn-info">
-    <div class="pawn-info-head" style="color:${fac.css}">${p.isAI ? '🤖 ' : ''}${ch ? ch.name : p.name}${isMe ? '(你)' : ''}　【${fac.name}】${active ? '　⏳ 行動中' : ''}</div>
-    ${ch ? `<div class="modal-desc">${ch.real}|🏭 ${ch.industry}(${ch.industryDesc})</div>` : ''}
+    <div class="pawn-info-top">
+      <img class="pawn-info-avatar" src="${charAvatar(charId)}" alt="" style="border-color:${fac.css}" onerror="this.style.display='none'">
+      <div>
+        <div class="pawn-info-head" style="color:${fac.css}">${p.isAI ? '🤖 ' : ''}${ch ? ch.name : p.name}${isMe ? '(你)' : ''}　【${fac.name}】${active ? '　⏳ 行動中' : ''}</div>
+        ${ch ? `<div class="modal-desc">${ch.real}|🏭 ${ch.industry}(${ch.industryDesc})</div>` : ''}
+      </div>
+    </div>
     <div class="pawn-info-res">💰 ${p.res.money}　⚡ ${p.res.power}　🛢️ ${p.res.oil}</div>
     <div class="modal-desc">📍 ${here ? here.name : p.pos}　🎯 行動點 ${p.ap}　🃏 手牌 ${p.handCount}</div>
     <div class="modal-desc">🔬 ${fac.name}科技力 <b>${tech}</b> 點　📈 收入 ${fmtRes(p.income)}/回合</div>
     ${ch ? `<div class="pawn-info-perk">✨ ${ch.perkText}</div>` : ''}
   </div>`;
-  openModal(`${ch ? ch.name : p.name}`, body, [{ label: '關閉', value: null }]);
+  openModal(`${ch ? ch.name : p.name}`, body,
+    ch ? [{ label: '🔍 立繪 / 生平 / 能力特長', value: 'detail' }, { label: '關閉', value: null }]
+       : [{ label: '關閉', value: null }],
+    val => { if (val === 'detail') openCharDetail(charId); });
 }
 
 function setMode(m2) {
@@ -795,9 +884,11 @@ function showResult(s) {
     const tech = s.tech[q.faction] ?? 0;
     return `<tr class="${q.id === r.champion ? 'champ' : ''} ${isMe ? 'me' : ''}">
       <td class="rk">${medal}</td>
-      <td><span class="pl-dot" style="background:${FACTIONS[q.faction].css}"></span>
-        <b style="color:${FACTIONS[q.faction].css}">${q.name}</b>${isMe ? '(你)' : ''}${winnerSet.has(q.id) ? ' 👑' : ''}
-        <div class="res">${ch ? ch.name : ''}【${FACTIONS[q.faction].name}】</div></td>
+      <td class="lb-who">
+        <img class="lb-avatar" src="${charAvatar(q.charId)}" alt="" data-detail="${q.charId}"
+             title="查看角色詳情" style="border-color:${FACTIONS[q.faction].css}" onerror="this.style.display='none'">
+        <span><b style="color:${FACTIONS[q.faction].css}">${q.name}</b>${isMe ? '(你)' : ''}${winnerSet.has(q.id) ? ' 👑' : ''}
+        <div class="res">${ch ? ch.name : ''}【${FACTIONS[q.faction].name}】</div></span></td>
       <td class="res">${tech} 點</td>
       <td class="res">${fmtRes(q.res)}</td>
     </tr>`;
@@ -884,6 +975,13 @@ function setupGameEvents() {
       [{ label: '結束遊戲', value: true }, { label: '取消', value: null }],
       val => { if (val) net.send({ t: 'endGame' }); });
   });
+  // 點操作區/資訊面板的 Q 版頭像 → 角色詳情
+  for (const id of ['#playerPanel', '#playersList', '#resultBody']) {
+    $(id).addEventListener('click', e => {
+      const d = e.target.closest('[data-detail]');
+      if (d) openCharDetail(d.dataset.detail);
+    });
+  }
   $('#rulesBtn').addEventListener('click', () => $('#rulesOverlay').style.display = 'flex');
   $('#rulesClose').addEventListener('click', () => $('#rulesOverlay').style.display = 'none');
   $('#resultClose').addEventListener('click', () => $('#resultOverlay').style.display = 'none');

@@ -32,6 +32,18 @@ body {
 .small-title { font-size: 2rem; margin-bottom: 16px; }
 .subtitle { text-align: center; color: var(--cyan); margin: 8px 0 28px; letter-spacing: .3em; }
 
+/* ---------- 遊戲 LOGO ---------- */
+.game-logo {
+  display: block; margin: 0 auto 6px; max-width: min(420px, 80vw); height: auto;
+  filter: drop-shadow(0 0 22px rgba(0, 240, 255, .55)) drop-shadow(0 0 40px rgba(123, 43, 255, .35));
+}
+.game-logo.small-logo { max-width: min(240px, 60vw); margin-bottom: 2px; }
+#gameLogoHud {
+  position: fixed; left: 14px; bottom: 14px; height: 56px; width: auto; z-index: 4;
+  opacity: .9; pointer-events: none;
+  filter: drop-shadow(0 0 14px rgba(0, 240, 255, .5));
+}
+
 /* ---------- 連線畫面 ---------- */
 .connect-box {
   max-width: 380px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px;
@@ -89,11 +101,21 @@ body {
 .char-card.taken { opacity: .55; }
 .char-card.locked { opacity: .35; cursor: not-allowed; }
 .char-card.mine { box-shadow: 0 0 20px var(--fc); }
+.char-head { display: flex; align-items: center; gap: 12px; }
+.char-avatar {
+  width: 64px; height: 64px; flex-shrink: 0; border-radius: 12px; object-fit: cover;
+  background: rgba(0, 240, 255, .06); border: 2px solid var(--fc, var(--border));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--fc) 45%, transparent); cursor: pointer; transition: transform .15s;
+}
+.char-avatar:hover { transform: scale(1.08); }
+.char-head-text { min-width: 0; }
 .char-faction { color: var(--fc); font-weight: bold; font-size: .82rem; }
-.char-name { font-size: 1.15rem; font-weight: bold; margin: 4px 0; }
+.char-name { font-size: 1.12rem; font-weight: bold; margin: 2px 0; }
 .char-real { color: #7a9aba; font-size: .78rem; }
-.char-ind { margin-top: 6px; font-size: .85rem; }
+.char-ind { margin-top: 8px; font-size: .85rem; }
 .char-perk { margin-top: 4px; font-size: .8rem; color: #aee9ff; }
+.char-detail-hint { margin-top: 8px; font-size: .76rem; color: var(--cyan); cursor: pointer; opacity: .85; }
+.char-detail-hint:hover { opacity: 1; text-decoration: underline; }
 .lock-tip { position: absolute; top: 8px; right: 10px; font-size: .72rem; color: #ffd02e; }
 .mine-tip { color: #2eff8f; }
 
@@ -130,12 +152,25 @@ body {
 .spectator-tag { bottom: 16px; left: var(--col-left); right: var(--col-right); margin-inline: auto; width: fit-content; color: #ffd02e; }
 
 #playerPanel { top: 110px; left: 12px; max-width: 320px; font-size: .92rem; line-height: 1.7; }
+#curName { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.panel-avatar {
+  width: 44px; height: 44px; border-radius: 10px; object-fit: cover; cursor: pointer;
+  border: 2px solid var(--cyan); box-shadow: 0 0 10px rgba(0, 240, 255, .4); transition: transform .15s;
+}
+.panel-avatar:hover { transform: scale(1.08); }
+.panel-name { font-size: 1.08rem; font-weight: bold; }
+.panel-fac { color: #9ab; font-size: .85rem; }
 .perk-line { color: #aee9ff; font-size: .8rem; }
 
 #playersList { top: 12px; right: 12px; min-width: 210px; }
 .pl-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: .85rem; }
 .pl-row.active { color: var(--cyan); text-shadow: 0 0 8px var(--cyan); }
 .pl-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.pl-avatar {
+  width: 30px; height: 30px; border-radius: 7px; object-fit: cover; flex-shrink: 0; cursor: pointer;
+  border: 1.5px solid var(--border); background: rgba(0, 240, 255, .06); transition: transform .15s;
+}
+.pl-avatar:hover { transform: scale(1.12); }
 .pl-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pl-info { color: #9ab; font-size: .8rem; }
 
@@ -214,6 +249,11 @@ body {
 
 /* 棋子資訊面板(點擊角色棋子) */
 .pawn-info { display: flex; flex-direction: column; gap: 6px; line-height: 1.6; }
+.pawn-info-top { display: flex; align-items: center; gap: 12px; }
+.pawn-info-avatar {
+  width: 60px; height: 60px; border-radius: 12px; object-fit: cover; flex-shrink: 0;
+  border: 2px solid var(--border); background: rgba(0, 240, 255, .06); box-shadow: 0 0 12px rgba(0, 240, 255, .3);
+}
 .pawn-info-head { font-size: 1.15rem; font-weight: bold; }
 .pawn-info-res { font-size: 1.05rem; color: #ffe08a; }
 .pawn-info-perk { color: #aee9ff; font-size: .85rem; margin-top: 2px; }
@@ -265,6 +305,11 @@ body {
 .lb tr.me { background: rgba(0,240,255,.08); }
 .lb tr.champ { background: linear-gradient(90deg, rgba(255,208,46,.18), transparent); }
 .lb .res { color: #bfe9ff; font-size: .82rem; }
+.lb-who { display: flex; align-items: center; gap: 10px; }
+.lb-avatar {
+  width: 38px; height: 38px; border-radius: 9px; object-fit: cover; flex-shrink: 0; cursor: pointer;
+  border: 2px solid var(--border); background: rgba(0, 240, 255, .06);
+}
 
 /* 事件卡全螢幕動畫 */
 #eventFx {
@@ -297,6 +342,65 @@ body {
 .rules-box { max-width: min(760px, 94vw); }
 .rules-content p { margin-bottom: 10px; font-size: .88rem; line-height: 1.8; color: #cfeaff; }
 
+/* ---------- 角色詳情(立繪 / 生平 / 能力特長)---------- */
+#charDetailOverlay { z-index: 70; }
+.char-detail-box {
+  --fc: var(--cyan); position: relative; max-width: min(760px, 94vw);
+  border-color: color-mix(in srgb, var(--fc) 60%, var(--border));
+  box-shadow: 0 0 44px color-mix(in srgb, var(--fc) 40%, transparent);
+}
+.cd-close {
+  position: absolute; top: 12px; right: 14px; z-index: 2;
+  background: rgba(0, 0, 0, .35); border: 1px solid var(--border); color: #eaffff;
+  width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1rem; line-height: 1;
+}
+.cd-close:hover { box-shadow: 0 0 12px rgba(0, 240, 255, .5); }
+.cd-grid { display: flex; gap: 22px; align-items: flex-start; }
+.cd-portrait-wrap { position: relative; flex: 0 0 auto; width: min(280px, 40vw); }
+.cd-portrait {
+  width: 100%; height: auto; max-height: 60vh; object-fit: contain; border-radius: 12px;
+  filter: drop-shadow(0 0 26px color-mix(in srgb, var(--fc) 55%, transparent));
+}
+.cd-logo {
+  position: absolute; right: 6px; bottom: 6px; width: 56px; height: 56px; object-fit: contain;
+  background: rgba(4, 6, 16, .7); border: 1px solid var(--fc); border-radius: 10px; padding: 5px;
+}
+.cd-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.cd-faction { font-weight: bold; font-size: .9rem; letter-spacing: .1em; display: flex; align-items: center; gap: 6px; }
+.fac-flag {
+  height: 1em; width: auto; vertical-align: -0.12em; margin-right: 4px; border-radius: 2px;
+  box-shadow: 0 0 4px rgba(0, 0, 0, .5);
+}
+.cd-faction .fac-flag { height: 1.2em; }
+.cd-name { font-size: 1.5rem; font-weight: 900; margin: 0; text-shadow: 0 0 16px color-mix(in srgb, var(--fc) 60%, transparent); }
+.cd-real { color: #8fb6d6; font-size: .85rem; }
+.cd-industry { margin-top: 6px; font-size: .9rem; color: #d8f4ff; }
+.cd-perk { font-size: .85rem; color: #aee9ff; line-height: 1.6; }
+.cd-section-title {
+  margin-top: 12px; margin-bottom: 4px; font-size: .82rem; font-weight: bold; color: var(--fc);
+  letter-spacing: .08em; border-bottom: 1px solid color-mix(in srgb, var(--fc) 30%, transparent); padding-bottom: 4px;
+}
+.cd-bio { font-size: .9rem; line-height: 1.85; color: #cfeaff; }
+.cd-strengths { display: flex; flex-direction: column; gap: 7px; }
+.cd-str-row { display: flex; align-items: center; gap: 10px; font-size: .85rem; }
+.cd-str-label { flex: 0 0 64px; color: #d8f4ff; }
+.cd-str-track { flex: 1; height: 12px; background: #060a1e; border-radius: 6px; overflow: hidden; border: 1px solid rgba(0, 240, 255, .15); }
+.cd-str-fill {
+  display: block; height: 100%; border-radius: 6px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--fc) 55%, #0a2a4a), var(--fc));
+  box-shadow: 0 0 10px color-mix(in srgb, var(--fc) 60%, transparent); transition: width .4s ease;
+}
+.cd-str-val { flex: 0 0 18px; text-align: right; color: var(--fc); font-weight: bold; }
+.cd-actions { margin-top: 16px; }
+.cd-actions .btn { width: 100%; }
+.cd-mine { color: #2eff8f; font-weight: bold; text-align: center; padding: 8px; }
+
+@media (max-width: 640px) {
+  .cd-grid { flex-direction: column; align-items: center; }
+  .cd-portrait-wrap { width: min(220px, 60vw); }
+  .cd-info { width: 100%; }
+}
+
 /* ---------- Toast ---------- */
 #toast {
   position: fixed; bottom: 210px; left: 50%; transform: translateX(-50%);
@@ -324,4 +428,5 @@ body {
   #log { display: none; }
   #handWrap { max-height: 150px; }
   .card { width: 104px; }
+  #gameLogoHud { display: none; }
 }

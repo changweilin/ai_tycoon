@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { REGIONS, EDGES, FACTIONS, TECH_CATEGORIES, RULES } from './data.js';
+import { REGIONS, EDGES, FACTIONS, TECH_CATEGORIES, RULES, charLogo } from './data.js';
 
 const NEON_CYAN = 0x00f0ff;
 const NEON_PINK = 0xff2bd6;
@@ -883,6 +883,45 @@ function makeSoftTexture() {
 
 const lerp = (a, b, k) => a + (b - a) * k;
 const smooth = k => k * k * (3 - 2 * k);
+const easeOutBack = k => { const c = 1.70158; const x = k - 1; return 1 + (c + 1) * x * x * x + c * x * x; };
+
+// ---------- 角色公司旗幟(建造科技卡時於城市升起)----------
+const _texLoader = new THREE.TextureLoader();
+const _logoTexCache = new Map(); // url → 共用 Texture(常駐旗幟用,不隨 disposeGroup 釋放)
+function logoTexture(charId, fresh = false) {
+  const url = charLogo(charId);
+  if (!url) return null;
+  if (fresh) { const t = _texLoader.load(url); t.colorSpace = THREE.SRGBColorSpace; return t; }
+  if (!_logoTexCache.has(url)) {
+    const t = _texLoader.load(url); t.colorSpace = THREE.SRGBColorSpace;
+    _logoTexCache.set(url, t);
+  }
+  return _logoTexCache.get(url);
+}
+
+// 旗桿 + 陣營色旗布 + 公司 logo;userData.cloth 為旗布樞紐(供飄動動畫)
+function makeCompanyFlag(charId, facHex, fresh = false) {
+  const g = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 1.6, 6),
+    new THREE.MeshStandardMaterial({ color: 0xd2dceb, metalness: 0.4, roughness: 0.5 }));
+  pole.position.y = 0.8; g.add(pole);
+  const knob = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8),
+    new THREE.MeshStandardMaterial({ color: facHex, emissive: facHex, emissiveIntensity: 0.5, metalness: 0.3, roughness: 0.4 }));
+  knob.position.y = 1.63; g.add(knob);
+  // 旗布:以旗桿為樞紐向 +x 展開
+  const cloth = new THREE.Group(); cloth.position.set(0.014, 1.46, 0); g.add(cloth);
+  const backing = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.44),
+    new THREE.MeshBasicMaterial({ color: facHex, side: THREE.DoubleSide, transparent: true, opacity: 0.96 }));
+  backing.position.set(0.34, -0.06, 0); cloth.add(backing);
+  const tex = logoTexture(charId, fresh);
+  if (tex) {
+    const logo = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.36),
+      new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, transparent: true }));
+    logo.position.set(0.34, -0.06, 0.012); cloth.add(logo);
+  }
+  g.userData.cloth = cloth;
+  return g;
+}
 
 // ---------- 天氣型錄 ----------
 // 每種天氣是一組會被平滑插值的參數;rain/snow/cloud=粒子強度,wind=風力,wave=浪高,
@@ -925,6 +964,8 @@ export class Board3D {
     this.regionMeshes = {};
     this.nodeGroup = new THREE.Group();
     this.pawnGroup = new THREE.Group();
+    this.flagCloths = [];               // 城市公司旗幟(升起動畫 + 飄動)
+    this._flagSeen = undefined;         // 上次同步已存在的旗幟,用來判斷新建造→升起
     this.blockedRings = {};
     this.highlighted = new Set();
     this.traffic = [];
@@ -1816,6 +1857,9 @@ export class Board3D {
     // 科技卡 → 城市出現對應類別的建築(高度隨階級,陣營色 + 類別色點綴)
     disposeGroup(this.nodeGroup);
     this.nodeGroup.clear();
+    const prevFlagSeen = this._flagSeen;   // 上次已有的旗幟(undefined=首次同步,不播升起)
+    const flagSeenNow = new Set();
+    this.flagCloths = [];
     const slotOffsets = [[-0.75, -0.55], [0.75, -0.55], [-0.75, 0.75], [0.75, 0.75]];
     for (const rid in state.regions) {
       const r = state.regions[rid];
@@ -1831,9 +1875,24 @@ export class Board3D {
         build.rotation.y = si * 0.5;
         build.scale.setScalar(ts);
         this.nodeGroup.add(build);
+
+        // 公司旗幟:於該卡建築旁升起角色的公司旗(新建造時播放升起動畫)
+        const fkey = rid + ':' + owner.charId;
+        flagSeenNow.add(fkey);
+        const flag = makeCompanyFlag(owner.charId, facHex);
+        const fullScale = ts * 0.92;
+        flag.position.set(rDef.x + ox * ts * 1.05, 0.27, rDef.z + oz * ts * 1.05);
+        if (prevFlagSeen && !prevFlagSeen.has(fkey)) { flag.scale.setScalar(0.001); flag.userData.riseT = 0; }
+        else flag.scale.setScalar(fullScale);
+        flag.userData.fullScale = fullScale;
+        flag.userData.root = flag;
+        flag.userData.phase = si * 1.3 + rid.length;
+        this.nodeGroup.add(flag);
+        this.flagCloths.push(flag.userData);
       });
       this.blockedRings[rid].visible = r.fakeUntilRound > state.round;
     }
+    this._flagSeen = flagSeenNow;
 
     // 棋子:每個角色一座惡搞特徵剪影,陣營色,當前回合者加大動作
     disposeGroup(this.pawnGroup);
@@ -2216,6 +2275,19 @@ export class Board3D {
       this.deckGroup.position.y = this.deckBaseY + Math.sin(t * 1.2) * 0.05;
       if (this.deckRing) this.deckRing.rotation.z = t * 0.6;
       if (this.deckIcon) this.deckIcon.position.y = 1.5 + Math.sin(t * 2) * 0.08;
+    }
+
+    // 公司旗幟:新建造的升起動畫 + 隨風飄動
+    for (const f of this.flagCloths) {
+      if (f.riseT !== undefined && f.riseT < 1) {
+        f.riseT = Math.min(1, f.riseT + dt / 0.7);
+        f.root.scale.setScalar(Math.max(0.001, (f.fullScale || 1) * easeOutBack(f.riseT)));
+      }
+      if (f.cloth) {
+        const ph = f.phase || 0;
+        f.cloth.rotation.y = Math.sin(t * 2.2 + ph) * 0.3;
+        f.cloth.rotation.z = Math.sin(t * 3.1 + ph) * 0.06;
+      }
     }
 
     // 海浪 + 天氣
