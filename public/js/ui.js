@@ -126,6 +126,7 @@ function onSync(m) {
     $('#eventFx').classList.remove('show');
     resultShown = false;
     lastFxId = null;        // 回到大廳:下一局重新基準,新局開場事件會播放
+    lastLogLen = null;      // 行動訊息饋送也重置基準(下一局不重播歷史)
     renderLobby(m);
   } else {
     $('#connect').style.display = 'none';
@@ -360,6 +361,11 @@ function setupLobbyEvents() {
   $('#charDetailOverlay').addEventListener('click', e => {
     if (e.target.id === 'charDetailOverlay') e.currentTarget.style.display = 'none';
   });
+  $('#lobbyBackBtn').addEventListener('click', () => {
+    openModal('↩️ 返回開始頁', '<p>確定要離開大廳、回到開始頁面嗎?(可重新輸入 PIN 再加入)</p>',
+      [{ label: '返回開始頁', value: true }, { label: '取消', value: null }],
+      val => { if (val) location.href = location.origin + location.pathname; });
+  });
   $('#cdPrev').addEventListener('click', () => cdNavigate(-1));
   $('#cdNext').addEventListener('click', () => cdNavigate(1));
   document.addEventListener('keydown', e => {
@@ -428,6 +434,7 @@ function refreshGame(m) {
   renderTechBar(s);
   renderPlayersList(s);
   renderLog(s);
+  maybeToastLog(s);
 
   const me = myPlayer();
   const spectating = !me;
@@ -676,6 +683,17 @@ function renderLog(s) {
   $('#log').scrollTop = $('#log').scrollHeight;
 }
 
+// 行動訊息饋送:有新的行動紀錄就用 toast 明確提示(首次同步/重連不重播歷史)
+let lastLogLen = null;
+function maybeToastLog(s) {
+  const log = s.log || [];
+  if (lastLogLen === null || log.length < lastLogLen) { lastLogLen = log.length; return; }
+  if (log.length > lastLogLen && log.length) {
+    toast(String(log[log.length - 1]).replace(/<[^>]*>/g, ''));
+  }
+  lastLogLen = log.length;
+}
+
 // ---------------- 行動 ----------------
 function onRegionClick(rid) {
   if (!last?.state) return;
@@ -858,24 +876,33 @@ function dispatchFx(f, s) {
   const facCss = id => FACTIONS[id]?.css || '#00f0ff';
   // 施法者目前位置(由 charId 回查;作戰卡不移動、科技卡在原地建造)
   const caster = f.charId ? s.players.find(p => p.charId === f.charId) : null;
+  const ch = f.charId ? CHARACTERS.find(c => c.id === f.charId) : null;
+  const who = ch ? ch.name : (caster ? caster.name : '');
+  const col = facCss(f.faction);
   switch (f.type) {
     case 'event': showEventFx(f.event); break;
     case 'build': {
       const c = TECH_CATEGORIES[f.cat];
       // 建造本身在施法者所在城市,fxBuild 即為施展特效(不再疊光環避免雜亂)
       board.fxBuild(f.region, f.cat, c?.css || '#00f0ff', c?.icon || '🏗️');
+      board.fxLabel(f.region, `${c?.icon || '🏗️'} ${who} 建造 ${f.name || ''}`.trim(), col);
       break;
     }
     case 'destroy':
-      if (caster) { board.fxCast(caster.pos, facCss(f.faction), '💣'); board.fxBeam(caster.pos, f.region, facCss(f.faction)); }
-      board.fxDestroy(f.region); break;
+      if (caster) { board.fxCast(caster.pos, col, '💣'); board.fxBeam(caster.pos, f.region, col); }
+      board.fxDestroy(f.region);
+      board.fxLabel(f.region, `💣 ${who} 摧毀 ${f.name || '科技卡'}!`, col); break;
     case 'steal':
-      if (caster) { board.fxCast(caster.pos, facCss(f.faction), '🕵️'); board.fxBeam(caster.pos, f.region, '#2eff8f'); }
-      board.fxSteal(f.region); break;
+      if (caster) { board.fxCast(caster.pos, col, '🕵️'); board.fxBeam(caster.pos, f.region, '#2eff8f'); }
+      board.fxSteal(f.region);
+      board.fxLabel(f.region, `🕵️ ${who} 竊取情報`, col); break;
     case 'fake':
-      if (caster) { board.fxCast(caster.pos, facCss(f.faction), '📰'); board.fxBeam(caster.pos, f.region, '#ff2bd6'); }
-      board.fxFake(f.region); break;
-    case 'move': board.fxMove(f.from, f.to, f.plane); break;
+      if (caster) { board.fxCast(caster.pos, col, '📰'); board.fxBeam(caster.pos, f.region, '#ff2bd6'); }
+      board.fxFake(f.region);
+      board.fxLabel(f.region, `📰 ${who} 假新聞 ×${f.mult || ''}`, col); break;
+    case 'move':
+      board.fxMove(f.from, f.to, f.plane);
+      board.fxLabel(f.to, `${f.plane ? '✈️' : '🚶'} ${who}`, col); break;
     case 'draw': board.fxDraw(f.region); break;
   }
 }

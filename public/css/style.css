@@ -30,6 +30,7 @@ body {
 }
 .title-year { color: var(--pink); text-shadow: 0 0 18px var(--pink); }
 .small-title { font-size: 2rem; margin-bottom: 16px; }
+.lobby-back { position: fixed; top: 16px; left: 16px; z-index: 6; }
 .subtitle { text-align: center; color: var(--cyan); margin: 8px 0 28px; letter-spacing: .3em; }
 
 /* ---------- 遊戲 LOGO ---------- */

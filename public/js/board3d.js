@@ -923,6 +923,78 @@ function makeCompanyFlag(charId, facHex, fresh = false) {
   return g;
 }
 
+// ---------- 玩家標記 / 動作提示文字 ----------
+function avatarTexture(charId) {
+  const url = `images/avatars/${charId}_chibi.png`;
+  if (!_logoTexCache.has(url)) {
+    const t = _texLoader.load(url); t.colorSpace = THREE.SRGBColorSpace;
+    _logoTexCache.set(url, t);
+  }
+  return _logoTexCache.get(url);
+}
+
+function _roundRect(ctx, x, y, w, h, r) {
+  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
+  ctx.beginPath(); ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
+
+// 名牌貼圖快取(每位玩家最多一張,跨 sync 共用 → 不隨 disposeGroup 累積洩漏)
+const _tagTexCache = new Map();
+function nameTagTexture(text, css) {
+  const key = text + '|' + css;
+  if (!_tagTexCache.has(key)) {
+    const c = document.createElement('canvas'); c.width = 320; c.height = 80;
+    const ctx = c.getContext('2d');
+    ctx.font = 'bold 42px "Microsoft JhengHei", sans-serif';
+    const w = Math.min(300, ctx.measureText(text).width + 36);
+    ctx.fillStyle = 'rgba(6,10,24,0.86)'; _roundRect(ctx, 160 - w / 2, 10, w, 60, 16); ctx.fill();
+    ctx.lineWidth = 4; ctx.strokeStyle = css; ctx.stroke();
+    ctx.fillStyle = '#eaffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = css; ctx.shadowBlur = 8;
+    ctx.fillText(text, 160, 42, 290);
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    _tagTexCache.set(key, tex);
+  }
+  return _tagTexCache.get(key);
+}
+// 棋子名牌(圓角底 + 陣營色描邊),永遠面向鏡頭、不被遮擋
+function makeNameTag(text, css = '#00f0ff') {
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: nameTagTexture(text, css), transparent: true, depthTest: false, depthWrite: false }));
+  spr.scale.set(2.2, 0.55, 1); spr.renderOrder = 12;
+  return spr;
+}
+
+// 表情貼圖快取(供棋子標記用;fx 用的 makeEmojiSprite 不快取,因 disposeFx 會釋放 map)
+const _emojiTexCache = new Map();
+function emojiTexture(ch) {
+  if (!_emojiTexCache.has(ch)) {
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const ctx = c.getContext('2d');
+    ctx.font = '92px "Segoe UI Emoji", "Microsoft JhengHei", serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(ch, 64, 70);
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    _emojiTexCache.set(ch, tex);
+  }
+  return _emojiTexCache.get(ch);
+}
+
+// 動作提示文字(浮起淡出):大字 + 描邊,行動發生處顯示「誰做了什麼」
+function makeFxText(text, css = '#00f0ff') {
+  const c = document.createElement('canvas'); c.width = 512; c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.font = 'bold 60px "Microsoft JhengHei", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 8; ctx.strokeStyle = 'rgba(2,4,12,0.92)'; ctx.strokeText(text, 256, 70, 500);
+  ctx.shadowColor = css; ctx.shadowBlur = 18;
+  ctx.fillStyle = '#ffffff'; ctx.fillText(text, 256, 70, 500);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+  spr.scale.set(5.2, 1.3, 1); spr.renderOrder = 22;
+  return spr;
+}
+
 // ---------- 天氣型錄 ----------
 // 每種天氣是一組會被平滑插值的參數;rain/snow/cloud=粒子強度,wind=風力,wave=浪高,
 // light/amb=光照,flash=閃電頻率,funnel=漏斗(颱風/龍捲)強度,funnelGround=是否觸地,fog/bg=氛圍
@@ -1908,11 +1980,34 @@ export class Board3D {
         const angle = (i / ps.length) * Math.PI * 2 + 0.6;
         const tx = rDef.x + Math.cos(angle) * ringR, tz = rDef.z + Math.sin(angle) * ringR;
         const color = FACTIONS[p.faction].color;
+        const facCss = FACTIONS[p.faction].css;
         const builder = PAWN_BUILDERS[p.charId] || PAWN_BUILDERS._default;
-        const pawn = buildModel('pawn:' + p.charId, () => builder(color), { fit: 1.2 });
+        const pawn = buildModel('pawn:' + p.charId, () => builder(color), { fit: 1.6 });
         pawn.position.set(tx, PAWN_BASE_Y, tz);
         pawn.rotation.y = -angle + Math.PI; // 面向城市中心
         pawn.userData.baseY = PAWN_BASE_Y;
+
+        // 玩家標記:頭頂 Q 版頭像 + 名牌(永遠面向鏡頭、不被建築遮擋)
+        const av = new THREE.Sprite(new THREE.SpriteMaterial({ map: avatarTexture(p.charId), transparent: true, depthTest: false, depthWrite: false }));
+        av.scale.set(1.5, 1.5, 1); av.position.y = 3.5; av.renderOrder = 12; pawn.add(av);
+        const tag = makeNameTag((p.isAI ? '🤖 ' : '') + p.name, facCss);
+        tag.position.y = 2.5; pawn.add(tag);
+        pawn.userData.marker = av;
+        // 腳下陣營色光環(看得出棋子落點)
+        const disc = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.72, 32),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }));
+        disc.rotation.x = -Math.PI / 2; disc.position.y = 0.05; pawn.add(disc);
+        pawn.userData.disc = disc;
+        // 當前回合者:陣營色光柱 + 頭頂指示標
+        if (p.id === state.turnIdx && !state.over) {
+          const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.5, 5, 18, 1, true),
+            new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+          beam.position.y = 2.5; pawn.add(beam);
+          pawn.userData.beam = beam;
+          const arrow = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTexture('🔻'), transparent: true, depthTest: false, depthWrite: false }));
+          arrow.scale.set(0.9, 0.9, 1); arrow.position.y = 4.5; arrow.renderOrder = 13; pawn.add(arrow);
+          pawn.userData.arrow = arrow;
+        }
         pawn.userData.phase = i * 1.7 + rid.length;
         pawn.userData.charId = p.charId;
         pawn.userData.regionId = rid;
@@ -1953,6 +2048,19 @@ export class Board3D {
   }
 
   highlight(regionIds) { this.highlighted = new Set(regionIds); }
+
+  // 動作提示文字:在行動發生的城市上方浮現「誰做了什麼」,升起後淡出(永遠可見)
+  fxLabel(regionId, text, css = '#00f0ff') {
+    const p = this._regionPos(regionId); if (!p) return;
+    const g = new THREE.Group(); g.position.copy(p);
+    const spr = makeFxText(text, css); spr.position.y = 3.0; g.add(spr);
+    this._registerFx(g, 2.4, age => {
+      spr.position.y = 3.0 + age * 2.6;
+      spr.material.opacity = age < 0.65 ? 1 : Math.max(0, 1 - (age - 0.65) / 0.35);
+      const s = 0.6 + Math.min(1, age * 5) * 0.4;
+      spr.scale.set(5.2 * s, 1.3 * s, 1);
+    });
+  }
 
   // ---------- 短命視覺特效:建造 / 作戰 / 移動 ----------
   _regionPos(id) {
@@ -2243,6 +2351,14 @@ export class Board3D {
           a.mesh.material.opacity = 0.45 + Math.abs(Math.sin(t * 13)) * 0.5;
         }
       }
+      // 玩家標記:腳下光環脈動、當前回合者光柱與指示標跳動
+      if (ud.disc) {
+        ud.disc.material.opacity = ud.active ? 0.45 + Math.abs(Math.sin(t * 3)) * 0.45 : 0.5;
+        const ds = ud.active ? 1.1 + Math.sin(t * 3) * 0.12 : 1;
+        ud.disc.scale.set(ds, ds, ds);
+      }
+      if (ud.beam) ud.beam.material.opacity = 0.14 + Math.abs(Math.sin(t * 2.4)) * 0.16;
+      if (ud.arrow) ud.arrow.position.y = 4.5 + Math.sin(t * 4) * 0.2;
     });
 
     // 交通工具沿航線移動

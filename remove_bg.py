@@ -16,8 +16,10 @@ from scipy import ndimage as ndi
 
 PUB = 'public/images'
 BACKUP = 'image_backup/images'
-METHOD = {'avatars': 'rembg', 'characters': 'rembg', 'logos': 'flood'}
-CROP = {'characters': 'bbox'}   # 立繪去背後裁掉透明邊,讓人物填滿畫面(只去透明邊,不動主體)
+# 立繪(characters)暫不去背(依需求保留原圖);只處理頭像與 logo。
+# 若日後要對立繪去背,把 'characters':'rembg' 加回 METHOD、'characters':'bbox' 加回 CROP 即可。
+METHOD = {'avatars': 'rembg', 'logos': 'flood'}
+CROP = {}                       # 去背後裁掉透明邊(只去透明邊,不動主體)
 T_LO, T_HI, FEATHER = 22, 50, 1.2
 CENTER_RX, CENTER_RY = 0.24, 0.34
 
