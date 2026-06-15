@@ -5,6 +5,7 @@ import { FACTIONS, CHARACTERS, CHARACTER_LINES, TECH_CATEGORIES, TECH_CARDS,
   charAvatar, charPortrait, charLogo, factionFlag, applyRulesOverrides } from './data.js';
 import { Board3D } from './board3d.js';
 import { Net } from './net.js';
+import { audio } from './audio.js';
 
 const $ = sel => document.querySelector(sel);
 
@@ -16,6 +17,8 @@ let mode = 'idle';      // idle | move
 let myCharId = null;
 let resultShown = false;
 let lastFxId = null;    // 已播放的最後一個特效 id(增量播放,首次同步不重播歷史)
+let lastTurnIdx = null; // 上次的回合玩家索引(偵測「輪到你」提示音)
+let lastPhase = null;   // 上次的階段(偵測進入交易環節提示音)
 
 function fmtRes(c) {
   const parts = RES_KEYS.filter(k => c && c[k] > 0).map(k => `${RESOURCES[k].icon}${c[k]}`);
@@ -173,11 +176,14 @@ function onSync(m) {
     resultShown = false;
     lastFxId = null;        // 回到大廳:下一局重新基準,新局開場事件會播放
     lastLogLen = null;      // 行動訊息饋送也重置基準(下一局不重播歷史)
+    lastTurnIdx = null; lastPhase = null; // 回合 / 階段提示音也重置基準
+    audio.playMusic('lobby'); // 大廳 / 等待開局背景樂
     renderLobby(m);
   } else {
     $('#connect').style.display = 'none';
     $('#lobby').style.display = 'none';
     $('#gameUI').style.display = 'block';
+    audio.stopMusic();      // 進入戰局:停止大廳背景樂
     if (!board) board = new Board3D($('#canvas3d'), onRegionClick, onPawnClick, onDeckClick);
     refreshGame(m);
   }
@@ -497,6 +503,14 @@ function refreshGame(m) {
 
   const me = myPlayer();
   const spectating = !me;
+
+  // 提示音(僅限有座位玩家、狀態轉變時):輪到你 / 進入交易環節
+  if (me && !s.over) {
+    if (s.phase === 'play' && s.turnIdx !== lastTurnIdx && s.players[s.turnIdx]?.id === me.id) audio.sfx('turn');
+    else if (s.phase === 'trade' && lastPhase !== 'trade') audio.sfx('turn');
+  }
+  lastTurnIdx = s.turnIdx; lastPhase = s.phase;
+
   $('#actionBar').style.display = spectating ? 'none' : '';
   $('#handWrap').style.display = spectating ? 'none' : '';
   $('#spectatorTag').style.display = spectating ? '' : 'none';
@@ -1008,6 +1022,7 @@ function dispatchFx(f, s) {
     const line = pickLine(ch.id, speechCat);
     if (at && line) board.fxSpeech(at, ch.name, line, col);
   }
+  audio.fx(f.type); // 卡片 / 行動特效音(event 另由 showEventFx 處理)
   switch (f.type) {
     case 'event': showEventFx(f.event); break;
     case 'build': {
@@ -1037,11 +1052,14 @@ function dispatchFx(f, s) {
       board.fxMove(f.from, f.to, f.plane);
       board.fxLabel(f.to, `${f.plane ? '✈️' : '🚶'} ${who}`, col); break;
     case 'draw': board.fxDraw(f.region); break;
+    case 'upgrade':
+      board.fxLabel(f.region, `⬆️ ${who} 升級 ${f.name || ''} Lv.${f.level || ''}`.trim(), col); break;
   }
 }
 
 function showEventFx(ev) {
   if (!ev) return;
+  audio.event(ev.id); // 集體事件情境音(依事件 id 對應災難 / 管制 / 榮景)
   const el = $('#eventFx');
   el.querySelector('.evfx-icon').textContent = ev.icon || '🌏';
   el.querySelector('.evfx-name').textContent = ev.name || '';
@@ -1064,6 +1082,8 @@ function showResult(s) {
   const h1 = box.querySelector('h1');
   if (me) { box.classList.add(iWon ? 'win' : 'lose'); h1.textContent = iWon ? '🏆 勝利!' : '🏁 落敗'; }
   else h1.textContent = '🏁 終局';
+  audio.stopMusic();                       // 確保結算時無背景樂干擾
+  audio.sfx(!me || iWon ? 'win' : 'lose'); // 玩家依勝負;觀戰 / 房主播勝利終曲
 
   const ranked = [...s.players].sort((a, b) => {
     const wa = a.id === r.champion ? 2 : winnerSet.has(a.id) ? 1 : 0;
@@ -1198,3 +1218,4 @@ try {
 setupConnect();
 setupLobbyEvents();
 setupGameEvents();
+audio.init();

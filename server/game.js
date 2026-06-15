@@ -889,6 +889,7 @@ export class Game {
     p.res.power -= cost;
     r.level += 1;
     this.addLog(`⬆️ ${p.name} 用 ⚡${cost} 將 ${r.name} 升級到 Lv.${r.level}`);
+    this.addFx('upgrade', { region: p.pos, charId: p.char.id, faction: p.faction, name: r.name, level: r.level });
     return { ok: true };
   }
 
