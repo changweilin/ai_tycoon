@@ -1049,6 +1049,41 @@ function makeFxText(text, css = '#00f0ff') {
   return spr;
 }
 
+// 逐字斷行(中文無空白,直接量寬度換行)
+function wrapText(ctx, text, maxW) {
+  const lines = []; let cur = '';
+  for (const ch of text) {
+    if (ctx.measureText(cur + ch).width > maxW && cur) { lines.push(cur); cur = ch; }
+    else cur = cur + ch;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+// 角色行動台詞泡泡:圓角對話框(角色色描邊)+ 名字 + 「台詞」,下緣帶小尾巴
+function makeSpeechSprite(name, line, css = '#00f0ff') {
+  const W = 600, nameFont = 'bold 30px "Microsoft JhengHei", sans-serif', lineFont = 'bold 40px "Microsoft JhengHei", sans-serif';
+  const meas = document.createElement('canvas').getContext('2d'); meas.font = lineFont;
+  const qlines = wrapText(meas, '「' + line + '」', W - 60);
+  const padTop = 16, nameH = 40, lineH = 50, padBot = 18, tail = 18;
+  const H = padTop + nameH + qlines.length * lineH + padBot + tail;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  const bw = W - 16, bh = H - tail - 6;
+  ctx.fillStyle = 'rgba(8,12,28,0.9)'; _roundRect(ctx, 8, 4, bw, bh, 22); ctx.fill();
+  ctx.lineWidth = 4; ctx.strokeStyle = css; ctx.shadowColor = css; ctx.shadowBlur = 12; ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.moveTo(W / 2 - 16, 4 + bh - 1); ctx.lineTo(W / 2 + 16, 4 + bh - 1); ctx.lineTo(W / 2, 4 + bh + tail); ctx.closePath();
+  ctx.fillStyle = 'rgba(8,12,28,0.9)'; ctx.fill();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.font = nameFont; ctx.fillStyle = css; ctx.shadowColor = css; ctx.shadowBlur = 8; ctx.fillText(name, W / 2, padTop);
+  ctx.font = lineFont; ctx.fillStyle = '#eaffff'; ctx.shadowBlur = 6;
+  qlines.forEach((l, i) => ctx.fillText(l, W / 2, padTop + nameH + i * lineH));
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false }));
+  const h = 1.8; spr.scale.set(h * (W / H), h, 1); spr.renderOrder = 24;
+  return spr;
+}
+
 // ---------- 天氣型錄 ----------
 // 每種天氣是一組會被平滑插值的參數;rain/snow/cloud=粒子強度,wind=風力,wave=浪高,
 // light/amb=光照,flash=閃電頻率,funnel=漏斗(颱風/龍捲)強度,funnelGround=是否觸地,fog/bg=氛圍
@@ -2171,6 +2206,22 @@ export class Board3D {
       spr.material.opacity = age < 0.65 ? 1 : Math.max(0, 1 - (age - 0.65) / 0.35);
       const s = 0.6 + Math.min(1, age * 5) * 0.4;
       spr.scale.set(5.2 * s, 1.3 * s, 1);
+    });
+  }
+
+  // 角色行動台詞泡泡:在施法者棋子上方彈出,停留後上飄淡出(name +「台詞」)
+  fxSpeech(regionId, name, line, css = '#00f0ff') {
+    const p = this._regionPos(regionId); if (!p) return;
+    const g = new THREE.Group(); g.position.copy(p);
+    const spr = makeSpeechSprite(name, line, css); spr.position.y = 4.3; g.add(spr);
+    const base = spr.scale.clone();
+    this._registerFx(g, 2.8, age => {
+      spr.position.y = 4.3 + age * 1.1;
+      const pop = Math.min(1, age * 7);
+      const fade = age < 0.78 ? 1 : Math.max(0, 1 - (age - 0.78) / 0.22);
+      spr.material.opacity = pop * fade;
+      const s = 0.82 + pop * 0.18;
+      spr.scale.set(base.x * s, base.y * s, 1);
     });
   }
 

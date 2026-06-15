@@ -202,6 +202,19 @@ function playerIdxOf(room, client) {
   return room.game.players.findIndex(p => p.char.id === client.charId);
 }
 
+/** 選角玩家已達預計人數時,把其餘未選角的(非房主)玩家自動轉為觀戰 */
+function autoSpectate(room) {
+  if (room.started) return;
+  const expected = room.config.expectedCount || 4;
+  const seated = [...room.clients.values()].filter(c => c.mode === 'player' && c.charId);
+  if (seated.length < expected) return;
+  for (const [id, c] of room.clients)
+    if (c.mode === 'player' && !c.charId && id !== room.hostId) {
+      c.mode = 'spectator';
+      send(c.ws, { t: 'info', msg: `👁️ 選角玩家已達 ${expected} 人,你已自動轉為觀戰模式` });
+    }
+}
+
 /** 自動補齊角色陣容(滿足 米/牆/台 限制;2 人局免台灣;7/8 人補日韓) */
 function buildLineup(existing, total) {
   const chosen = [...existing];
@@ -230,20 +243,30 @@ function makeAISeat(charId, usedNames) {
   return { charId, playerName: strategyNickname(strategy, usedNames), isAI: true, strategy };
 }
 
-/** AI 回合驅動:當前玩家是 AI 時,以計時器逐步執行讓玩家看見過程 */
-function pumpAI(room) {
+// 每種動作特效在前端大致的播放秒數(毫秒);AI 下一步會等到上一步的動畫播完才進行
+const AI_FX_DELAY = { build: 1800, move: 2200, spy: 2100, destroy: 2100, steal: 2100, fake: 2100, draw: 1000, event: 2800 };
+/** 依「上一步剛產生的特效」推算下一步前該等待的時間(沒有特效=純內務,只略停一下) */
+function aiStepDelay(g, fxSeqBefore) {
+  const fresh = g.fx.filter(f => f.id > fxSeqBefore);
+  if (!fresh.length) return 550;
+  return Math.max(...fresh.map(f => AI_FX_DELAY[f.type] ?? 1200));
+}
+
+/** AI 回合驅動:當前玩家是 AI 時,以計時器逐步執行,且等動畫特效播完才進行下一步 */
+function pumpAI(room, delay = 800) {
   if (!room.started || room.game.over || room.aiTimer) return;
   const cur = room.game.cur();
   if (!room.aiChars || !room.aiChars.has(cur.char.id)) return;
   room.aiTimer = setTimeout(() => {
     room.aiTimer = null;
     if (!rooms.has(room.pin) || !room.started) return;
+    const fxBefore = room.game._fxSeq;
     let cont = false;
     try { cont = botStep(room.game); } catch (e) { console.error('AI 錯誤:', e); room.game.endTurn(); }
     broadcast(room);
     if (!cont) autosave(room); // AI 回合結束時自動存檔
-    pumpAI(room);
-  }, 800);
+    pumpAI(room, aiStepDelay(room.game, fxBefore)); // 等這一步的動畫播完再做下一步
+  }, delay);
 }
 
 // ---------------- WebSocket ----------------
@@ -373,6 +396,20 @@ wss.on('connection', ws => {
         const n = parseInt(m.expectedCount, 10);
         if (n >= 2 && n <= RULES.maxPlayers) room.config.expectedCount = n;
       }
+      autoSpectate(room);
+      broadcast(room);
+      return;
+    }
+
+    // ----- 切換自己的參與模式(大廳內;房主可選擇不參與只主持/觀戰) -----
+    if (m.t === 'setMode') {
+      if (room.started) { err('遊戲已開始,無法切換模式'); return; }
+      const want = m.mode === 'spectator' ? 'spectator' : 'player';
+      if (want === 'spectator' && client.charId) {
+        room.chars.delete(client.charId); // 退出觀戰:釋放已鎖定的角色
+        client.charId = null;
+      }
+      client.mode = want;
       broadcast(room);
       return;
     }
@@ -432,6 +469,7 @@ wss.on('connection', ws => {
         room.chars.set(m.charId, { pin: String(m.charPin), ownerName: client.name });
       }
       client.charId = m.charId;
+      autoSpectate(room);
       broadcast(room);
       return;
     }
@@ -454,12 +492,6 @@ wss.on('connection', ws => {
         seats = lineup.map(id => ({ charId: id }));
         for (const c of room.clients.values())
           if (c.mode === 'player') c.charId = '*';
-      } else if (gameMode === 'aiwar') {
-        // AI 內戰:全部角色都是 AI,人類觀賞(人數 = 預計人數)
-        const lineup = buildLineup([], total);
-        seats = lineup.map(id => makeAISeat(id, aiNames));
-        for (const id of lineup) room.aiChars.add(id);
-        for (const c of room.clients.values()) c.charId = null; // 全員觀戰
       } else if (gameMode === 'ai') {
         // 單人 vs AI:房主一個角色,AI 數量 = 預計人數 - 1
         if (!client.charId) { err('請先選擇你的角色'); return; }

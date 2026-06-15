@@ -1,5 +1,5 @@
 // ============ 前端 UI 與流程(連線版) ============
-import { FACTIONS, CHARACTERS, TECH_CATEGORIES, RULES, REGIONS, RES_KEYS, RESOURCES, STRENGTH_AXES,
+import { FACTIONS, CHARACTERS, CHARACTER_LINES, TECH_CATEGORIES, RULES, REGIONS, RES_KEYS, RESOURCES, STRENGTH_AXES,
   charAvatar, charPortrait, charLogo, factionFlag, applyRulesOverrides } from './data.js';
 import { Board3D } from './board3d.js';
 import { Net } from './net.js';
@@ -20,6 +20,10 @@ function fmtRes(c) {
   return parts.length ? parts.join(' ') : '免費';
 }
 function totalRes(c) { return RES_KEYS.reduce((s, k) => s + (c?.[k] || 0), 0); }
+// 科技卡科技力:初始(卡面)值與加權(含擅長/晶片/陣營/事件加成)值,差異時以括號顯示
+function techDual(c) {
+  return c.effTech != null && c.effTech !== c.tech ? `${c.tech} (${c.effTech})` : `${c.tech}`;
+}
 
 // ---------------- 工具 ----------------
 function toast(msg) {
@@ -247,6 +251,9 @@ function renderLobby(m) {
 
   $('#hostModeBox').style.display = m.isHost ? '' : 'none';
   $('#startBtn').style.display = m.isHost ? '' : 'none';
+  const meClient = lobby.clients.find(c => c.id === m.youId);
+  if (document.activeElement !== $('#hostSpectate'))
+    $('#hostSpectate').checked = !!meClient && meClient.mode === 'spectator';
   updateModeVisibility();
   const seated = lobby.clients.filter(c => c.mode === 'player' && c.charId);
   $('#lobbyStatus').textContent = mustTW
@@ -255,13 +262,18 @@ function renderLobby(m) {
 }
 
 function updateModeVisibility() {
+  const optOut = $('#hostSpectate').checked;
+  // 房主不參與時:只能用多人連線(上帝/單人模式需要房主自己操角)
+  if (optOut) $('#gameMode').value = 'multi';
+  $('#gameMode').disabled = optOut;
   const mode = $('#gameMode').value;
   const n = parseInt($('#expectedCount').value, 10);
-  $('#modeHint').textContent = {
-    multi: n === 2 ? '⚔️ 2 人=米牆對決(無台灣規則)' : `共 ${n} 位玩家連線對戰(人數不足由 AI 頂替)`,
-    aiwar: `${n} 個 AI 互鬥,所有人觀戰看戲`,
-    god: `你一人輪流操控全部 ${n} 個角色`,
-  }[mode] || '';
+  $('#modeHint').textContent = optOut
+    ? '🙅 你只主持/觀戰,由其他玩家對戰(人數不足由 AI 頂替)'
+    : ({
+        multi: n === 2 ? '⚔️ 2 人=米牆對決(無台灣規則)' : `共 ${n} 位玩家連線對戰(人數不足由 AI 頂替)`,
+        god: `你一人輪流操控全部 ${n} 個角色`,
+      }[mode] || '');
 }
 
 function catOf(c) {
@@ -309,15 +321,15 @@ function selectChar(charId) {
   net.send({ t: 'selectChar', charId, charPin: getMyPin() });
 }
 
-// 角色能力特長加權的長條
+// 角色能力特長:長條填到加權值,數值以「初始(加權)」呈現(基準 3 = 平均)
 function strengthBars(ch) {
-  const MAX = 5;
+  const MAX = 5, BASE = 3;
   return STRENGTH_AXES.map(ax => {
     const v = Math.max(0, Math.min(MAX, ch.strengths?.[ax.key] ?? 0));
     return `<div class="cd-str-row">
       <span class="cd-str-label">${ax.icon} ${ax.name}</span>
       <span class="cd-str-track"><span class="cd-str-fill" style="width:${v / MAX * 100}%"></span></span>
-      <span class="cd-str-val">${v}</span>
+      <span class="cd-str-val">${BASE} (${v})</span>
     </div>`;
   }).join('');
 }
@@ -401,6 +413,10 @@ function setupLobbyEvents() {
     selectChar(card.dataset.char);
   });
   $('#gameMode').addEventListener('change', updateModeVisibility);
+  $('#hostSpectate').addEventListener('change', e => {
+    net.send({ t: 'setMode', mode: e.target.checked ? 'spectator' : 'player' });
+    updateModeVisibility(); // 立即反映(等不及伺服器回傳)
+  });
   $('#gameName').addEventListener('change', () =>
     net.send({ t: 'setRoomConfig', gameName: $('#gameName').value }));
   $('#expectedCount').addEventListener('change', () =>
@@ -520,7 +536,7 @@ function renderMyPanel(m) {
     <span class="panel-name" style="color:${FACTIONS[me.faction].css}">${me.name}</span>
     <span class="panel-fac">【${FACTIONS[me.faction].name}】</span>`;
   const myTech = last.state.tech[me.faction] ?? 0;
-  let stats = `💰 <b>${me.res.money}</b>  ⚡ <b>${me.res.power}</b>  🛢️ <b>${me.res.oil}</b>  🎯 行動點 <b>${me.ap}</b>  📍 ${REGIONS.find(r => r.id === me.pos).name}<br>📈 收入 ${fmtRes(me.income)}/回合  🔬 本國科技力 <b>${myTech}</b> 點(每 100 點收益 +1)`;
+  let stats = `💰 <b>${me.res.money}</b>  ⚡ <b>${me.res.power}</b>  🛢️ <b>${me.res.oil}</b>  🎯 行動點 <b>${me.ap}</b>  📍 ${REGIONS.find(r => r.id === me.pos).name}<br>📈 收入 基礎 ${fmtRes(RULES.baseIncome)}(加權 <b>${fmtRes(me.income)}</b>)/回合  🔬 本國科技力 <b>${myTech}</b> 點(每 100 點收益 +1)`;
   if (me.faction === 'TW' && priv) {
     if (priv.twSupport) {
       stats += `<br>🤫 秘密支持:<b style="color:${FACTIONS[priv.twSupport].css}">${FACTIONS[priv.twSupport].name}</b>  🏔️ 神山儲備:<b>${priv.chipReserve}</b> 點`;
@@ -555,7 +571,7 @@ function renderHand(m) {
         <div class="card-icon">${cat.icon}</div>
         <div class="card-name">${c.name}|${c.tier}階</div>
         <div class="card-cost">${fmtRes(c.myCost)}</div>
-        <div class="card-desc">🔬${c.tech} 🛡️${c.def} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</div>
+        <div class="card-desc">🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</div>
       </div>`;
     }
     return `<div class="card" data-idx="${i}">
@@ -784,7 +800,7 @@ function showRegionInfo(rid) {
     const cat = TECH_CATEGORIES[c.cat];
     return `<div class="region-card-row" style="color:${FACTIONS[o.faction].css}">
       ${cat.icon}【${c.name}】${c.tier}階 — ${o.name}<br>
-      <span class="rc-stats">🔬${c.tech} 🛡️${c.effDef} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</span>${debuffText(c)}</div>`;
+      <span class="rc-stats">🔬${techDual(c)} 🛡️${c.effDef} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</span>${debuffText(c)}</div>`;
   }).join('') || '<div>(尚無科技卡)</div>';
   const blocked = (r.builtRound && s.round < r.builtRound + RULES.cityBuildCooldown
     ? `<div style="color:#ff6">🚧 今年已建造過,須過一年才可重新建造</div>` : '');
@@ -804,7 +820,7 @@ function onCardClick(idx) {
   let body = `<p class="modal-desc">${c.desc || ''}</p>`;
   if (c.kind === 'tech') {
     const cat = TECH_CATEGORIES[c.cat];
-    body = `<p class="modal-desc">${cat.icon} ${cat.name}|${c.tier}階|🔬${c.tech} 🛡️${c.def} 💱${c.trade}
+    body = `<p class="modal-desc">${cat.icon} ${cat.name}|${c.tier}階|🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}
       ${c.special ? `<br>✨ ${c.special.text}` : ''}<br>${c.desc || ''}</p>`;
     if (priv.turnFlags?.forfeitTech) {
       body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出科技卡的權利</p>`;
@@ -900,6 +916,14 @@ function processFx(s) {
   lastFxId = maxId;
 }
 
+// fx 類型 → 台詞類別(draw/event 不發台詞)
+const SPEECH_CAT = { build: 'build', spy: 'attack', destroy: 'attack', steal: 'attack', fake: 'attack', move: 'move' };
+function pickLine(charId, cat) {
+  const set = CHARACTER_LINES[charId]; if (!set) return null;
+  const pool = set[cat] || set.general; if (!pool || !pool.length) return null;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 // 派發特效:施法者(含 AI)出現施法光環,作戰類再射出能量弧線到目標,目標播放對應特效
 function dispatchFx(f, s) {
   if (!board) return;
@@ -909,6 +933,13 @@ function dispatchFx(f, s) {
   const ch = f.charId ? CHARACTERS.find(c => c.id === f.charId) : null;
   const who = ch ? ch.name : (caster ? caster.name : '');
   const col = facCss(f.faction);
+  // 角色行動台詞泡泡(所有角色皆適用):在施法者位置上方冒出
+  const speechCat = SPEECH_CAT[f.type];
+  if (speechCat && ch) {
+    const at = f.type === 'build' ? f.region : f.type === 'move' ? f.to : caster?.pos;
+    const line = pickLine(ch.id, speechCat);
+    if (at && line) board.fxSpeech(at, ch.name, line, col);
+  }
   switch (f.type) {
     case 'event': showEventFx(f.event); break;
     case 'build': {

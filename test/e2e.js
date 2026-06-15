@@ -177,21 +177,38 @@ if (meAfter.charId !== 'musk') throw new Error('載入後認領角色失敗');
 if (!loader.last.priv) throw new Error('認領後應取得私有資訊');
 console.log('✅ 載入存檔與角色認領通過');
 
-// ---- AI 內戰模式 ----
-const war = await client('war');
-war.send({ t: 'createRoom', name: '吃瓜群眾' });
-await war.wait();
-war.send({ t: 'setRoomConfig', expectedCount: 6 });
-war.send({ t: 'startGame', mode: 'aiwar' });
-await war.wait();
-if (!war.last.lobby.started) throw new Error('AI 內戰未開始: ' + war.errors.join(','));
-if (war.last.state.players.length !== 6) throw new Error('AI 內戰人數錯誤');
-if (!war.last.state.players.every(p => p.isAI)) throw new Error('AI 內戰應全為 AI');
-if (war.last.priv !== null) throw new Error('AI 內戰中人類應為觀戰');
-const warLog = war.last.state.log.length;
-await new Promise(r => setTimeout(r, 3000));
-if (war.last.state.log.length <= warLog) throw new Error('AI 內戰沒有在自動進行');
-console.log('✅ AI 內戰模式通過(6 AI 含日韓自動對戰中)');
+// ---- 房主不參與(只主持/觀戰) + 選角額滿自動觀戰 ----
+const oh = await client('optHost');
+oh.send({ t: 'createRoom', name: '主持人' });
+await oh.wait();
+const opin = oh.last.lobby.pin;
+oh.send({ t: 'setRoomConfig', expectedCount: 2 });
+oh.send({ t: 'setMode', mode: 'spectator' });
+await oh.wait();
+if (oh.last.lobby.clients.find(c => c.isHost).mode !== 'spectator')
+  throw new Error('房主不參與:應轉為觀戰');
+
+const pa = await client('pa');
+pa.send({ t: 'joinRoom', pin: opin, name: '玩家A', mode: 'player' });
+const pb = await client('pb');
+pb.send({ t: 'joinRoom', pin: opin, name: '玩家B', mode: 'player' });
+const pc = await client('pc');
+pc.send({ t: 'joinRoom', pin: opin, name: '遲到C', mode: 'player' });
+await oh.wait();
+pa.send({ t: 'selectChar', charId: 'musk', charPin: '1111' });
+pb.send({ t: 'selectChar', charId: 'ren', charPin: '2222' });
+await oh.wait();
+// expectedCount=2 已額滿 → 未選角的「遲到C」自動轉觀戰
+if (oh.last.lobby.clients.find(c => c.name === '遲到C').mode !== 'spectator')
+  throw new Error('選角額滿:未選角玩家應自動轉觀戰');
+
+// 不參與的房主仍可開始多人遊戲,由 A/B 米牆對決
+oh.send({ t: 'startGame', mode: 'multi' });
+await oh.wait();
+if (!oh.last.lobby.started) throw new Error('房主觀戰下多人遊戲未開始: ' + oh.errors.join(','));
+if (oh.last.state.players.length !== 2) throw new Error('多人遊戲人數應為 2');
+if (oh.last.priv !== null) throw new Error('不參與的房主應為觀戰(無私有資訊)');
+console.log('✅ 房主不參與 + 選角額滿自動觀戰通過');
 
 // ---- 3 人以上最後一位必選台灣 ----
 const t1 = await client('t1');

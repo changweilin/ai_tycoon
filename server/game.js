@@ -1136,7 +1136,8 @@ export class Game {
         country: r.country, level: r.level, builtRound: r.builtRound,
         cards: r.cards.map(c => ({
           uid: c.uid, owner: c.owner, cat: c.cat, tier: c.tier, name: c.name,
-          tech: c.tech, def: c.def, trade: c.trade, effDef: this.effDef(rid, c),
+          tech: c.tech, effTech: this.techValueOf(this.players[c.owner], c, rid),
+          def: c.def, trade: c.trade, effDef: this.effDef(rid, c),
           special: c.special, opsHit: !!c.opsHit, debuff: c.debuff || null,
         })),
       };
@@ -1256,7 +1257,7 @@ export class Game {
         const chk = this.canPlayTech(p, c);
         return {
           kind: 'tech', uid: c.uid, cat: c.cat, tier: c.tier, name: c.name, desc: c.desc,
-          tech: c.tech, def: c.def, trade: c.trade, special: c.special,
+          tech: c.tech, effTech: this.techValueOf(p, c, p.pos), def: c.def, trade: c.trade, special: c.special,
           myCost: this.developCostFor(p, c), playMsg: chk.ok ? null : chk.msg,
         };
       }),
