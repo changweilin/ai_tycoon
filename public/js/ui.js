@@ -1,5 +1,7 @@
 // ============ 前端 UI 與流程(連線版) ============
-import { FACTIONS, CHARACTERS, CHARACTER_LINES, TECH_CATEGORIES, RULES, REGIONS, RES_KEYS, RESOURCES, STRENGTH_AXES,
+import { FACTIONS, CHARACTERS, CHARACTER_LINES, TECH_CATEGORIES, TECH_CARDS,
+  MAIN_TIER_COPIES, TIER4_COPIES, TIER5_COPIES, OPS_CARDS, OPS_DECK_COMPOSITION,
+  RULES, REGIONS, RES_KEYS, RESOURCES, STRENGTH_AXES,
   charAvatar, charPortrait, charLogo, factionFlag, applyRulesOverrides } from './data.js';
 import { Board3D } from './board3d.js';
 import { Net } from './net.js';
@@ -23,6 +25,28 @@ function totalRes(c) { return RES_KEYS.reduce((s, k) => s + (c?.[k] || 0), 0); }
 // 科技卡科技力:初始(卡面)值與加權(含擅長/晶片/陣營/事件加成)值,差異時以括號顯示
 function techDual(c) {
   return c.effTech != null && c.effTech !== c.tech ? `${c.tech} (${c.effTech})` : `${c.tech}`;
+}
+// 科技卡加權成分的單行摘要(供卡片/城市詳情內嵌顯示)
+function techBreakLine(c) {
+  if (c.effTech == null || c.effTech === c.tech || !c.techBreak) return '';
+  const parts = c.techBreak.map(([l, v]) => `${l} ${v >= 0 ? '+' : ''}${v}`).join('、');
+  return `<div class="bd-inline">🔎 加權明細:${parts} = <b>🔬${c.effTech}</b></div>`;
+}
+// 帶正負號的資源字串(明細用,0 略過)
+function fmtResSigned(c) {
+  const parts = RES_KEYS.filter(k => c && c[k]).map(k => `${RESOURCES[k].icon}${c[k] > 0 ? '+' : ''}${c[k]}`);
+  return parts.length ? parts.join(' ') : '—';
+}
+// 加權成分明細彈窗(income: kind='res' 資源三元組;tech: kind='num' 純數值)
+function showBreakdown(title, parts, kind, totalStr) {
+  const rows = (parts || []).map(([label, v]) =>
+    `<div class="bd-row"><span class="bd-label">${label}</span><span class="bd-val">${
+      kind === 'res' ? fmtResSigned(v) : `${v >= 0 ? '+' : ''}${v}`}</span></div>`).join('');
+  openModal(title,
+    `<p class="modal-desc">加權 = 初始值 + 角色 / 陣營 / 集體事件等加成</p>
+     <div class="bd-list">${rows}</div>
+     <div class="bd-row bd-total"><span class="bd-label">加權合計</span><span class="bd-val">${totalStr}</span></div>`,
+    [{ label: '關閉', value: null }]);
 }
 
 // ---------------- 工具 ----------------
@@ -154,7 +178,7 @@ function onSync(m) {
     $('#connect').style.display = 'none';
     $('#lobby').style.display = 'none';
     $('#gameUI').style.display = 'block';
-    if (!board) board = new Board3D($('#canvas3d'), onRegionClick, onPawnClick);
+    if (!board) board = new Board3D($('#canvas3d'), onRegionClick, onPawnClick, onDeckClick);
     refreshGame(m);
   }
 }
@@ -269,7 +293,7 @@ function updateModeVisibility() {
   const mode = $('#gameMode').value;
   const n = parseInt($('#expectedCount').value, 10);
   $('#modeHint').textContent = optOut
-    ? '🙅 你只主持/觀戰,由其他玩家對戰(人數不足由 AI 頂替)'
+    ? '🙅 你只主持/觀戰 — 其他玩家對戰;若無人選角,按開始即為全 AI 觀賞局'
     : ({
         multi: n === 2 ? '⚔️ 2 人=米牆對決(無台灣規則)' : `共 ${n} 位玩家連線對戰(人數不足由 AI 頂替)`,
         god: `你一人輪流操控全部 ${n} 個角色`,
@@ -536,7 +560,7 @@ function renderMyPanel(m) {
     <span class="panel-name" style="color:${FACTIONS[me.faction].css}">${me.name}</span>
     <span class="panel-fac">【${FACTIONS[me.faction].name}】</span>`;
   const myTech = last.state.tech[me.faction] ?? 0;
-  let stats = `💰 <b>${me.res.money}</b>  ⚡ <b>${me.res.power}</b>  🛢️ <b>${me.res.oil}</b>  🎯 行動點 <b>${me.ap}</b>  📍 ${REGIONS.find(r => r.id === me.pos).name}<br>📈 收入 基礎 ${fmtRes(RULES.baseIncome)}(加權 <b>${fmtRes(me.income)}</b>)/回合  🔬 本國科技力 <b>${myTech}</b> 點(每 100 點收益 +1)`;
+  let stats = `💰 <b>${me.res.money}</b>  ⚡ <b>${me.res.power}</b>  🛢️ <b>${me.res.oil}</b>  🎯 行動點 <b>${me.ap}</b>  📍 ${REGIONS.find(r => r.id === me.pos).name}<br>📈 收入 基礎 ${fmtRes(RULES.baseIncome)}(加權 <b class="wval" data-bd="income" title="點擊看加權成分">${fmtRes(me.income)}</b> 🔎)/回合  🔬 本國科技力 <b>${myTech}</b> 點(每 100 點收益 +1)`;
   if (me.faction === 'TW' && priv) {
     if (priv.twSupport) {
       stats += `<br>🤫 秘密支持:<b style="color:${FACTIONS[priv.twSupport].css}">${FACTIONS[priv.twSupport].name}</b>  🏔️ 神山儲備:<b>${priv.chipReserve}</b> 點`;
@@ -784,6 +808,50 @@ function setMode(m2) {
   $('#btnMove').classList.toggle('toggled', mode === 'move');
 }
 
+// 點擊牌庫 → 顯示牌組組成與剩餘(可公開資訊)
+function onDeckClick(deckKey) {
+  if (!last?.state) return;
+  showDeckInfo(deckKey);
+}
+function deckScaleFor(n) { return RULES.deckScale[Math.min(8, Math.max(2, n))] || 1; }
+function copiesScaled(base, scale) { return Math.max(1, Math.round(base * scale)); }
+function showDeckInfo(deckKey) {
+  const s = last.state;
+  const scale = deckScaleFor(s.players.length);
+  const map = {
+    deckCount: { title: '🃏 公共牌庫(抽牌庫)', remain: s.deckCount, tiers: [1, 2, 3],
+      note: '只放 1~3 階科技卡(比例 4:3:2)+ 灰色作戰卡;抽完會把棄牌洗回。' },
+    tier4Count: { title: '🔼 四階牌庫', remain: s.tier4Count, tiers: [4],
+      note: '獨立一疊,只能用「捨牌升階」(捨棄階級加總 6)換取。' },
+    tier5Count: { title: '🏆 五階牌庫', remain: s.tier5Count, tiers: [5],
+      note: '獨立一疊,只能用「2 張四階卡升階」換取。' },
+  };
+  const info = map[deckKey]; if (!info) return;
+  let total = 0, body = '';
+  for (const catId in TECH_CATEGORIES) {
+    const cat = TECH_CATEGORIES[catId];
+    const rows = (TECH_CARDS[catId] || []).filter(d => info.tiers.includes(d.tier)).map(d => {
+      const base = d.tier <= 3 ? MAIN_TIER_COPIES[d.tier - 1] : d.tier === 4 ? TIER4_COPIES : TIER5_COPIES;
+      const copies = copiesScaled(base, scale); total += copies;
+      return `<div class="dk-card">${cat.icon}【${d.name}】${d.tier}階 ×${copies}
+        <span class="dk-stat">🔬${d.tech} 🛡️${d.def} 💱${d.trade}</span></div>`;
+    }).join('');
+    if (rows) body += `<div class="dk-group" style="--cc:${cat.css}"><div class="dk-group-head">${cat.icon} ${cat.name}</div>${rows}</div>`;
+  }
+  if (deckKey === 'deckCount') {
+    const opsRows = OPS_DECK_COMPOSITION.map(([type, base]) => {
+      const o = OPS_CARDS[type], copies = copiesScaled(base, scale); total += copies;
+      return `<div class="dk-card">${o.icon}【${o.name}】×${copies} <span class="dk-stat">⚔️${o.atk}</span></div>`;
+    }).join('');
+    body += `<div class="dk-group" style="--cc:#9aa7c7"><div class="dk-group-head">🎯 灰色作戰卡</div>${opsRows}</div>`;
+  }
+  openModal(info.title,
+    `<p class="modal-desc">目前牌庫剩 <b>${info.remain}</b> 張(全牌組共 ${total} 張)。${info.note}<br>
+       以下為「全牌組組成」(可公開資訊;不顯示個別卡片的剩餘位置):</p>
+     <div class="dk-list">${body}</div>`,
+    [{ label: '關閉', value: null }]);
+}
+
 function showRegionInfo(rid) {
   const s = last.state;
   const r = s.regions[rid];
@@ -800,7 +868,7 @@ function showRegionInfo(rid) {
     const cat = TECH_CATEGORIES[c.cat];
     return `<div class="region-card-row" style="color:${FACTIONS[o.faction].css}">
       ${cat.icon}【${c.name}】${c.tier}階 — ${o.name}<br>
-      <span class="rc-stats">🔬${techDual(c)} 🛡️${c.effDef} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</span>${debuffText(c)}</div>`;
+      <span class="rc-stats">🔬${techDual(c)} 🛡️${c.effDef} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</span>${techBreakLine(c)}${debuffText(c)}</div>`;
   }).join('') || '<div>(尚無科技卡)</div>';
   const blocked = (r.builtRound && s.round < r.builtRound + RULES.cityBuildCooldown
     ? `<div style="color:#ff6">🚧 今年已建造過,須過一年才可重新建造</div>` : '');
@@ -821,7 +889,7 @@ function onCardClick(idx) {
   if (c.kind === 'tech') {
     const cat = TECH_CATEGORIES[c.cat];
     body = `<p class="modal-desc">${cat.icon} ${cat.name}|${c.tier}階|🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}
-      ${c.special ? `<br>✨ ${c.special.text}` : ''}<br>${c.desc || ''}</p>`;
+      ${c.special ? `<br>✨ ${c.special.text}` : ''}<br>${c.desc || ''}</p>${techBreakLine(c)}`;
     if (priv.turnFlags?.forfeitTech) {
       body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出科技卡的權利</p>`;
     } else {
@@ -1078,6 +1146,14 @@ function setupGameEvents() {
   $('#hand').addEventListener('click', e => {
     const card = e.target.closest('.card');
     if (card) onCardClick(parseInt(card.dataset.idx, 10));
+  });
+  // 點擊玩家面板的「加權」收入 → 顯示加權成分明細
+  $('#playerPanel').addEventListener('click', e => {
+    const w = e.target.closest('.wval');
+    if (w?.dataset.bd === 'income' && last?.priv?.incomeBreak) {
+      const me = myPlayer();
+      showBreakdown('📈 收入加權明細', last.priv.incomeBreak, 'res', fmtRes(me.income));
+    }
   });
   // 手牌捲動:垂直滾輪轉成水平捲動,捲動/縮放時更新左右淡出
   const handWrap = $('#handWrap');

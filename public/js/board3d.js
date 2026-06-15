@@ -1117,10 +1117,11 @@ function weightedPick(weights) {
 }
 
 export class Board3D {
-  constructor(container, onRegionClick, onPawnClick) {
+  constructor(container, onRegionClick, onPawnClick, onDeckClick) {
     this.container = container;
     this.onRegionClick = onRegionClick;
     this.onPawnClick = onPawnClick;     // 點擊棋子 → 查看玩家/角色
+    this.onDeckClick = onDeckClick;     // 點擊牌庫 → 查看牌組組成/剩餘
     this.pawnPrevPos = {};              // charId → 上次所在城市(用來播移動動畫)
     this.regionMeshes = {};
     this.nodeGroup = new THREE.Group();
@@ -1585,6 +1586,7 @@ export class Board3D {
   // 單疊牌庫:浮筒 + 霓虹光環 + 一疊卡背 + 圖示 + 看板;存進 deckStacks 供 sync 依剩餘量顯示
   _makeDeckStack({ x, z, label, sub, accent, glyph, icon, countKey, n, scale }) {
     const g = new THREE.Group(); g.position.set(x, 0, z); g.scale.setScalar(scale);
+    g.userData.deckKey = countKey; // 供點擊辨識(deckCount/tier4Count/tier5Count)
     const buoy = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.15, 0.14, 6),
       emissiveMat(0x10243f, 0.4, { metalness: 0.3, roughness: 0.6 }));
     buoy.position.y = 0.05; g.add(buoy);
@@ -2038,6 +2040,15 @@ export class Board3D {
         let o = phits[0].object;
         while (o && o.parent !== this.pawnGroup) o = o.parent;
         if (o && o.userData.charId) { this.onPawnClick(o.userData.charId, o.userData.regionId); return; }
+      }
+    }
+    // 牌庫:點擊三疊牌庫任一疊 → 顯示牌組組成/剩餘
+    if (this.onDeckClick && this.deckStacks?.length) {
+      const dhits = this.raycaster.intersectObjects(this.deckStacks.map(s => s.group), true);
+      if (dhits.length) {
+        let o = dhits[0].object;
+        while (o && o.userData.deckKey == null && o.parent) o = o.parent;
+        if (o && o.userData.deckKey) { this.onDeckClick(o.userData.deckKey); return; }
       }
     }
     const hits = this.raycaster.intersectObjects(Object.values(this.regionMeshes));

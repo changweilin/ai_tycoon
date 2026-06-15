@@ -509,7 +509,9 @@ wss.on('connection', ws => {
         const seated = [...room.clients.values()].filter(c => c.mode === 'player' && c.charId);
         const factions = seated.map(c => CHARACTERS.find(x => x.id === c.charId).faction);
         const errs = [];
-        if (seated.length < 1) errs.push('至少需要 1 位玩家選好角色');
+        // 房主不參戰且無人選角 → 直接開全 AI 觀賞局(取代舊的「AI 內戰」)
+        if (seated.length < 1 && client.mode !== 'spectator')
+          errs.push('至少需要 1 位玩家選好角色(或房主勾選「不參與」可直接開全 AI 觀賞局)');
         if (seated.length > RULES.maxPlayers) errs.push(`最多 ${RULES.maxPlayers} 位玩家`);
         const needAI = Math.max(0, total - seated.length);
         if (needAI === 0) {
@@ -541,7 +543,9 @@ wss.on('connection', ws => {
           }
           const aiList = seats.filter(s => s.isAI)
             .map(s => `${s.playerName}(${CHARACTERS.find(c => c.id === s.charId).name})`).join('、');
-          aiFillNote = `🤖 連線人數不足(${seated.length}/${total}),由 ${seats.length - seated.length} 位 AI 玩家頂替:${aiList}`;
+          aiFillNote = seated.length === 0
+            ? `🍿 房主不參與,全 AI 觀賞局開始!對戰角色:${aiList}`
+            : `🤖 連線人數不足(${seated.length}/${total}),由 ${seats.length - seated.length} 位 AI 玩家頂替:${aiList}`;
         }
       }
 

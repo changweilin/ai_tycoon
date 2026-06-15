@@ -210,6 +210,24 @@ if (oh.last.state.players.length !== 2) throw new Error('多人遊戲人數應�
 if (oh.last.priv !== null) throw new Error('不參與的房主應為觀戰(無私有資訊)');
 console.log('✅ 房主不參與 + 選角額滿自動觀戰通過');
 
+// ---- 房主不參與且無人選角 → 直接開全 AI 觀賞局 ----
+const aw = await client('allAiHost');
+aw.send({ t: 'createRoom', name: '純觀眾' });
+await aw.wait();
+aw.send({ t: 'setRoomConfig', expectedCount: 4 });
+aw.send({ t: 'setMode', mode: 'spectator' });
+await aw.wait();
+aw.send({ t: 'startGame', mode: 'multi' });
+await aw.wait();
+if (!aw.last.lobby.started) throw new Error('全 AI 觀賞局未開始: ' + aw.errors.join(','));
+if (aw.last.state.players.length !== 4) throw new Error('全 AI 局人數應為 4');
+if (!aw.last.state.players.every(p => p.isAI)) throw new Error('全 AI 局應全為 AI');
+if (aw.last.priv !== null) throw new Error('不參與房主應為觀戰(無私有資訊)');
+const awLog = aw.last.state.log.length;
+await new Promise(r => setTimeout(r, 3000));
+if (aw.last.state.log.length <= awLog) throw new Error('全 AI 局應自動進行');
+console.log('✅ 房主不參與直接開始 = 全 AI 觀賞局通過');
+
 // ---- 3 人以上最後一位必選台灣 ----
 const t1 = await client('t1');
 t1.send({ t: 'createRoom', name: '搶角一號' });

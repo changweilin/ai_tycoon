@@ -297,6 +297,21 @@ body {
 .mode-hint { font-size: .78rem; color: #7a9aba; line-height: 1.4; min-height: 1em; }
 .host-optout { display: flex; align-items: center; gap: 6px; cursor: pointer; color: #ffd0e6; }
 .host-optout input { accent-color: var(--pink, #ff2bd6); width: 16px; height: 16px; cursor: pointer; }
+/* 加權成分顯示 */
+.wval { cursor: pointer; border-bottom: 1px dashed currentColor; }
+.bd-inline { font-size: .76rem; color: #9fd8ff; margin: 4px 0 2px; line-height: 1.5; }
+.bd-list { margin: 8px 0; display: flex; flex-direction: column; gap: 4px; }
+.bd-row { display: flex; justify-content: space-between; gap: 16px; font-size: .9rem; padding: 3px 8px; }
+.bd-row .bd-label { color: #bfe9ff; }
+.bd-row .bd-val { color: #fff; font-weight: bold; white-space: nowrap; }
+.bd-total { border-top: 1px solid rgba(0,240,255,.3); margin-top: 4px; padding-top: 6px; }
+.bd-total .bd-label, .bd-total .bd-val { color: #ffd02e; }
+/* 牌庫組成彈窗 */
+.dk-list { max-height: 56vh; overflow-y: auto; margin: 8px 0; display: flex; flex-direction: column; gap: 10px; }
+.dk-group { border-left: 3px solid var(--cc, #00f0ff); padding-left: 8px; }
+.dk-group-head { color: var(--cc, #00f0ff); font-weight: bold; font-size: .92rem; margin-bottom: 4px; }
+.dk-card { display: flex; justify-content: space-between; gap: 12px; font-size: .82rem; color: #d7ecff; padding: 2px 0; line-height: 1.5; }
+.dk-card .dk-stat { color: #8aa9c9; white-space: nowrap; }
 .tc-cost { margin-top: 8px; color: var(--cyan); }
 
 .result-box { text-align: center; }

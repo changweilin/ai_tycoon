@@ -382,6 +382,21 @@ export class Game {
     return Math.max(0, v);
   }
 
+  /** techValueOf 的加權成分拆解(卡面/角色/陣營/效果),供前端點擊加權值顯示明細 */
+  techValueParts(p, card, rid) {
+    const parts = [['卡面科技力', card.tech]];
+    if (this.regions[rid].chipBonus) parts.push(['新竹晶片重鎮', 5]);
+    if (card.cat === this.specialtyOf(p)) parts.push([`擅長領域・${p.char.industry}`, RULES.specialtyTechBonus]);
+    if (p.char.perk === 'chip' && card.cat === 'hardware') parts.push(['神山硬體加成', 5]);
+    if (p.faction === 'US' && card.tier >= 4) parts.push(['米國尖端科技領先', 10]);
+    const ev = this.eventEffect();
+    if (ev?.type === 'techDelta') {
+      const e = EVENT_CARDS.find(x => x.id === this.activeEvent);
+      parts.push([`集體事件・${e?.name || ''}`, ev.val]);
+    }
+    return parts;
+  }
+
   // ---------- 回合流程 ----------
   /** 卡片每回合的資源產出(依建造比例;約 1/3 卡片有 prodRatio 例外) */
   cardProduction(c) { return splitCost(c.trade, c.prodRatio || this.ratioOf(c)); }
@@ -413,6 +428,37 @@ export class Game {
     if (ev?.type === 'resBoost') inc[ev.res] += ev.val;
     if (ev?.type === 'incomeBonus') for (const k of RES_KEYS) inc[k] += ev.val;
     return inc;
+  }
+
+  /** incomeOf 的加權成分拆解(基礎/陣營科技力/建設/竊取/角色perk/事件),明細加總 = 實際收入 */
+  incomeParts(p) {
+    const parts = [['基礎收入', { ...RULES.baseIncome }]];
+    const bonus = this.techBonusOf(p);
+    if (bonus > 0) parts.push([`陣營科技力紅利(${this.tech[p.faction] || 0}點)`, { money: bonus, power: bonus, oil: bonus }]);
+    const build = zeroRes(), steal = zeroRes();
+    for (const rid in this.regions)
+      for (const c of this.regions[rid].cards) {
+        const drain = c.debuff?.type === 'drain' ? c.debuff : null;
+        if (c.owner === p.id) {
+          const prod = this.cardProduction(c);
+          if (drain) subRes(prod, drain.amt);
+          addRes(build, prod);
+          if (c.special?.type === 'income') build.money += c.special.val;
+        } else if (drain && drain.by === p.id) {
+          const prod = this.cardProduction(c);
+          for (const k of RES_KEYS) steal[k] += Math.min(drain.amt[k] || 0, prod[k]);
+        }
+      }
+    if (totalRes(build) > 0) parts.push(['建設產出', build]);
+    if (totalRes(steal) > 0) parts.push(['竊取對手收益', steal]);
+    if (p.char.perk === 'info' || p.char.perk === 'auto') parts.push(['角色 perk・收入 +2', { money: 2, power: 0, oil: 0 }]);
+    // 事件對收入的調整(歸零/減半/加成)以差額呈現,確保明細加總 = 實際收入
+    const sum = zeroRes();
+    for (const [, r] of parts) addRes(sum, r);
+    const real = this.incomeOf(p);
+    const delta = { money: real.money - sum.money, power: real.power - sum.power, oil: real.oil - sum.oil };
+    if (delta.money || delta.power || delta.oil) parts.push(['集體事件調整', delta]);
+    return parts;
   }
 
   apPerTurn() {
@@ -1137,6 +1183,7 @@ export class Game {
         cards: r.cards.map(c => ({
           uid: c.uid, owner: c.owner, cat: c.cat, tier: c.tier, name: c.name,
           tech: c.tech, effTech: this.techValueOf(this.players[c.owner], c, rid),
+          techBreak: this.techValueParts(this.players[c.owner], c, rid),
           def: c.def, trade: c.trade, effDef: this.effDef(rid, c),
           special: c.special, opsHit: !!c.opsHit, debuff: c.debuff || null,
         })),
@@ -1257,13 +1304,15 @@ export class Game {
         const chk = this.canPlayTech(p, c);
         return {
           kind: 'tech', uid: c.uid, cat: c.cat, tier: c.tier, name: c.name, desc: c.desc,
-          tech: c.tech, effTech: this.techValueOf(p, c, p.pos), def: c.def, trade: c.trade, special: c.special,
+          tech: c.tech, effTech: this.techValueOf(p, c, p.pos), techBreak: this.techValueParts(p, c, p.pos),
+          def: c.def, trade: c.trade, special: c.special,
           myCost: this.developCostFor(p, c), playMsg: chk.ok ? null : chk.msg,
         };
       }),
       turnFlags: { ...p.turnFlags },
       forfeitGain: this.forfeitGainOf(p),
       techBonus: this.techBonusOf(p),
+      incomeBreak: this.incomeParts(p),
     };
     if (p.faction === 'TW') {
       priv.twSupport = this.twSupport;
