@@ -1,10 +1,21 @@
 // ============ 權威遊戲邏輯(僅在伺服器執行) ============
 import {
-  FACTIONS, CHARACTERS, REGIONS, EDGES, RULES,
+  FACTIONS, CHARACTERS, REGIONS, EDGES, isAirEdge, RULES,
   TECH_CATEGORIES, TECH_CARDS, MAIN_TIER_COPIES, TIER4_COPIES, TIER5_COPIES, INDUSTRY_CATEGORY,
   OPS_CARDS, OPS_DECK_COMPOSITION, EVENT_CARDS,
   RES_KEYS, CATEGORY_RATIO, splitCost,
 } from '../public/js/data.js';
+
+/** 建立兩張鄰接圖:adj = 鐵路/航運(只能到相鄰城市,便宜移動);
+ *  planeAdj = 完整連通圖(含跨洋飛機航線,供飛機/作戰卡的 BFS 距離使用) */
+function buildAdjacency(target) {
+  target.adj = {}; target.planeAdj = {};
+  for (const r of REGIONS) { target.adj[r.id] = []; target.planeAdj[r.id] = []; }
+  for (const [a, b] of EDGES) {
+    target.planeAdj[a].push(b); target.planeAdj[b].push(a);
+    if (!isAirEdge(a, b)) { target.adj[a].push(b); target.adj[b].push(a); } // 跨洋邊不算相鄰
+  }
+}
 
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
@@ -48,9 +59,7 @@ export class Game {
     this.regions = {};
     for (const r of REGIONS)
       this.regions[r.id] = { ...r, cards: [], fakeUntilRound: 0, fakeMult: 1, level: r.startLevel || 1, builtRound: 0 };
-    this.adj = {};
-    for (const r of REGIONS) this.adj[r.id] = [];
-    for (const [a, b] of EDGES) { this.adj[a].push(b); this.adj[b].push(a); }
+    buildAdjacency(this); // this.adj(鐵路/航運相鄰)+ this.planeAdj(含跨洋航線的完整圖)
 
     this.players = seats.map((s, i) => {
       const ch = CHARACTERS.find(c => c.id === s.charId);
@@ -70,6 +79,9 @@ export class Game {
     this.tech = { ...RULES.techStart };
     this.tech.CN = RULES.techStart.US
       - Math.round((RULES.techStart.US - RULES.techStart.CN) * gapMult);
+    // 台日韓開局科技力一律取「米國與(縮放後)牆國的中間值」,確保夾在米牆之間
+    const midTech = Math.round((this.tech.US + this.tech.CN) / 2);
+    for (const f of ['TW', 'JP', 'KR']) this.tech[f] = midTech;
     this.startLead = this.tech.US - this.tech.CN; // 開局讓分線:終局僵局時用它判定誰贏了冷戰
     this.round = 1;
     this.turnIdx = 0;
@@ -204,14 +216,15 @@ export class Game {
   /** 角色擅長的科技卡類別 */
   specialtyOf(p) { return INDUSTRY_CATEGORY[p.char.industry]; }
 
-  /** from 出發各城市的航線距離(BFS),回傳 { rid: dist };只計算 maxDist 格以內 */
+  /** from 出發各城市的航線距離(BFS over 完整圖,含跨洋飛機航線),回傳 { rid: dist };
+   *  供飛機移動與作戰卡射程使用(鐵路/航運的「相鄰」判定改用 this.adj) */
   distancesFrom(from, maxDist = Infinity) {
     const dist = { [from]: 0 };
     let frontier = [from];
     for (let d = 0; d < maxDist && frontier.length; d++) {
       const next = [];
       for (const rid of frontier)
-        for (const n of this.adj[rid])
+        for (const n of this.planeAdj[rid])
           if (dist[n] == null) { dist[n] = d + 1; next.push(n); }
       frontier = next;
     }
@@ -303,7 +316,6 @@ export class Game {
     const ev = this.eventEffect();
     if (ev?.type === 'catCost' && ev.cat === card.cat) cost = Math.ceil(cost * ev.mult);
     if (ev?.type === 'allCost') cost = Math.ceil(cost * ev.mult);
-    if (r.fakeUntilRound > this.round) cost = Math.ceil(cost * r.fakeMult); // 假新聞:更多花費
     // 米國在牆國地盤(及反之)發展科技花費加倍,其他國家不在此限
     if ((p.faction === 'US' && r.country === 'CN') || (p.faction === 'CN' && r.country === 'US'))
       cost *= RULES.rivalLandMult;
@@ -314,9 +326,6 @@ export class Game {
       const credit = splitCost(Math.floor(old.cost * RULES.depreciationRate), this.ratioOf(old));
       subRes(triple, credit);
     }
-    // 竊取情報:減少一次同類型科技卡花費
-    const intel = p.intel.find(it => it.cat === card.cat);
-    if (intel) subRes(triple, intel.gain);
     return triple;
   }
 
@@ -374,18 +383,29 @@ export class Game {
   }
 
   // ---------- 回合流程 ----------
+  /** 卡片每回合的資源產出(依建造比例;約 1/3 卡片有 prodRatio 例外) */
+  cardProduction(c) { return splitCost(c.trade, c.prodRatio || this.ratioOf(c)); }
+
   /** 收入(三種資源):基礎(隨陣營科技力提高)+ 場上卡片交易力(依類別比例) */
   incomeOf(p) {
     const inc = { ...RULES.baseIncome };
     const bonus = this.techBonusOf(p);
     for (const k of RES_KEYS) inc[k] += bonus;
     for (const rid in this.regions)
-      for (const c of this.regions[rid].cards)
+      for (const c of this.regions[rid].cards) {
+        const drain = c.debuff?.type === 'drain' ? c.debuff : null;
         if (c.owner === p.id) {
-          // 建造後產出資源:預設依建造比例(消耗多的生產也多),約 1/3 卡片有 prodRatio 例外
-          addRes(inc, splitCost(c.trade, c.prodRatio || this.ratioOf(c)));
+          // 建造後產出資源:被竊取(drain)的部分不歸本人(subRes 已對每種資源下限歸零)
+          const prod = this.cardProduction(c);
+          if (drain) subRes(prod, drain.amt);
+          addRes(inc, prod);
           if (c.special?.type === 'income') inc.money += c.special.val;
+        } else if (drain && drain.by === p.id) {
+          // 本玩家是竊賊:抽走對手該卡的部分交易收益(上限為該卡實際產出)
+          const prod = this.cardProduction(c);
+          for (const k of RES_KEYS) inc[k] += Math.min(drain.amt[k] || 0, prod[k]);
         }
+      }
     if (p.char.perk === 'info' || p.char.perk === 'auto') inc.money += 2;
     const ev = this.eventEffect();
     if (ev?.type === 'resZero') inc[ev.res] = 0;
@@ -591,13 +611,33 @@ export class Game {
   }
 
   // ---------- 發展科技卡(從手牌打出) ----------
-  /** 某張手牌科技卡可否在目前城市部署 */
-  canPlayTech(p, card, rid = p.pos) {
+  /** 該城被作戰卡 debuff、且屬於 p 同陣營他人的科技卡(p 在此城無自己的卡時可「改建」之) */
+  allyRescueTargetsAt(p, rid = p.pos) {
+    const mySide = this.sideOf(p);
+    if (mySide == null || this.ownCardAt(p, rid)) return []; // 立場未明 / 一城一卡:不可改建
+    return this.regions[rid].cards.filter(c =>
+      c.owner !== p.id && c.debuff && this.sideOf(this.players[c.owner]) === mySide);
+  }
+
+  /** 某張手牌科技卡可否在目前城市部署;rebuildUid 指定改建同陣營盟友被 debuff 的科技卡 */
+  canPlayTech(p, card, rid = p.pos, rebuildUid = null) {
     const r = this.regions[rid];
     if (card.tier > r.level)
       return { ok: false, msg: `城市等級不足(${r.name} Lv.${r.level},${card.tier}階卡需 Lv.${card.tier})` };
     if (r.builtRound && this.round < r.builtRound + RULES.cityBuildCooldown)
       return { ok: false, msg: `${r.name} 今年已建造過,須過一年(第 ${Math.ceil((r.builtRound + RULES.cityBuildCooldown) / 4)} 年起)才可重新建造` };
+    if (rebuildUid != null) { // 盟友改建:改建同陣營他人被作戰卡 debuff 的卡
+      const tc = r.cards.find(c => c.uid === rebuildUid);
+      if (!tc) return { ok: false, msg: '改建目標不存在' };
+      if (tc.owner === p.id) return { ok: false, msg: '這是你自己的卡,直接升階即可' };
+      if (!tc.debuff) return { ok: false, msg: '只能改建被作戰卡 debuff 的盟友科技卡' };
+      const mySide = this.sideOf(p);
+      if (mySide == null || this.sideOf(this.players[tc.owner]) !== mySide)
+        return { ok: false, msg: '只能改建同陣營盟友的受損科技卡' };
+      if (this.ownCardAt(p, rid)) return { ok: false, msg: '你在此城已有科技卡(一城一卡)' };
+      if (card.tier < tc.tier) return { ok: false, msg: `改建需 ≥ 原卡階級(${tc.tier} 階)` };
+      return { ok: true };
+    }
     const old = this.ownCardAt(p, rid);
     if (old) {
       if (card.tier <= old.tier)
@@ -608,7 +648,7 @@ export class Game {
     return { ok: true };
   }
 
-  doPlayTech(handIdx) {
+  doPlayTech(handIdx, rebuildUid = null) {
     const p = this.cur();
     if (this.over) return { ok: false, msg: '遊戲已結束' };
     if (this.phase === 'trade') return { ok: false, msg: '交易環節中' };
@@ -616,7 +656,8 @@ export class Game {
     if (!card || card.kind !== 'tech') return { ok: false, msg: '無此科技卡' };
     if (p.turnFlags.forfeitTech) return { ok: false, msg: '你本回合已放棄打出科技卡的權利' };
     if (p.ap < 1) return { ok: false, msg: '行動點不足' };
-    const chk = this.canPlayTech(p, card);
+    if (rebuildUid != null) rebuildUid = Number(rebuildUid);
+    const chk = this.canPlayTech(p, card, p.pos, rebuildUid);
     if (!chk.ok) return chk;
     const cost = this.developCostFor(p, card);
     if (!canPay(p, cost)) return { ok: false, msg: `資源不足(需要 ${resStr(cost)})` };
@@ -625,13 +666,6 @@ export class Game {
     pay(p, cost);
     p.hand.splice(handIdx, 1);
     p.turnFlags.playedTech = true;
-
-    // 消耗一次竊取情報
-    const intelIdx = p.intel.findIndex(it => it.cat === card.cat);
-    if (intelIdx >= 0) {
-      this.addLog(`🧬 ${p.name} 動用了竊取的${TECH_CATEGORIES[card.cat].name}情報,降低了研發成本`);
-      p.intel.splice(intelIdx, 1);
-    }
 
     // 晶片稅(金錢)
     const twPlayer = this.players.find(q => q.faction === 'TW');
@@ -643,14 +677,39 @@ export class Game {
     }
 
     const r = this.regions[p.pos];
-    // 一城一卡:替換時移除舊卡(扣回其科技力;同類型已在費用折舊抵免)
-    const old = this.ownCardAt(p, p.pos);
-    if (old) {
-      r.cards = r.cards.filter(c => c.uid !== old.uid);
-      this.removeTechGain(p, old.techApplied || 0);
-      delete old.owner; delete old.techApplied; delete old.opsHit;
-      this.discardCard(old);
-      this.addLog(`${p.name} 拆除了 ${r.name} 的【${old.name}】${old.cat === card.cat ? '(同類型折舊抵免費用)' : ''}`);
+    if (rebuildUid != null) {
+      // 盟友改建:被作戰卡 debuff 的盟友卡可由同陣營他人改建。移除舊卡並清除 debuff;
+      // 折舊金額(不被施法者分走)返回給原建設玩家作為補償。
+      const tc = r.cards.find(c => c.uid === rebuildUid);
+      const owner = this.players[tc.owner];
+      const deprec = splitCost(Math.floor((tc.cost || 0) * RULES.depreciationRate), this.ratioOf(tc));
+      addRes(owner.res, deprec);
+      r.cards = r.cards.filter(c => c.uid !== tc.uid);
+      this.removeTechGain(owner, tc.techApplied || 0);
+      delete tc.owner; delete tc.techApplied; delete tc.opsHit; delete tc.debuff;
+      this.discardCard(tc);
+      this.addLog(`🔧 ${p.name} 替盟友 ${owner.name} 改建了 ${r.name} 受損的【${tc.name}】,折舊 ${resStr(deprec)} 返還給 ${owner.name}`);
+    } else {
+      // 一城一卡:替換自己的舊卡(扣回其科技力;同類型已在費用折舊抵免)
+      const old = this.ownCardAt(p, p.pos);
+      if (old) {
+        // 假新聞「折舊陷阱」:同類改建被植入 debuff 的舊卡時,部分折舊資源由重建者轉移給施法者
+        if (old.debuff?.type === 'leak' && old.cat === card.cat) {
+          const by = this.players[old.debuff.by];
+          if (by && by.id !== p.id && old.debuff.val > 0) {
+            const want = splitCost(old.debuff.val, this.ratioOf(old));
+            const moved = zeroRes();
+            for (const k of RES_KEYS) { moved[k] = Math.min(want[k], p.res[k]); p.res[k] -= moved[k]; by.res[k] += moved[k]; }
+            if (totalRes(moved) > 0)
+              this.addLog(`📰 ${p.name} 同類改建被植入假新聞的【${old.name}】,部分折舊資源 ${resStr(moved)} 被轉移給 ${by.name}!`);
+          }
+        }
+        r.cards = r.cards.filter(c => c.uid !== old.uid);
+        this.removeTechGain(p, old.techApplied || 0);
+        delete old.owner; delete old.techApplied; delete old.opsHit; delete old.debuff;
+        this.discardCard(old);
+        this.addLog(`${p.name} 拆除了 ${r.name} 的【${old.name}】${old.cat === card.cat ? '(同類型折舊抵免費用)' : ''}`);
+      }
     }
 
     card.owner = p.id;
@@ -788,44 +847,40 @@ export class Game {
   }
 
   // ---------- 作戰卡 ----------
-  /** 合法目標清單(每張科技卡只能被鎖定一次;只能對兩格內的城市使用) */
+  /** debuff 強度預覽(供 UI 標籤):與 max(1, 攻擊力 − 有效防護力) 成正比 */
+  opsDebuffText(card, def, tc) {
+    const potency = Math.max(1, card.atk - def);
+    if (card.cat === 'spy')   return `科技力 -${potency * RULES.opsTechDebuff}`;
+    if (card.cat === 'steal') return `每回合竊取收益 ${resStr(splitCost(potency * RULES.opsIncomeDrain, card.ratio))}`;
+    const transfer = Math.min(Math.floor((tc.cost || 0) * RULES.depreciationRate), potency * RULES.opsDeprecLeak);
+    return `對手同類改建時轉移折舊資源 ${transfer}`; // fake
+  }
+
+  /** 合法目標清單(三類作戰卡都鎖定敵對科技卡:攻擊力 ≥ 有效防護力,每卡限一次) */
   cardTargets(type) {
     const p = this.cur();
     const card = OPS_CARDS[type];
     if (!card) return [];
     const mySide = this.secretSideOf(p);
     const dist = this.distancesFrom(p.pos, this.opsRangeFor(p));
-
-    if (card.cat === 'spy' || card.cat === 'steal') {
-      const targets = [];
-      for (const rid in this.regions) {
-        if (dist[rid] == null) continue;       // 超出航線可及範圍
-        for (const c of this.regions[rid].cards) {
-          if (c.owner === p.id) continue;
-          if (c.opsHit) continue; // 已被作戰卡鎖定過
-          const owner = this.players[c.owner];
-          if (p.faction !== 'TW' && this.secretSideOf(owner) === mySide) continue; // 不打自己陣營
-          const def = this.effDef(rid, c);
-          if (card.atk < def) continue; // 防護力太高
-          const cost = this.opsCostFor(p, type, dist[rid]);
-          targets.push({
-            regionId: rid, uid: c.uid, tier: c.tier, tech: c.tech, dist: dist[rid], cost,
-            label: `${this.regions[rid].name}(${dist[rid]}格·${resStr(cost)})|${owner.name}【${c.name}】${c.tier}階(防護${def})`,
-          });
-        }
+    const targets = [];
+    for (const rid in this.regions) {
+      if (dist[rid] == null) continue;       // 超出航線可及範圍
+      for (const c of this.regions[rid].cards) {
+        if (c.owner === p.id) continue;
+        if (c.opsHit) continue; // 已被作戰卡鎖定過
+        const owner = this.players[c.owner];
+        if (p.faction !== 'TW' && this.secretSideOf(owner) === mySide) continue; // 不打自己陣營
+        const def = this.effDef(rid, c);
+        if (card.atk < def) continue; // 攻擊力需 ≥ 有效防護力
+        const cost = this.opsCostFor(p, type, dist[rid]);
+        targets.push({
+          regionId: rid, uid: c.uid, tier: c.tier, tech: c.tech, dist: dist[rid], cost,
+          label: `${this.regions[rid].name}(${dist[rid]}格·${resStr(cost)})|${owner.name}【${c.name}】${c.tier}階(防護${def}) → ${this.opsDebuffText(card, def, c)}`,
+        });
       }
-      return targets;
     }
-    if (card.cat === 'fake') {
-      const out = [];
-      for (const r of Object.values(this.regions)) {
-        if (dist[r.id] == null || r.fakeUntilRound > this.round) continue;
-        const cost = this.opsCostFor(p, type, dist[r.id]);
-        out.push({ regionId: r.id, dist: dist[r.id], cost, label: `${r.name}(${dist[r.id]}格·${resStr(cost)})` });
-      }
-      return out;
-    }
-    return [];
+    return targets;
   }
 
   doPlayCard(handIdx, target) {
@@ -839,11 +894,9 @@ export class Game {
     const card = OPS_CARDS[type];
     if (p.ap < 1) return { ok: false, msg: '行動點不足' };
 
-    // 先驗證目標仍合法,費用依目標距離(航線格數)決定
+    // 先驗證目標仍合法,費用依目標距離(航線格數)決定;三類作戰卡都鎖定一張敵對科技卡
     const valid = this.cardTargets(type);
-    let chosen = null;
-    if (card.cat === 'fake') chosen = valid.find(t => t.regionId === target?.regionId);
-    else chosen = valid.find(t => t.uid === target?.uid);
+    const chosen = valid.find(t => t.uid === target?.uid);
     if (!chosen) return { ok: false, msg: '目標不合法或已消失' };
     const cost = chosen.cost; // 已含航線距離加成(伺服器端重算,不信任客戶端)
     if (!canPay(p, cost)) return { ok: false, msg: `資源不足(需要 ${resStr(cost)})` };
@@ -854,45 +907,45 @@ export class Game {
     p.turnFlags.playedOps = true;
     this.discardCard(hc);
 
+    const r = this.regions[chosen.regionId];
+    const tc = r.cards.find(c => c.uid === chosen.uid);
+    const owner = this.players[tc.owner];
+    const def = this.effDef(chosen.regionId, tc);
+    const potency = Math.max(1, card.atk - def); // overkill:攻擊力越壓過防護,debuff 越強
+    tc.opsHit = true; // 每張科技卡只能被鎖定一次
+
     if (card.cat === 'spy') {
-      const r = this.regions[chosen.regionId];
-      const tc = r.cards.find(c => c.uid === chosen.uid);
-      const owner = this.players[tc.owner];
-      r.cards = r.cards.filter(c => c.uid !== tc.uid);
-      const loss = tc.techApplied || tc.tech;
-      delete tc.owner; delete tc.techApplied; delete tc.opsHit;
-      this.discardCard(tc);
-      const ownerSide = this.removeTechGain(owner, loss);
-      if (ownerSide) {
-        this.addLog(`💣 ${p.name} 用【${card.name}】摧毀了 ${owner.name} 在 ${r.name} 的【${tc.name}】!${FACTIONS[ownerSide].name}科技力 -${loss} 點`);
-      } else {
-        this.addLog(`💣 ${p.name} 用【${card.name}】摧毀了 ${owner.name} 在 ${r.name} 的【${tc.name}】!神山儲備受損(秘密)`);
-      }
-      this.addFx('destroy', { region: chosen.regionId, faction: p.faction, targetFaction: owner.faction, charId: p.char.id, name: tc.name, ops: card.name });
+      // 減少科技力:削減該卡對陣營分數的貢獻(上限為其實際貢獻),不拆卡
+      const reduce = Math.min(potency * RULES.opsTechDebuff, tc.techApplied || 0);
+      tc.techApplied = (tc.techApplied || 0) - reduce;
+      tc.debuff = { type: 'tech', val: reduce, by: p.id, byName: p.name };
+      const ownerSide = this.removeTechGain(owner, reduce);
+      if (ownerSide)
+        this.addLog(`💣 ${p.name} 用【${card.name}】滲透了 ${owner.name} 在 ${r.name} 的【${tc.name}】!${FACTIONS[ownerSide].name}科技力 -${reduce} 點(卡片仍在,但科技力被削)`);
+      else
+        this.addLog(`💣 ${p.name} 用【${card.name}】滲透了 ${owner.name} 在 ${r.name} 的【${tc.name}】!神山儲備受損 ${reduce} 點(秘密)`);
+      this.addFx('spy', { region: chosen.regionId, faction: p.faction, targetFaction: owner.faction, charId: p.char.id, name: tc.name, ops: card.name, val: reduce });
       this.checkVictory();
       return { ok: true };
     }
 
     if (card.cat === 'steal') {
-      const r = this.regions[chosen.regionId];
-      const tc = r.cards.find(c => c.uid === chosen.uid);
-      const owner = this.players[tc.owner];
-      tc.opsHit = true; // 每張科技卡只能被鎖定一次
-      const amount = tc.tier * card.intelPerTier; // 等級越高減得越多
-      const ratio = card.intelSpread === 'even' ? { money: 1, power: 1, oil: 1 } : this.ratioOf(tc);
-      const gain = splitCost(amount, ratio);
-      p.intel.push({ cat: tc.cat, gain });
-      this.addLog(`🕵️ ${p.name} 用【${card.name}】竊取了 ${owner.name}【${tc.name}】的情報:下次發展${TECH_CATEGORIES[tc.cat].name}科技卡花費 -${resStr(gain)}`);
+      // 竊取收益:每回合自該卡交易收益抽走資源,轉給施法者(卡片仍在)
+      const amt = splitCost(potency * RULES.opsIncomeDrain, card.ratio);
+      tc.debuff = { type: 'drain', amt, by: p.id, byName: p.name };
+      this.addLog(`🕵️ ${p.name} 用【${card.name}】滲透了 ${owner.name} 在 ${r.name} 的【${tc.name}】金流:每回合竊取其收益 ${resStr(amt)}`);
       this.addFx('steal', { region: chosen.regionId, faction: p.faction, cat: tc.cat, charId: p.char.id, ops: card.name });
       return { ok: true };
     }
 
     if (card.cat === 'fake') {
-      const r = this.regions[chosen.regionId];
-      r.fakeUntilRound = this.round + card.dur;
-      r.fakeMult = card.mult;
-      this.addLog(`📰 ${p.name} 對 ${r.name} 發動【${card.name}】,${card.dur} 輪內該城發展科技花費 ×${card.mult}!`);
-      this.addFx('fake', { region: chosen.regionId, faction: p.faction, mult: card.mult, dur: card.dur, charId: p.char.id, ops: card.name });
+      // 折舊陷阱:對手日後「同類改建(同 cat 升階替換)」該卡時,
+      // 部分折舊資源(上限為該卡折舊額)被轉移給施法者(卡片仍在)
+      const deprecTotal = Math.floor((tc.cost || 0) * RULES.depreciationRate);
+      const val = Math.min(deprecTotal, potency * RULES.opsDeprecLeak);
+      tc.debuff = { type: 'leak', potency, val, by: p.id, byName: p.name };
+      this.addLog(`📰 ${p.name} 對 ${owner.name} 在 ${r.name} 的【${tc.name}】散布假新聞:對手同類改建此卡時,部分折舊資源(約 ${val})將被轉移給你`);
+      this.addFx('fake', { region: chosen.regionId, faction: p.faction, charId: p.char.id, ops: card.name, val });
       // 媒體 perk:輿論操作順便撈情報(打出假新聞後抽一張卡)
       if (p.char.perk === 'media' && this.drawCardFor(p))
         this.addLog(`🎭 ${p.name} 的輿論網路順手撈到一張新情報(抽 1 張卡)`);
@@ -1084,7 +1137,7 @@ export class Game {
         cards: r.cards.map(c => ({
           uid: c.uid, owner: c.owner, cat: c.cat, tier: c.tier, name: c.name,
           tech: c.tech, def: c.def, trade: c.trade, effDef: this.effDef(rid, c),
-          special: c.special, opsHit: !!c.opsHit,
+          special: c.special, opsHit: !!c.opsHit, debuff: c.debuff || null,
         })),
       };
     }
@@ -1131,7 +1184,7 @@ export class Game {
         builtRound: this.regions[rid].builtRound,
       };
     return {
-      version: 3,
+      version: 4,
       players: this.players.map(p => ({
         id: p.id, name: p.name, charId: p.char.id, res: p.res, intel: p.intel,
         hand: p.hand, pos: p.pos, ap: p.ap, usedFreeMove: p.usedFreeMove,
@@ -1154,15 +1207,13 @@ export class Game {
   }
 
   static fromSave(d) {
-    if (d.version !== 3) throw new Error('存檔版本不相容(舊版規則存檔無法載入)');
+    if (d.version !== 4) throw new Error('存檔版本不相容(舊版規則存檔無法載入)');
     const g = Object.create(Game.prototype);
     g.regions = {};
     for (const r of REGIONS)
       g.regions[r.id] = { ...r, cards: [], fakeUntilRound: 0, fakeMult: 1, level: r.startLevel || 1, builtRound: 0 };
     for (const rid in d.regions) if (g.regions[rid]) Object.assign(g.regions[rid], d.regions[rid]);
-    g.adj = {};
-    for (const r of REGIONS) g.adj[r.id] = [];
-    for (const [a, b] of EDGES) { g.adj[a].push(b); g.adj[b].push(a); }
+    buildAdjacency(g); // this.adj(鐵路/航運相鄰)+ this.planeAdj(含跨洋航線的完整圖)
     g.players = d.players.map(p => ({
       ...p, intel: p.intel || [], strategy: p.strategy || null,
       turnFlags: p.turnFlags || emptyTurnFlags(),
@@ -1209,7 +1260,6 @@ export class Game {
           myCost: this.developCostFor(p, c), playMsg: chk.ok ? null : chk.msg,
         };
       }),
-      intel: p.intel.map(it => ({ cat: it.cat, gain: it.gain })),
       turnFlags: { ...p.turnFlags },
       forfeitGain: this.forfeitGainOf(p),
       techBonus: this.techBonusOf(p),
@@ -1246,6 +1296,12 @@ export class Game {
           const mc = this.moveCostTo(p, r.id);
           return { regionId: r.id, oil: mc.oil, plane: mc.plane, free: mc.free };
         });
+      // 盟友改建:同陣營他人被作戰卡 debuff 的卡(可用 ≥ 該階手牌科技卡改建之,折舊返還原 owner)
+      priv.rescueTargets = this.allyRescueTargetsAt(p, p.pos).map(c => ({
+        uid: c.uid, ownerId: c.owner, ownerName: this.players[c.owner].name,
+        name: c.name, cat: c.cat, tier: c.tier,
+        deprec: resStr(splitCost(Math.floor((c.cost || 0) * RULES.depreciationRate), this.ratioOf(c))),
+      }));
     }
     return priv;
   }

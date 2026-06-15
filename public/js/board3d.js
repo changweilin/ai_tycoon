@@ -3,33 +3,67 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { REGIONS, EDGES, FACTIONS, TECH_CATEGORIES, RULES, charLogo } from './data.js';
+import { REGIONS, EDGES, EDGE_TYPES, FACTIONS, TECH_CATEGORIES, RULES, charLogo } from './data.js';
 
 const NEON_CYAN = 0x00f0ff;
 const NEON_PINK = 0xff2bd6;
 const NEON_PURPLE = 0x7b2bff;
 const NEON_AMBER = 0xffb000;
 
-function makeLabelSprite(text, sub, color = '#00f0ff') {
+// 把可能偏暗/低飽和的顏色(如中立城的灰)提亮成在深色場景上清楚可讀的版本,保留色相
+function legibleColor(css) {
+  const c = new THREE.Color(css);
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  const s = hsl.s < 0.18 ? hsl.s : Math.max(hsl.s, 0.55); // 近灰的維持灰,其餘提飽和
+  c.setHSL(hsl.h, s, Math.max(hsl.l, 0.66));              // 一律提到足夠亮度
+  return '#' + c.getHexString();
+}
+
+// 看板字牌:深色圓角底板 + 白主標(深描邊+同色外光)+ 提亮的副標。
+// 畫布寬度依文字量自動量測 → 不再截斷;sprite 依畫布長寬比設定縮放 → 文字不變形。
+// opts.h = 世界座標下的字牌高度(預設 1.7)。
+function makeLabelSprite(text, sub, color = '#00f0ff', opts = {}) {
+  const h = opts.h ?? 1.7;
+  const mainPx = 84, subPx = 40, pad = 44;
+  const m = document.createElement('canvas').getContext('2d');
+  m.font = `bold ${mainPx}px "Microsoft JhengHei", sans-serif`;
+  const mainW = m.measureText(text).width;
+  let subW = 0;
+  if (sub) { m.font = `${subPx}px "Microsoft JhengHei", sans-serif`; subW = m.measureText(sub).width; }
+  const contentW = Math.max(mainW, subW, 120);
+  const W = Math.ceil((contentW + pad * 2) / 2) * 2, H = 200;
   const canvas = document.createElement('canvas');
-  canvas.width = 512; canvas.height = 192;
+  canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, 512, 192);
-  ctx.font = 'bold 84px "Microsoft JhengHei", sans-serif';
-  ctx.textAlign = 'center';
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 24;
-  ctx.fillStyle = '#eaffff';
-  ctx.fillText(text, 256, 90);
-  ctx.font = '40px "Microsoft JhengHei", sans-serif';
-  ctx.fillStyle = color;
-  ctx.shadowBlur = 12;
-  ctx.fillText(sub, 256, 150);
+  const cx = W / 2;
+  const glow = legibleColor(color);
+  // 深色半透明底板:任何背景(亮陸地/建築)上都讀得清楚
+  const plateW = contentW + pad * 1.5, plateH = sub ? 172 : 110;
+  ctx.fillStyle = 'rgba(6,10,22,0.6)';
+  _roundRect(ctx, cx - plateW / 2, (H - plateH) / 2, plateW, plateH, 26);
+  ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = glow; ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  // 主標:深色描邊保證亮背景仍清楚 + 白字 + 同色外光
+  ctx.font = `bold ${mainPx}px "Microsoft JhengHei", sans-serif`;
+  const mainY = sub ? 82 : 100;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 9; ctx.strokeStyle = 'rgba(2,5,14,0.94)'; ctx.strokeText(text, cx, mainY);
+  ctx.shadowColor = glow; ctx.shadowBlur = 14; ctx.fillStyle = '#f4ffff'; ctx.fillText(text, cx, mainY);
+  ctx.shadowBlur = 0;
+  if (sub) {
+    ctx.font = `bold ${subPx}px "Microsoft JhengHei", sans-serif`;
+    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(2,5,14,0.94)'; ctx.strokeText(sub, cx, 150);
+    ctx.fillStyle = glow; ctx.fillText(sub, cx, 150);
+  }
   const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  // depthTest:false → 不被陸地/建築擋住;fog:false → 北方遠處的城市/標題不被霧氣沖淡
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false, fog: false });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(4.6, 1.7, 1);
+  sprite.scale.set(h * W / H, h, 1);
+  sprite.renderOrder = 8;
   return sprite;
 }
 
@@ -43,26 +77,27 @@ function makeEmojiSprite(ch) {
   ctx.fillText(ch, 64, 70);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+  return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false }));
 }
 
-// 卡牌背面貼圖(公共牌庫只露背面):暗底 + 霓虹外框 + 斜向電路紋 + 中央菱形徽記
-function makeCardBackTexture() {
+// 卡牌背面貼圖(牌庫只露背面):暗底 + 霓虹外框 + 斜向電路紋 + 中央菱形徽記。
+// accent = 強調色(各牌庫不同),centerGlyph = 中央大字('?' 公牌 / '4' / '5')。
+function makeCardBackTexture(accent = '#00f0ff', centerGlyph = '?') {
   const c = document.createElement('canvas'); c.width = 256; c.height = 358;
   const ctx = c.getContext('2d');
   const grd = ctx.createLinearGradient(0, 0, 256, 358);
   grd.addColorStop(0, '#0c1430'); grd.addColorStop(1, '#1a0c30');
   ctx.fillStyle = grd; ctx.fillRect(0, 0, 256, 358);
-  ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 10; ctx.strokeRect(12, 12, 232, 334);
+  ctx.strokeStyle = accent; ctx.lineWidth = 10; ctx.strokeRect(12, 12, 232, 334);
   ctx.strokeStyle = 'rgba(255,43,214,0.35)'; ctx.lineWidth = 3;
   for (let i = -6; i < 12; i++) { ctx.beginPath(); ctx.moveTo(i * 40, 0); ctx.lineTo(i * 40 + 358, 358); ctx.stroke(); }
   ctx.save(); ctx.translate(128, 179); ctx.rotate(Math.PI / 4);
-  ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 8; ctx.strokeRect(-58, -58, 116, 116);
+  ctx.strokeStyle = accent; ctx.lineWidth = 8; ctx.strokeRect(-58, -58, 116, 116);
   ctx.fillStyle = 'rgba(123,43,255,0.5)'; ctx.fillRect(-34, -34, 68, 68);
   ctx.restore();
   ctx.fillStyle = '#eaffff'; ctx.textAlign = 'center';
-  ctx.font = 'bold 56px "Microsoft JhengHei", sans-serif'; ctx.fillText('?', 128, 200);
-  ctx.font = 'bold 26px "Microsoft JhengHei", sans-serif'; ctx.fillStyle = '#00f0ff'; ctx.fillText('CTW 2049', 128, 318);
+  ctx.font = 'bold 96px "Microsoft JhengHei", sans-serif'; ctx.fillText(centerGlyph, 128, 212);
+  ctx.font = 'bold 26px "Microsoft JhengHei", sans-serif'; ctx.fillStyle = accent; ctx.fillText('CTW 2049', 128, 318);
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
@@ -79,23 +114,29 @@ function mulberry32(seed) {
 
 // ---------- 環太平洋陸塊海岸線([x, z] 多邊形,風格化) ----------
 // 風格化但更貼近現實的環太平洋輪廓([x,z] 世界座標;x 正=美洲側、z 負=北/寒、z 正=南/熱)。
-// 城市座標(REGIONS)不可動,海岸線只是包住對的城市並讓世界一眼可辨。
+// 海岸線須包住 REGIONS 內對應的城市群(城市座標改動時一併重繪邊界);環太平洋以外(歐洲/印度/中東)刻意收斂不外推。
 const LANDMASSES = [
-  // 北美:西岸阿拉斯加→加州→下加州墨西哥尖,東側大陸塊(含 seattle/sv/la/nyc/phoenix/austin)
+  // 北美:真實輪廓 — 西岸太平洋直海岸(vancouver→seattle→sv→la)、南方經墨西哥收窄、
+  // 墨西哥灣凹口 + 佛羅里達半島、東岸抵紐約、加拿大寬頂。沿岸城靠海、phoenix/austin/mexico/toronto 內陸。
   { name: 'northAmerica', coast: '#2bd6ff', biome: 'temperate', pts: [
-    [9.5, -10.0], [10.0, -8.0], [10.4, -6.0], [10.7, -4.0], [10.9, -2.0],
-    [10.7, 0.0], [10.4, 2.2], [10.0, 4.0], [10.3, 6.0], [10.9, 7.6],
-    [12.2, 8.6], [13.8, 8.2], [15.5, 7.2], [17.2, 6.0], [18.6, 4.2],
-    [19.6, 2.0], [20.0, -0.5], [19.6, -3.0], [19.0, -5.2], [17.4, -7.6],
-    [14.8, -9.4], [12.2, -10.0],
+    [7.8, -11.5], [8.0, -9.8], [9.0, -7.5], [9.8, -3.0], [11.0, 1.0],
+    [12.6, 4.8], [13.8, 8.0], [14.8, 10.6], [15.6, 11.6], [17.0, 10.4],
+    [17.9, 7.6], [19.1, 6.0], [20.3, 7.4], [20.5, 4.8], [19.9, 1.5],
+    [19.4, -1.5], [18.8, -4.2], [19.3, -6.8], [18.0, -8.8], [15.5, -9.8],
+    [12.0, -10.8], [9.5, -11.4],
   ] },
-  // 歐亞大陸:中國東岸→中南半島→印度次大陸→阿拉伯半島→西伸(含 6 牆國城 + hanoi/bangkok/bangalore/dubai)
+  // 歐洲:越大西洋的東北角小陸塊;london 緊貼西側海岸、amsterdam 緊貼北海東岸,與北美間留窄海峽
+  { name: 'europe', coast: '#9c8cff', biome: 'temperate', pts: [
+    [19.6, -7.6], [21.0, -6.6], [23.0, -7.4], [24.2, -9.2], [23.8, -10.6],
+    [22.0, -11.0], [20.0, -10.2], [19.4, -8.6],
+  ] },
+  // 歐亞大陸:上海/深圳緊貼東海岸、hanoi/bangkok 緊貼南岸、dubai 緊貼波灣西岸;
+  // 內陸城(beijing/wuhan/chengdu/bangalore)居中。東緣留海與朝鮮/台灣/日本/新加坡諸島分離。
   { name: 'eurasia', coast: '#ff7b9c', biome: 'temperate', pts: [
-    [-7.0, -12.0], [-7.4, -9.0], [-7.7, -6.0], [-7.9, -3.0], [-8.2, -0.5],
-    [-8.7, 1.8], [-8.4, 3.6], [-8.0, 5.0], [-8.4, 6.6], [-9.2, 8.2],
-    [-10.4, 9.2], [-11.6, 10.2], [-12.8, 10.0], [-13.4, 8.4], [-13.8, 6.8],
-    [-15.2, 6.6], [-17.0, 6.2], [-18.6, 5.4], [-19.6, 3.6], [-20.6, 1.4],
-    [-22.2, -1.0], [-24.0, -4.0], [-24.0, -12.0], [-12.0, -12.0],
+    [-19.5, -12.0], [-15.0, -10.2], [-11.8, -9.6], [-8.6, -8.2], [-7.8, -5.0],
+    [-8.3, -2.5], [-9.4, -0.2], [-9.8, 1.5], [-10.6, 3.4], [-11.2, 5.2],
+    [-12.6, 6.9], [-14.0, 7.6], [-15.6, 8.6], [-16.5, 9.6], [-18.2, 7.8],
+    [-18.2, 5.4], [-19.4, 3.0], [-20.0, -1.0], [-20.0, -7.0],
   ] },
   // 朝鮮半島(含 seoul)
   { name: 'korea', coast: '#ffd02e', biome: 'cold', pts: [
@@ -112,10 +153,10 @@ const LANDMASSES = [
     [-5.6, -2.0], [-5.3, -1.0], [-5.5, 0.0], [-6.0, 0.7], [-6.6, 0.2],
     [-6.7, -0.9], [-6.3, -1.9],
   ] },
-  // 澳洲(含 sydney)
+  // 澳洲:sydney 緊貼東岸(太平洋),內陸往西延伸(沙漠/Outback 在雪梨西邊)
   { name: 'australia', coast: '#ffb000', biome: 'desert', pts: [
-    [-0.2, 8.8], [0.8, 9.6], [0.9, 11.2], [-0.4, 12.8], [-2.6, 13.4],
-    [-4.8, 12.8], [-5.8, 11.2], [-5.0, 9.6], [-3.2, 9.0], [-1.6, 9.0],
+    [-2.0, 9.6], [-1.9, 11.0], [-2.5, 12.8], [-4.0, 13.4], [-5.8, 12.8],
+    [-6.6, 11.0], [-5.8, 9.4], [-4.0, 8.8], [-2.8, 9.0],
   ] },
 ];
 
@@ -124,20 +165,11 @@ const DECOR_ISLANDS = [
   { x: 4.0, z: -1.0, r: 0.45 }, { x: 4.7, z: -0.4, r: 0.3 },        // 夏威夷
   { x: -6.4, z: 3.2, r: 0.5 }, { x: -5.9, z: 4.2, r: 0.35 },        // 菲律賓
   [-9.5, 9.6, 0.5], [-8.0, 10.0, 0.45], [-6.6, 10.2, 0.4],          // 印尼鏈
-  { x: -7.0, z: 8.6, r: 0.5 },                                       // 新加坡島
+  { x: -11.0, z: 8.5, r: 0.55 },                                     // 新加坡島
   { x: 1.5, z: 13.0, r: 0.5 }, { x: 2.1, z: 14.0, r: 0.4 },          // 紐西蘭
 ].map(i => Array.isArray(i) ? { x: i[0], z: i[1], r: i[2] } : i);
 
-// ---------- 航線交通工具類型 ----------
-const EDGE_TYPES = {
-  'seattle|sv': 'train', 'sv|austin': 'train',
-  'seattle|tokyo': 'plane', 'sv|tokyo': 'plane', 'sv|hsinchu': 'plane',
-  'tokyo|seoul': 'ship', 'seoul|beijing': 'train', 'beijing|shanghai': 'train',
-  'shanghai|shenzhen': 'train', 'shanghai|tokyo': 'ship', 'shanghai|hsinchu': 'ship',
-  'shenzhen|hsinchu': 'ship', 'shenzhen|hanoi': 'train',
-  'hsinchu|singapore': 'ship', 'hanoi|singapore': 'train',
-  'singapore|sydney': 'ship', 'sydney|austin': 'plane',
-};
+// ---------- 航線交通工具類型(EDGE_TYPES 由 data.js 共用:train/ship 相鄰、plane 跨洋) ----------
 const TRAFFIC_STYLE = {
   plane: { color: NEON_PURPLE, opacity: 0.5, speed: 1.7 },
   ship:  { color: NEON_CYAN,   opacity: 0.32, speed: 0.65 },
@@ -924,13 +956,30 @@ function makeCompanyFlag(charId, facHex, fresh = false) {
 }
 
 // ---------- 玩家標記 / 動作提示文字 ----------
+// 圓形頭像貼圖:把 chibi 以 cover-fit 置中裁進正方畫布的圓形 → 顯示永遠水平置中,
+// 與下方名牌(同樣置中)精準左右對齊,不受來源邊距/比例影響。
+const _avatarTexCache = new Map();
 function avatarTexture(charId) {
-  const url = `images/avatars/${charId}_chibi.png`;
-  if (!_logoTexCache.has(url)) {
-    const t = _texLoader.load(url); t.colorSpace = THREE.SRGBColorSpace;
-    _logoTexCache.set(url, t);
+  if (!_avatarTexCache.has(charId)) {
+    const S = 256;
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = S;
+    const tex = new THREE.CanvasTexture(canvas); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    const img = new Image();
+    img.onload = () => {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, S, S);
+      ctx.save();
+      ctx.beginPath(); ctx.arc(S / 2, S / 2, S / 2 - 3, 0, Math.PI * 2); ctx.clip();
+      const s = Math.max(S / img.width, S / img.height);
+      const w = img.width * s, h = img.height * s;
+      ctx.drawImage(img, (S - w) / 2, (S - h) / 2, w, h); // cover-fit 置中
+      ctx.restore();
+      tex.needsUpdate = true;
+    };
+    img.src = `images/avatars/${charId}_chibi.png`;
+    _avatarTexCache.set(charId, tex);
   }
-  return _logoTexCache.get(url);
+  return _avatarTexCache.get(charId);
 }
 
 function _roundRect(ctx, x, y, w, h, r) {
@@ -945,24 +994,29 @@ const _tagTexCache = new Map();
 function nameTagTexture(text, css) {
   const key = text + '|' + css;
   if (!_tagTexCache.has(key)) {
-    const c = document.createElement('canvas'); c.width = 320; c.height = 80;
+    const H = 80;
+    const m = document.createElement('canvas').getContext('2d');
+    m.font = 'bold 42px "Microsoft JhengHei", sans-serif';
+    const tw = m.measureText(text).width;
+    const W = Math.ceil((tw + 72) / 2) * 2; // 畫布寬度隨字數成長 → 字不被擠壓、保持置中
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
     const ctx = c.getContext('2d');
     ctx.font = 'bold 42px "Microsoft JhengHei", sans-serif';
-    const w = Math.min(300, ctx.measureText(text).width + 36);
-    ctx.fillStyle = 'rgba(6,10,24,0.86)'; _roundRect(ctx, 160 - w / 2, 10, w, 60, 16); ctx.fill();
+    ctx.fillStyle = 'rgba(6,10,24,0.86)'; _roundRect(ctx, 8, 10, W - 16, 60, 16); ctx.fill();
     ctx.lineWidth = 4; ctx.strokeStyle = css; ctx.stroke();
     ctx.fillStyle = '#eaffff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.shadowColor = css; ctx.shadowBlur = 8;
-    ctx.fillText(text, 160, 42, 290);
-    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-    _tagTexCache.set(key, tex);
+    ctx.fillText(text, W / 2, 42);
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    _tagTexCache.set(key, { tex, aspect: W / H });
   }
   return _tagTexCache.get(key);
 }
-// 棋子名牌(圓角底 + 陣營色描邊),永遠面向鏡頭、不被遮擋
-function makeNameTag(text, css = '#00f0ff') {
-  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: nameTagTexture(text, css), transparent: true, depthTest: false, depthWrite: false }));
-  spr.scale.set(2.2, 0.55, 1); spr.renderOrder = 12;
+// 棋子名牌(圓角底 + 陣營色描邊),永遠面向鏡頭、不被遮擋;依文字長度等比縮放不變形
+function makeNameTag(text, css = '#00f0ff', h = 0.55) {
+  const { tex, aspect } = nameTagTexture(text, css);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false }));
+  spr.scale.set(h * aspect, h, 1); spr.renderOrder = 12;
   return spr;
 }
 
@@ -990,7 +1044,7 @@ function makeFxText(text, css = '#00f0ff') {
   ctx.shadowColor = css; ctx.shadowBlur = 18;
   ctx.fillStyle = '#ffffff'; ctx.fillText(text, 256, 70, 500);
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false, fog: false }));
   spr.scale.set(5.2, 1.3, 1); spr.renderOrder = 22;
   return spr;
 }
@@ -1131,7 +1185,7 @@ export class Board3D {
 
   _buildOcean() {
     const grid = new THREE.GridHelper(100, 66, 0x0a2a4a, 0x07182e);
-    grid.position.y = -0.42;
+    grid.position.y = -0.6;
     this.scene.add(grid);
 
     // 會起伏的海面:高分段平面,每幀位移頂點 y 做浪
@@ -1142,22 +1196,24 @@ export class Board3D {
       color: 0x1c3d5c, metalness: 0.05, roughness: 0.92, transparent: true, opacity: 0.96, flatShading: true,
     });
     this.ocean = new THREE.Mesh(geo, this.oceanMat);
-    this.ocean.position.y = -0.4;
+    // 海面壓在陸地底面(-0.38)與卡格底面(-0.25)之下,浪峰永遠不會浮上來蓋住陸地/城市/牌組
+    this.ocean.position.y = -0.55;
     this.scene.add(this.ocean);
     this.oceanBase = geo.attributes.position.array.slice(); // 原始 x,z 供算浪
     this._oceanFrame = 0;
 
-    const title = makeLabelSprite('PACIFIC RIM // 環太平洋', 'CYBER TRADE WAR 2049', '#ff2bd6');
-    title.position.set(2.5, 0.4, 2.5);
-    title.scale.set(9, 3.3, 1);
+    // 標題挪到北側開放海域(讓出中央給三疊牌庫);抬高 + 不吃霧氣/不被擋,確保清楚可讀
+    const title = makeLabelSprite('PACIFIC RIM // 環太平洋', 'CYBER TRADE WAR 2049', '#ff2bd6', { h: 2.4 });
+    title.position.set(1.0, 1.6, -10);
     this.scene.add(title);
   }
 
-  // 依浪高參數位移海面頂點
+  // 依浪高參數位移海面頂點。振幅刻意壓低:三項正弦最大合成 = amp×2,
+  // 海面基準 -0.55,故最大浪峰 ≈ -0.55 + 0.16×2 = -0.23,仍低於陸地頂面(-0.16),不會蓋住重要物件。
   _animateOcean(t, waveAmt) {
     const pos = this.ocean.geometry.attributes.position;
     const arr = pos.array, base = this.oceanBase;
-    const amp = 0.05 + waveAmt * 0.5;
+    const amp = 0.04 + waveAmt * 0.12;
     for (let i = 0; i < arr.length; i += 3) {
       const x = base[i], z = base[i + 2];
       arr[i + 1] = Math.sin(x * 0.18 + t * 1.1) * amp
@@ -1206,23 +1262,61 @@ export class Board3D {
       ring.position.set(isl.x, -0.18, isl.z);
       this.scene.add(ring);
     }
+    this._buildTerrain();
+  }
+
+  // 地形地標:矽谷東邊的大峽谷、雪梨西邊的澳洲沙漠(坐落於陸地頂面 y=-0.16,低於城市卡格)
+  _buildTerrain() {
+    const matte = (c, opt = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 1, metalness: 0, flatShading: true, ...opt });
+
+    // 矽谷東邊:大峽谷(紅色層理峽谷 + 谷底科羅拉多河)
+    const canyon = new THREE.Group();
+    canyon.position.set(14.6, -0.16, -1.0); canyon.rotation.y = 0.4;
+    const strata = [0x8f4326, 0xb5663a, 0xcf9356];
+    for (const s of [-1, 1]) {
+      for (let i = 0; i < 3; i++) {
+        const wall = new THREE.Mesh(
+          new THREE.BoxGeometry(1.9 - i * 0.16, 0.09, 0.55 - i * 0.14), matte(strata[i]));
+        wall.position.set(0, 0.045 + i * 0.085, s * (0.42 - i * 0.1));
+        canyon.add(wall);
+      }
+    }
+    const river = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.02, 0.08),
+      matte(0x2a6cf0, { emissive: 0x123a6a, emissiveIntensity: 0.4, roughness: 0.6 }));
+    river.position.y = 0.03; canyon.add(river);
+    this.scene.add(canyon);
+
+    // 雪梨西邊:澳洲沙漠(Uluru 紅岩巨石 + 周圍沙丘)
+    const desert = new THREE.Group();
+    desert.position.set(-5.1, -0.16, 11.3);
+    const sand = matte(0xd9b86a);
+    const uluru = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), matte(0xb5532a));
+    uluru.scale.set(1.0, 0.42, 0.62); uluru.position.y = 0.2; desert.add(uluru);
+    for (const [dx, dz, r] of [[-0.9, 0.3, 0.5], [0.6, -0.6, 0.4], [-0.3, 0.95, 0.45], [0.85, 0.55, 0.35]]) {
+      const dune = new THREE.Mesh(new THREE.SphereGeometry(r, 8, 6), sand);
+      dune.scale.y = 0.3; dune.position.set(dx, 0.04, dz); desert.add(dune);
+    }
+    this.scene.add(desert);
   }
 
   _buildRegions() {
     this.tileR = {};
     const NEUTRAL = 0x6b7686;
-    // 每格半徑 = 0.46 × 最近鄰城市距離(<0.5 → 任兩相鄰格半徑和 < 距離,保證不重疊),上限 1.55
+    // 所有城市格子大小一致:統一半徑 = min over cities of(0.46 × 最近鄰距離)(上限 1.55),
+    // 取最近一對城市的安全值套用到每一座城市,保證大小一致且不重疊。
     const nnOf = r => {
       let m = Infinity;
       for (const o of REGIONS) if (o !== r) { const d = Math.hypot(o.x - r.x, o.z - r.z); if (d < m) m = d; }
       return m;
     };
+    let uniformR = 1.55;
+    for (const r of REGIONS) uniformR = Math.min(uniformR, 0.46 * nnOf(r));
     for (const r of REGIONS) {
       const isChip = !!r.chipBonus;
       const fac = r.country ? FACTIONS[r.country] : null;
       const facHex = fac ? fac.color : NEUTRAL;           // 陣營色(中立=灰)
       const facCol = new THREE.Color(facHex);
-      const topR = Math.min(1.55, 0.46 * nnOf(r));
+      const topR = uniformR; // 所有城市格子大小一致
       this.tileR[r.id] = topR;
       const hexGeo = new THREE.CylinderGeometry(topR, topR * 1.12, 0.5, 6);
 
@@ -1438,32 +1532,44 @@ export class Board3D {
     return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), [side, side, back, back, side, side]);
   }
 
-  // ---------- 太平洋正中央的公共牌庫(只露卡背 + 抽牌效果) ----------
+  // ---------- 太平洋正中央的三疊牌庫:公共牌庫(1-3階) + 四階 / 五階牌庫,上下並排 ----------
   _buildDeck() {
-    const DX = 1.5, DZ = 4.0;
-    this.deckPos = { x: DX, z: DZ };
-    this.deckBaseY = 0.0;
-    this.cardBackTex = makeCardBackTexture();
-    const g = new THREE.Group(); g.position.set(DX, 0, DZ);
+    this.deckStacks = [];
+    const COLX = 2.0; // 同一條 z 軸縱列,三疊上下並排
+    this._makeDeckStack({ x: COLX, z: -1.0, label: '四階牌庫', sub: 'TIER 4', accent: '#ffb000',
+      glyph: '4', icon: '🔼', countKey: 'tier4Count', n: 8, scale: 0.82 });
+    const pub = this._makeDeckStack({ x: COLX, z: 2.0, label: '公共牌庫', sub: 'DRAW DECK', accent: '#00f0ff',
+      glyph: '?', icon: '🃏', countKey: 'deckCount', n: 14, scale: 1.0 });
+    this._makeDeckStack({ x: COLX, z: 5.0, label: '五階牌庫', sub: 'TIER 5', accent: '#ff2bd6',
+      glyph: '5', icon: '🏆', countKey: 'tier5Count', n: 6, scale: 0.82 });
+    // 抽牌特效從公共牌庫飛出;既有牌庫浮動動畫沿用主牌庫群組
+    this.deckPos = { x: COLX, z: 2.0 };
+    this.deckGroup = pub.group;
+  }
+
+  // 單疊牌庫:浮筒 + 霓虹光環 + 一疊卡背 + 圖示 + 看板;存進 deckStacks 供 sync 依剩餘量顯示
+  _makeDeckStack({ x, z, label, sub, accent, glyph, icon, countKey, n, scale }) {
+    const g = new THREE.Group(); g.position.set(x, 0, z); g.scale.setScalar(scale);
     const buoy = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.15, 0.14, 6),
       emissiveMat(0x10243f, 0.4, { metalness: 0.3, roughness: 0.6 }));
     buoy.position.y = 0.05; g.add(buoy);
-    this.deckRing = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.04, 8, 6),
-      new THREE.MeshBasicMaterial({ color: NEON_CYAN, transparent: true, opacity: 0.8 }));
-    this.deckRing.rotation.x = Math.PI / 2; this.deckRing.position.y = 0.14; g.add(this.deckRing);
-    this.deckCards = [];
-    const N = 14;
-    for (let i = 0; i < N; i++) {
-      const card = this._makeCardMesh(0.95, 0.05, 1.3, this.cardBackTex);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.04, 8, 6),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(accent).getHex(), transparent: true, opacity: 0.85 }));
+    ring.rotation.x = Math.PI / 2; ring.position.y = 0.14; g.add(ring);
+    const tex = makeCardBackTexture(accent, glyph);
+    const cards = [];
+    for (let i = 0; i < n; i++) {
+      const card = this._makeCardMesh(0.95, 0.05, 1.3, tex);
       card.position.set((Math.random() - 0.5) * 0.06, 0.18 + i * 0.05, (Math.random() - 0.5) * 0.06);
       card.rotation.y = (Math.random() - 0.5) * 0.25;
-      g.add(card); this.deckCards.push(card);
+      g.add(card); cards.push(card);
     }
-    this.deckIcon = makeEmojiSprite('🃏'); this.deckIcon.position.y = 1.5; this.deckIcon.scale.set(0.9, 0.9, 1); g.add(this.deckIcon);
-    const label = makeLabelSprite('公共牌庫', 'DRAW DECK', '#00f0ff');
-    label.position.y = 2.35; label.scale.set(3.6, 1.3, 1); g.add(label);
-    this.deckGroup = g;
+    const ic = makeEmojiSprite(icon); ic.position.y = 1.5; ic.scale.set(0.9, 0.9, 1); g.add(ic);
+    const lab = makeLabelSprite(label, sub, accent, { h: 1.2 }); lab.position.y = 2.3; g.add(lab);
     this.scene.add(g);
+    const stack = { group: g, ring, icon: ic, cards, countKey, max: undefined };
+    this.deckStacks.push(stack);
+    return stack;
   }
 
   // 抽牌效果:一張卡背從牌庫飛向抽牌者所在城市並旋轉淡出
@@ -1908,12 +2014,14 @@ export class Board3D {
     // 季節天氣:依回合季別(Q1春/Q2夏/Q3秋/Q4冬)切換當季氣候池
     this._applySeason(state.round);
 
-    // 公共牌庫:卡背堆疊高度約略反映剩餘牌量(以首次同步為滿)
-    if (state.deckCount !== undefined && this.deckCards) {
-      if (this.deckMax === undefined) this.deckMax = Math.max(1, state.deckCount);
-      const frac = Math.max(0, Math.min(1, state.deckCount / this.deckMax));
-      const show = Math.max(1, Math.round(frac * this.deckCards.length));
-      this.deckCards.forEach((c, i) => { c.visible = i < show; });
+    // 三疊牌庫:卡背堆疊高度約略反映各自剩餘牌量(max 取歷史最大,容量隨升階回庫成長)
+    for (const st of this.deckStacks || []) {
+      const cnt = state[st.countKey];
+      if (cnt === undefined) continue;
+      st.max = Math.max(st.max ?? 1, cnt);
+      const frac = Math.max(0, Math.min(1, cnt / st.max));
+      const show = cnt <= 0 ? 0 : Math.max(1, Math.round(frac * st.cards.length));
+      st.cards.forEach((c, i) => { c.visible = i < show; });
     }
 
     // 城市等級變動 → 重建該城(地標長高 + 天際線增棟);首次同步不放升級煙火
@@ -1952,7 +2060,8 @@ export class Board3D {
         const fkey = rid + ':' + owner.charId;
         flagSeenNow.add(fkey);
         const flag = makeCompanyFlag(owner.charId, facHex);
-        const fullScale = ts * 0.92;
+        // 旗幟放大到旗布寬約 0.94(玩家頭像 1.5 的 ~2/3),讓所有玩家一眼看出哪家公司進駐
+        const fullScale = ts * 1.7;
         flag.position.set(rDef.x + ox * ts * 1.05, 0.27, rDef.z + oz * ts * 1.05);
         if (prevFlagSeen && !prevFlagSeen.has(fkey)) { flag.scale.setScalar(0.001); flag.userData.riseT = 0; }
         else flag.scale.setScalar(fullScale);
@@ -1989,12 +2098,12 @@ export class Board3D {
 
         // 玩家標記:頭頂 Q 版圓形頭像 + 名牌(垂直堆疊、置中對齊、互不遮擋;永遠面向鏡頭不被建築擋)
         const isMe = this.myCharId && this.myCharId !== '*' && p.charId === this.myCharId;
-        const av = new THREE.Sprite(new THREE.SpriteMaterial({ map: avatarTexture(p.charId), transparent: true, depthTest: false, depthWrite: false }));
+        const av = new THREE.Sprite(new THREE.SpriteMaterial({ map: avatarTexture(p.charId), transparent: true, depthTest: false, depthWrite: false, fog: false }));
         const avS = isMe ? 1.85 : 1.5;
-        av.scale.set(avS, avS, 1); av.position.y = 4.15; av.renderOrder = 12; pawn.add(av);   // 上:頭像
-        const tag = makeNameTag((p.isAI ? '🤖 ' : '') + p.name + (isMe ? '(你)' : ''), isMe ? '#ffd02e' : facCss);
-        if (isMe) tag.scale.set(2.6, 0.65, 1);
-        tag.position.y = 2.7; tag.renderOrder = 14; pawn.add(tag);                              // 下:ID 名牌
+        av.center.set(0.5, 0.5); av.scale.set(avS, avS, 1);
+        av.position.set(0, 4.15, 0); av.renderOrder = 12; pawn.add(av);                         // 上:圓形頭像(置中)
+        const tag = makeNameTag((p.isAI ? '🤖 ' : '') + p.name + (isMe ? '(你)' : ''), isMe ? '#ffd02e' : facCss, isMe ? 0.65 : 0.55);
+        tag.center.set(0.5, 0.5); tag.position.set(0, 2.7, 0); tag.renderOrder = 14; pawn.add(tag); // 下:ID 名牌(與頭像共用 x=0 → 左右對齊)
         pawn.userData.marker = av;
         // 腳下陣營色光環(看得出棋子落點)
         const disc = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.72, 32),
@@ -2007,7 +2116,7 @@ export class Board3D {
             new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
           beam.position.y = 2.5; pawn.add(beam);
           pawn.userData.beam = beam;
-          const arrow = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTexture('🔻'), transparent: true, depthTest: false, depthWrite: false }));
+          const arrow = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTexture('🔻'), transparent: true, depthTest: false, depthWrite: false, fog: false }));
           arrow.scale.set(0.9, 0.9, 1); arrow.position.y = 5.5; arrow.renderOrder = 13; pawn.add(arrow);
           pawn.userData.arrow = arrow;
         }
@@ -2389,11 +2498,12 @@ export class Board3D {
 
     if (this.stars) this.stars.rotation.y = t * 0.005;
 
-    // 公共牌庫:隨浪浮動 + 光環緩轉 + 圖示上下漂
-    if (this.deckGroup) {
-      this.deckGroup.position.y = this.deckBaseY + Math.sin(t * 1.2) * 0.05;
-      if (this.deckRing) this.deckRing.rotation.z = t * 0.6;
-      if (this.deckIcon) this.deckIcon.position.y = 1.5 + Math.sin(t * 2) * 0.08;
+    // 三疊牌庫:隨浪浮動 + 光環緩轉 + 圖示上下漂(各疊相位錯開)
+    for (const st of this.deckStacks || []) {
+      const ph = st.group.position.z;
+      st.group.position.y = Math.sin(t * 1.2 + ph) * 0.05;
+      st.ring.rotation.z = t * 0.6;
+      st.icon.position.y = 1.5 + Math.sin(t * 2 + ph) * 0.08;
     }
 
     // 公司旗幟:新建造的升起動畫 + 隨風飄動

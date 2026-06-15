@@ -16,11 +16,15 @@ export class Net {
     this.ws = new WebSocket(`${proto}://${location.host}`);
     this.ws.onopen = () => {
       this.connected = true;
-      // 重連(非首次):先送 reattach 重新綁定房間,再補送排隊訊息
-      if (this._everOpen && this.onReconnect) this.onReconnect();
-      this._everOpen = true;
-      for (const m of this._queue) this.ws.send(JSON.stringify(m));
-      this._queue = [];
+      if (this._everOpen) {
+        // 重連:只先送 reattach 重新綁定房間;排隊訊息等 reattach 被 sync 確認後再由 flushQueue() 補送
+        // (否則伺服器這條連線尚未認回座位,排隊的 action 會撞上「尚未加入房間」)
+        if (this.onReconnect) this.onReconnect();
+      } else {
+        // 首次連線:直接補送排隊的 createRoom / joinRoom 等
+        this._everOpen = true;
+        this.flushQueue();
+      }
     };
     this.ws.onmessage = e => {
       const m = JSON.parse(e.data);
@@ -37,6 +41,16 @@ export class Net {
 
   // 立即送出(不排隊;reattach 必須早於後續行動)
   sendNow(msg) { if (this.connected) this.ws.send(JSON.stringify(msg)); }
+
+  // 補送排隊訊息(重連確認後由 app 呼叫;連線中斷時為 no-op)
+  flushQueue() {
+    if (!this.connected) return;
+    for (const m of this._queue) this.ws.send(JSON.stringify(m));
+    this._queue = [];
+  }
+
+  // 丟棄排隊訊息(重連失敗、需重新加入時呼叫,避免送出過期行動)
+  clearQueue() { this._queue = []; }
 
   send(msg) {
     if (this.connected) this.ws.send(JSON.stringify(msg));

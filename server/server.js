@@ -114,6 +114,26 @@ function autosave(room) {
   catch (e) { console.error('自動存檔失敗:', e.message); }
 }
 
+// 斷線重連時,若房間已不在記憶體(伺服器重啟、或全員離線被清除),從自動存檔復原同 PIN 房間
+function restoreRoomFromAutosave(pin) {
+  const full = path.join(SAVE_DIR, `_autosave_${pin}.json`);
+  if (!fs.existsSync(full)) return null;
+  let data;
+  try { data = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { return null; }
+  const room = {
+    pin, hostId: null, started: data.started && !!data.game, game: null,
+    clients: new Map(), chars: new Map(data.chars),
+    config: data.config || { gameName: data.name, expectedCount: 4 },
+    aiChars: new Set(data.aiChars || []),
+  };
+  if (data.game) {
+    try { room.game = Game.fromSave(data.game); } catch { return null; }
+  }
+  rooms.set(pin, room);
+  console.log(`♻️ 從自動存檔復原房間 ${pin}`);
+  return room;
+}
+
 function listSaves() {
   return fs.readdirSync(SAVE_DIR)
     .filter(f => f.endsWith('.json'))
@@ -298,16 +318,35 @@ wss.on('connection', ws => {
       broadcast(room);
       return;
     }
-    // ----- 斷線重連:用 token 認回原座位(保留房主/角色) -----
+    // ----- 斷線重連:用 token 認回原座位;失效時用 charId 重新入座 -----
     if (m.t === 'reattach') {
-      const r = rooms.get(String(m.pin));
-      if (!r) { err('房間已不存在(可能已結束),請重新加入'); return; }
-      let foundId = null, found = null;
+      let r = rooms.get(String(m.pin));
+      // 房間不在記憶體(伺服器重啟 / 房間已被清除)→ 試著從自動存檔復原
+      if (!r) r = restoreRoomFromAutosave(String(m.pin));
+      if (!r) { send(ws, { t: 'needRejoin', msg: '房間已結束,請重新加入' }); return; }
+      room = r;
+      // 1) 短暫斷線:座位還在,用 token 認回原身分
+      let found = null, foundId = null;
       for (const [id, c] of r.clients) { if (c.token && c.token === m.token) { foundId = id; found = c; break; } }
-      if (!found) { err('連線階段已失效,請重新加入'); return; }
-      room = r; client = found; clientId = foundId; // 採用原座位身分
-      if (client.dcTimer) { clearTimeout(client.dcTimer); client.dcTimer = null; }
-      client.ws = ws; client.connected = true;
+      if (found) {
+        client = found; clientId = foundId;
+        if (client.dcTimer) { clearTimeout(client.dcTimer); client.dcTimer = null; }
+        client.ws = ws; client.connected = true;
+      } else {
+        // 2) token 失效(座位已過寬限被刪 / 房間剛從存檔復原)→ 重新入座
+        clientId = nextClientId++;
+        client = {
+          ws, name: sanitizeName(m.name) || `玩家${clientId}`,
+          mode: m.mode === 'spectator' ? 'spectator' : 'player',
+          charId: null, token: genToken(), connected: true,
+        };
+        // 角色仍以 PIN 鎖定在這位玩家名下 → 自動認回(上帝模式控制當前角色)
+        if (m.charId === '*') client.charId = '*';
+        else if (m.charId && r.chars.has(m.charId)) client.charId = m.charId;
+        r.clients.set(clientId, client);
+      }
+      // 房主從缺(復原房間 / 原房主已離線)→ 由這位重連者接手
+      if (r.hostId == null || !r.clients.has(r.hostId)) r.hostId = clientId;
       console.log(`🔄 ${client.name} 重新連回房間 ${room.pin}`);
       broadcast(room);
       pumpAI(room);
@@ -499,7 +538,7 @@ wss.on('connection', ws => {
       let res = { ok: false, msg: '未知行動' };
       switch (m.kind) {
         case 'move': res = g.doMove(m.regionId); break;
-        case 'playTech': res = g.doPlayTech(m.handIdx); break;
+        case 'playTech': res = g.doPlayTech(m.handIdx, m.rebuildUid ?? null); break;
         case 'forfeit': res = g.doForfeit(m.kind2); break;
         case 'exchange': res = g.doExchange(m.res, m.amount); break;
         case 'upgradeCity': res = g.doUpgradeCity(); break;

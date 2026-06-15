@@ -254,6 +254,7 @@ body {
 .upg-row input { width: 16px; height: 16px; }
 .region-card-row { padding: 6px 0; border-bottom: 1px dashed rgba(0,240,255,.15); }
 .rc-stats { color: #9ab; font-size: .8rem; }
+.rc-debuff { color: #ff7b7b; font-size: .78rem; }
 
 /* 棋子資訊面板(點擊角色棋子) */
 .pawn-info { display: flex; flex-direction: column; gap: 6px; line-height: 1.6; }

@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server/server.js",
     "dev": "node --watch server/server.js",
-    "test": "node test/sim.js && node test/e2e.js",
+    "test": "node test/sim.js && node test/e2e.js && node test/reconnect.js",
     "simulate": "node test/simulator.js"
   },
   "dependencies": {

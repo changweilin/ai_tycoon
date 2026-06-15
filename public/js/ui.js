@@ -94,17 +94,34 @@ function ensureNet() {
   net = new Net(onSync, msg => toast(msg), onOther, onReconnect);
 }
 
-// 斷線重連:用 token 認回原座位(房主/角色保留),接著伺服器會重送 sync
+// 斷線重連:用 token 認回原座位;token 失效時伺服器改用 charId/名稱重新入座。
+// 認回成功後會收到 sync,屆時才由 onSync 補送斷線期間排隊的行動。
 function onReconnect() {
   if (sessionToken && last?.lobby?.pin) {
-    net.sendNow({ t: 'reattach', pin: last.lobby.pin, token: sessionToken });
-    toast('🔄 已重新連線');
+    const me = last.lobby.clients.find(c => c.id === last.youId);
+    const myName = me?.name || localStorage.getItem('ctw_name') || '';
+    net.sendNow({ t: 'reattach', pin: last.lobby.pin, token: sessionToken, charId: myCharId, name: myName });
+    toast('🔄 重新連線中…');
+  } else {
+    net.clearQueue(); // 沒有可認回的座位,別把排隊行動送到尚未加入的房間
   }
+}
+
+// 重連失敗(房間已結束無法復原):清掉過期行動,退回連線畫面讓玩家重新加入
+function resetToConnect(msg) {
+  net.clearQueue();
+  last = null; sessionToken = null; myCharId = null; resultShown = false;
+  $('#lobby').style.display = 'none';
+  $('#gameUI').style.display = 'none';
+  $('#resultOverlay').style.display = 'none';
+  $('#connect').style.display = 'block';
+  if (msg) toast(msg);
 }
 
 function onOther(m) {
   if (m.t === 'info') toast(m.msg);
   else if (m.t === 'saves') showSavesList(m.list);
+  else if (m.t === 'needRejoin') resetToConnect(m.msg || '房間已結束,請重新加入');
 }
 
 // ---------------- 個人 PIN(設定一次,換角色沿用) ----------------
@@ -115,6 +132,7 @@ function setMyPin(pin) { localStorage.setItem('ctw_pin', pin); }
 function onSync(m) {
   last = m;
   if (m.token) sessionToken = m.token; // 記住座位 token,斷線可重連認回
+  net.flushQueue(); // 連線已被伺服器確認(含重連認回後),補送斷線期間排隊的行動
   const me = m.lobby.clients.find(c => c.id === m.youId);
   myCharId = me ? me.charId : null;
 
@@ -503,10 +521,6 @@ function renderMyPanel(m) {
     <span class="panel-fac">【${FACTIONS[me.faction].name}】</span>`;
   const myTech = last.state.tech[me.faction] ?? 0;
   let stats = `💰 <b>${me.res.money}</b>  ⚡ <b>${me.res.power}</b>  🛢️ <b>${me.res.oil}</b>  🎯 行動點 <b>${me.ap}</b>  📍 ${REGIONS.find(r => r.id === me.pos).name}<br>📈 收入 ${fmtRes(me.income)}/回合  🔬 本國科技力 <b>${myTech}</b> 點(每 100 點收益 +1)`;
-  if (priv?.intel?.length) {
-    stats += '<br>' + priv.intel.map(it =>
-      `🧬 ${TECH_CATEGORIES[it.cat].name}情報:下次發展 -${fmtRes(it.gain)}`).join('  ');
-  }
   if (me.faction === 'TW' && priv) {
     if (priv.twSupport) {
       stats += `<br>🤫 秘密支持:<b style="color:${FACTIONS[priv.twSupport].css}">${FACTIONS[priv.twSupport].name}</b>  🏔️ 神山儲備:<b>${priv.chipReserve}</b> 點`;
@@ -758,16 +772,21 @@ function showRegionInfo(rid) {
   const s = last.state;
   const r = s.regions[rid];
   const rDef = REGIONS.find(x => x.id === rid);
+  const debuffText = c => {
+    if (!c.debuff) return '';
+    if (c.debuff.type === 'tech') return `<br><span class="rc-debuff">💣 間諜:科技力 -${c.debuff.val}(${c.debuff.byName})</span>`;
+    if (c.debuff.type === 'drain') return `<br><span class="rc-debuff">🕵️ 收益遭竊:每回合 -${fmtRes(c.debuff.amt)} → ${c.debuff.byName}</span>`;
+    if (c.debuff.type === 'leak') return `<br><span class="rc-debuff">📰 折舊陷阱:同類改建時轉移折舊資源 ${c.debuff.val} 給 ${c.debuff.byName}</span>`;
+    return '';
+  };
   const lines = r.cards.map(c => {
     const o = s.players.find(p => p.id === c.owner);
     const cat = TECH_CATEGORIES[c.cat];
     return `<div class="region-card-row" style="color:${FACTIONS[o.faction].css}">
       ${cat.icon}【${c.name}】${c.tier}階 — ${o.name}<br>
-      <span class="rc-stats">🔬${c.tech} 🛡️${c.effDef} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</span></div>`;
+      <span class="rc-stats">🔬${c.tech} 🛡️${c.effDef} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</span>${debuffText(c)}</div>`;
   }).join('') || '<div>(尚無科技卡)</div>';
-  const blocked = (r.fakeUntilRound > s.round
-    ? `<div style="color:#ff6">📰 假新聞影響中:此城發展科技花費 ×${r.fakeMult}</div>` : '')
-    + (r.builtRound && s.round < r.builtRound + RULES.cityBuildCooldown
+  const blocked = (r.builtRound && s.round < r.builtRound + RULES.cityBuildCooldown
     ? `<div style="color:#ff6">🚧 今年已建造過,須過一年才可重新建造</div>` : '');
   const country = rDef.country ? `|${{ US: '🇺🇸米國', CN: '🇨🇳牆國', JP: '🇯🇵日本', KR: '🇰🇷韓國', TW: '🇹🇼台灣' }[rDef.country]}地盤` : '|中立';
   openModal(`${rDef.name} Lv.${r.level}|${rDef.tag}${country}${rDef.chipBonus ? '(晶片重鎮:科技力 +1)' : ''}`,
@@ -787,9 +806,18 @@ function onCardClick(idx) {
     const cat = TECH_CATEGORIES[c.cat];
     body = `<p class="modal-desc">${cat.icon} ${cat.name}|${c.tier}階|🔬${c.tech} 🛡️${c.def} 💱${c.trade}
       ${c.special ? `<br>✨ ${c.special.text}` : ''}<br>${c.desc || ''}</p>`;
-    if (c.playMsg) body += `<p class="modal-desc" style="color:#ff6">⚠️ ${c.playMsg}</p>`;
-    else if (priv.turnFlags?.forfeitTech) body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出科技卡的權利</p>`;
-    else opts.push({ label: `🏗️ 部署在目前城市(${fmtRes(c.myCost)})`, value: { a: 'play' } });
+    if (priv.turnFlags?.forfeitTech) {
+      body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出科技卡的權利</p>`;
+    } else {
+      if (c.playMsg) body += `<p class="modal-desc" style="color:#ff6">⚠️ ${c.playMsg}</p>`;
+      else opts.push({ label: `🏗️ 部署在目前城市(${fmtRes(c.myCost)})`, value: { a: 'play' } });
+      // 盟友改建:改建同陣營盟友被作戰卡 debuff 的科技卡(折舊返還原建設玩家)
+      for (const rt of (priv.rescueTargets || [])) {
+        if (c.tier >= rt.tier)
+          opts.push({ label: `🔧 改建盟友 ${rt.ownerName} 的受損【${rt.name}】(${rt.tier}階,折舊 ${rt.deprec} 返還)`,
+            value: { a: 'rescue', uid: rt.uid } });
+      }
+    }
   } else {
     const targets = priv.targets?.[c.id] || [];
     if (priv.turnFlags?.forfeitOps) body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出作戰卡的權利</p>`;
@@ -801,6 +829,7 @@ function onCardClick(idx) {
   openModal(`${c.kind === 'tech' ? TECH_CATEGORIES[c.cat].icon : c.icon} ${c.name}`, body, opts, val => {
     if (!val) return;
     if (val.a === 'play') net.action('playTech', { handIdx: idx });
+    else if (val.a === 'rescue') net.action('playTech', { handIdx: idx, rebuildUid: val.uid });
     else if (val.a === 'target') chooseOpsTarget(c, idx);
   });
 }
@@ -889,6 +918,10 @@ function dispatchFx(f, s) {
       board.fxLabel(f.region, `${c?.icon || '🏗️'} ${who} 建造 ${f.name || ''}`.trim(), col);
       break;
     }
+    case 'spy':
+      if (caster) { board.fxCast(caster.pos, col, '💣'); board.fxBeam(caster.pos, f.region, col); }
+      board.fxDestroy(f.region);
+      board.fxLabel(f.region, `💣 ${who} 滲透 ${f.name || '科技卡'}(科技力 -${f.val || 0})`, col); break;
     case 'destroy':
       if (caster) { board.fxCast(caster.pos, col, '💣'); board.fxBeam(caster.pos, f.region, col); }
       board.fxDestroy(f.region);
@@ -896,11 +929,11 @@ function dispatchFx(f, s) {
     case 'steal':
       if (caster) { board.fxCast(caster.pos, col, '🕵️'); board.fxBeam(caster.pos, f.region, '#2eff8f'); }
       board.fxSteal(f.region);
-      board.fxLabel(f.region, `🕵️ ${who} 竊取情報`, col); break;
+      board.fxLabel(f.region, `🕵️ ${who} 竊取收益`, col); break;
     case 'fake':
       if (caster) { board.fxCast(caster.pos, col, '📰'); board.fxBeam(caster.pos, f.region, '#ff2bd6'); }
       board.fxFake(f.region);
-      board.fxLabel(f.region, `📰 ${who} 假新聞 ×${f.mult || ''}`, col); break;
+      board.fxLabel(f.region, `📰 ${who} 假新聞·折舊陷阱`, col); break;
     case 'move':
       board.fxMove(f.from, f.to, f.plane);
       board.fxLabel(f.to, `${f.plane ? '✈️' : '🚶'} ${who}`, col); break;

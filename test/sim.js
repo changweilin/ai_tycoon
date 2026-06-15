@@ -100,6 +100,7 @@ for (const seats of seatSets) {
   if (g.doPlayTech(1).ok) throw new Error('建造冷卻/一城一卡:同城立即再蓋應失敗');
   g.regions[p.pos].builtRound = -10; // 跳過一年建造冷卻,單測升階替換
   if (g.doPlayTech(1).ok) throw new Error('一城一卡:同城再蓋低/同階應失敗');
+  g.regions[p.pos].level = 3; // 全城 Lv.2 起跳;手動升到 Lv.3 以測 3 階升階替換
   p.ap = 3;
   const costFull = g.developCostFor(p, t3);
   const r2 = g.doPlayTech(0); // t3(升階替換,同類折舊)
@@ -226,6 +227,67 @@ for (const seats of seatSets) {
   console.log('✅ 作戰卡兩格射程 通過');
 }
 
+// 作戰卡 debuff:間諜減科技力(不拆卡)/竊取收益(每回合轉移)/假新聞折舊陷阱(改建時施法者得利)
+{
+  const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
+  g.activeEvent = null; // 排除隨機事件對收入(竊取守恆)計算的干擾
+  const us = g.players.find(q => q.faction === 'US'); // jensen 在矽谷
+  const cn = g.players.find(q => q.faction === 'CN');
+  const sum = c => RES_KEYS.reduce((s, k) => s + c[k], 0);
+  g.turnIdx = us.id; us.ap = 3; us.res = { money: 99, power: 99, oil: 99 };
+
+  // ---- 間諜:削科技力但卡片仍在 ----
+  g.regions.shanghai.cards.push({ uid: 90001, kind: 'tech', cat: 'ai', tier: 3, name: '科技卡',
+    tech: 20, def: 0, trade: 6, cost: 19, owner: cn.id, techApplied: 20, special: null });
+  const cnTechBefore = g.tech.CN;
+  us.hand = [{ kind: 'ops', type: 'spy2' }];
+  const spyT = g.cardTargets('spy2').find(t => t.uid === 90001);
+  if (!spyT) throw new Error('間諜應有合法目標');
+  if (!g.doPlayCard(0, spyT).ok) throw new Error('間諜施放失敗');
+  const c1 = g.regions.shanghai.cards.find(c => c.uid === 90001);
+  if (!c1) throw new Error('間諜不應拆卡,卡片應仍在場');
+  if (c1.debuff?.type !== 'tech' || c1.debuff.val !== 20 || c1.techApplied !== 0)
+    throw new Error('間諜 debuff 應削減科技力 20:' + JSON.stringify(c1.debuff));
+  if (g.tech.CN !== cnTechBefore - 20) throw new Error('間諜應扣回陣營科技力 20');
+
+  // ---- 竊取:每回合把收益從對手轉給施法者(守恆) ----
+  g.regions.hsinchu.cards.push({ uid: 90002, kind: 'tech', cat: 'ai', tier: 3, name: '金流卡',
+    tech: 0, def: 0, trade: 9, cost: 19, owner: cn.id, techApplied: 0, special: null });
+  us.ap = 3; us.hand = [{ kind: 'ops', type: 'steal2' }];
+  const usInc0 = sum(g.incomeOf(us)), cnInc0 = sum(g.incomeOf(cn));
+  const stT = g.cardTargets('steal2').find(t => t.uid === 90002);
+  if (!stT) throw new Error('竊取應有合法目標');
+  if (!g.doPlayCard(0, stT).ok) throw new Error('竊取施放失敗');
+  const c2 = g.regions.hsinchu.cards.find(c => c.uid === 90002);
+  if (c2?.debuff?.type !== 'drain' || c2.debuff.by !== us.id) throw new Error('竊取應植入 drain debuff');
+  const usInc1 = sum(g.incomeOf(us)), cnInc1 = sum(g.incomeOf(cn));
+  if (!(usInc1 > usInc0) || !(cnInc1 < cnInc0)) throw new Error('竊取應使施法者收入增加、對手減少');
+  if (usInc1 - usInc0 !== cnInc0 - cnInc1) throw new Error('竊取的收益應守恆');
+
+  // ---- 假新聞:折舊陷阱,對手同類改建該卡時,部分折舊資源轉移給施法者 ----
+  g.regions.shenzhen.cards.push({ uid: 90003, kind: 'tech', cat: 'ai', tier: 2, name: '陷阱卡',
+    tech: 10, def: 0, trade: 3, cost: 12, owner: cn.id, techApplied: 10, special: null });
+  g.turnIdx = us.id; us.ap = 3; us.hand = [{ kind: 'ops', type: 'fake1' }];
+  const fkT = g.cardTargets('fake1').find(t => t.uid === 90003);
+  if (!fkT) throw new Error('假新聞應有合法目標');
+  if (!g.doPlayCard(0, fkT).ok) throw new Error('假新聞施放失敗');
+  const c3 = g.regions.shenzhen.cards.find(c => c.uid === 90003);
+  if (c3?.debuff?.type !== 'leak' || c3.debuff.by !== us.id) throw new Error('假新聞應植入 leak debuff');
+  const expectTransfer = c3.debuff.val; // min(floor(12×0.5)=6, potency4×opsDeprecLeak)
+  if (expectTransfer <= 0) throw new Error('折舊轉移額應 > 0');
+  // 牆國移到深圳同類(AI)改建該卡:部分折舊資源由 cn 轉移給施法者 jensen
+  g.turnIdx = cn.id; cn.ap = 3; cn.pos = 'shenzhen';
+  cn.res = { money: 999, power: 999, oil: 999 };
+  g.regions.shenzhen.level = 3; g.regions.shenzhen.builtRound = -10;
+  cn.hand = [{ uid: 90004, kind: 'tech', cat: 'ai', tier: 3, name: '升級卡', tech: 20, def: 0, trade: 4, cost: 19 }];
+  const usResBefore = RES_KEYS.reduce((s, k) => s + us.res[k], 0);
+  if (!g.doPlayTech(0).ok) throw new Error('牆國同類改建失敗');
+  const usResAfter = RES_KEYS.reduce((s, k) => s + us.res[k], 0);
+  if (usResAfter - usResBefore !== expectTransfer)
+    throw new Error('假新聞應把部分折舊資源轉移給施法者:' + JSON.stringify({ before: usResBefore, after: usResAfter, expectTransfer }));
+  console.log('✅ 作戰卡 debuff(間諜減科技力/竊取收益/假新聞折舊資源轉移) 通過');
+}
+
 // 科技力點數制驗證(初始值/門檻/日韓計入)
 {
   // 6 人 → deckScale=1 → gapMult=1 → 牆國為基準值 techStart.CN
@@ -233,15 +295,17 @@ for (const seats of seatSets) {
     { charId: 'musk' }, { charId: 'jensen' }, { charId: 'jack' },
     { charId: 'ren' }, { charId: 'tsmc' }, { charId: 'toyota' },
   ]);
-  if (g.tech.US !== 200 || g.tech.CN !== RULES.techStart.CN || g.tech.TW !== 150 || g.tech.JP !== 150 || g.tech.KR !== 150)
-    throw new Error('初始科技力錯誤:' + JSON.stringify(g.tech));
+  // 6 人 → CN=120,台日韓 = 米牆中間值 round((200+120)/2)=160
+  const mid = Math.round((200 + RULES.techStart.CN) / 2);
+  if (g.tech.US !== 200 || g.tech.CN !== RULES.techStart.CN || g.tech.TW !== mid || g.tech.JP !== mid || g.tech.KR !== mid)
+    throw new Error('初始科技力錯誤(台日韓應為米牆中間值):' + JSON.stringify(g.tech));
   if (g.usThreshold() !== 10 * RULES.pointsPerYear) throw new Error('米國勝利門檻應為 200 點');
   const jp = g.players.find(q => q.faction === 'JP');
   g.applyTechGain(jp, 10);
-  if (g.tech.JP !== 160 || g.tech.US !== 210) throw new Error('日本科技應同時計入本國與米國');
+  if (g.tech.JP !== mid + 10 || g.tech.US !== 210) throw new Error('日本科技應同時計入本國與米國');
   g.removeTechGain(jp, 10);
-  if (g.tech.JP !== 150 || g.tech.US !== 200) throw new Error('扣回不對稱');
-  console.log(`✅ 科技力點數制(200/${RULES.techStart.CN}/150,1年=20點) 通過`);
+  if (g.tech.JP !== mid || g.tech.US !== 200) throw new Error('扣回不對稱');
+  console.log(`✅ 科技力點數制(200/${RULES.techStart.CN}/台日韓${mid},1年=20點) 通過`);
 
   // 小局讓分縮放:3 人 deckScale=0.5 → gapMult=0.75 → 開局差距縮小(否則牆國追不上)
   const g3 = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
@@ -399,6 +463,70 @@ for (const seats of seatSets) {
   }
   if (!testedNear || !testedFar) throw new Error('飛機航程測試未涵蓋遠近兩種情況');
   console.log(`✅ 飛機僅可跨 ${RULES.planeRange} 格(超過無法直達) 通過`);
+}
+
+// 鐵路/航運(含越洋海運)限相鄰便宜移動;飛機專用航線只能搭機橫跨
+{
+  const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
+  const p = g.cur(); // jensen 在矽谷 sv
+  p.res.oil = 99; p.ap = 3;
+  // sv→seattle 鐵路相鄰:便宜移動(1🛢️,非飛機)
+  if (!g.adj.sv.includes('seattle')) throw new Error('sv-seattle 應為鐵路相鄰');
+  const mcRail = g.moveCostTo(p, 'seattle');
+  if (!mcRail || mcRail.plane || mcRail.oil !== RULES.moveOilCost) throw new Error('鐵路相鄰應為便宜移動');
+  // 越洋海運:seattle↔tokyo 是海運,屬「相鄰」便宜移動(非飛機)
+  if (!g.adj.seattle.includes('tokyo')) throw new Error('seattle-tokyo 越洋海運應為相鄰');
+  p.pos = 'seattle';
+  const mcSea = g.moveCostTo(p, 'tokyo');
+  if (!mcSea || mcSea.plane || mcSea.oil !== RULES.moveOilCost) throw new Error('越洋海運應為便宜相鄰移動(非飛機)');
+  p.pos = 'sv';
+  // sv→tokyo 是飛機專用航線:不算相鄰,須搭飛機(5🛢️)
+  if (g.adj.sv.includes('tokyo')) throw new Error('sv-tokyo 飛機專用邊不應算相鄰');
+  if (!g.planeAdj.sv.includes('tokyo')) throw new Error('sv-tokyo 應存在於飛機圖');
+  const mcAir = g.moveCostTo(p, 'tokyo');
+  if (!mcAir || !mcAir.plane || mcAir.oil !== RULES.planeOilCost) throw new Error('飛機專用航線應只能搭飛機(5🛢️)');
+  // 飛機可橫跨多城:planeRange 內的非相鄰城市仍可直達
+  const dist = g.distancesFrom('sv', RULES.planeRange);
+  const far = REGIONS.find(r => dist[r.id] === RULES.planeRange && !g.adj.sv.includes(r.id));
+  if (far && !g.canMoveTo(far.id)) throw new Error('planeRange 內的非相鄰城市應可搭飛機橫跨');
+  // 飛機圖含飛機專用航線,嚴格多於鐵路/海運圖
+  const railCount = Object.values(g.adj).reduce((s, a) => s + a.length, 0);
+  const planeCount = Object.values(g.planeAdj).reduce((s, a) => s + a.length, 0);
+  if (railCount >= planeCount) throw new Error('飛機圖應比鐵路/海運圖多了飛機專用航線');
+  console.log('✅ 鐵路/航運(含越洋海運)限相鄰、飛機專用航線只能搭機橫跨 通過');
+}
+
+// 盟友改建:被作戰卡 debuff 的科技卡,同陣營他人可改建,折舊返還原建設玩家
+{
+  const g = new Game([{ charId: 'jensen' }, { charId: 'zuck' }, { charId: 'ren' }]);
+  const us1 = g.players.find(q => q.char.id === 'jensen'); // US
+  const us2 = g.players.find(q => q.char.id === 'zuck');   // US 同陣營盟友
+  const cn = g.players.find(q => q.faction === 'CN');
+  const rid = 'sv';
+  // us2 在 sv 有一張被 debuff 的卡(模擬被敵方作戰卡打過)
+  g.regions[rid].cards.push({ uid: 70001, kind: 'tech', cat: 'ai', tier: 2, name: '受損卡',
+    tech: 12, def: 1, trade: 3, cost: 12, owner: us2.id, techApplied: 12,
+    debuff: { type: 'tech', val: 8, by: cn.id, byName: cn.name } });
+  g.tech.US += 12; // 模擬 us2 卡的科技力貢獻已在場上
+  g.turnIdx = us1.id; us1.ap = 3; us1.pos = rid; us1.res = { money: 999, power: 999, oil: 999 };
+  g.regions[rid].builtRound = -10; g.regions[rid].level = 2;
+  us1.hand = [{ uid: 70002, kind: 'tech', cat: 'hardware', tier: 2, name: '改建卡', tech: 10, def: 1, trade: 2, cost: 11 }];
+  const priv = g.privateStateFor(us1.id);
+  if (!priv.rescueTargets.some(t => t.uid === 70001)) throw new Error('應列出盟友受損卡為改建目標');
+  // 敵對陣營不可改建(換 cn 嘗試應無此目標)
+  g.turnIdx = cn.id; cn.pos = rid;
+  if (g.allyRescueTargetsAt(cn, rid).length) throw new Error('敵對陣營不應能改建');
+  g.turnIdx = us1.id;
+  const ownerResBefore = RES_KEYS.reduce((s, k) => s + us2.res[k], 0);
+  if (!g.doPlayTech(0, 70001).ok) throw new Error('盟友改建失敗');
+  if (g.regions[rid].cards.some(c => c.uid === 70001)) throw new Error('改建後盟友受損卡應被移除');
+  const nc = g.regions[rid].cards.find(c => c.uid === 70002);
+  if (!nc || nc.owner !== us1.id) throw new Error('改建後應為改建者(us1)的新卡');
+  const ownerResAfter = RES_KEYS.reduce((s, k) => s + us2.res[k], 0);
+  const expectDeprec = Math.floor(12 * RULES.depreciationRate); // 6
+  if (ownerResAfter - ownerResBefore !== expectDeprec)
+    throw new Error('折舊應返還原建設玩家:' + JSON.stringify({ before: ownerResBefore, after: ownerResAfter, expectDeprec }));
+  console.log('✅ 盟友改建被 debuff 科技卡(折舊返還原建設玩家) 通過');
 }
 
 // AI 機器人全自動對局
