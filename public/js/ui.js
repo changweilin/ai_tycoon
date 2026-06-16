@@ -2,7 +2,7 @@
 import { FACTIONS, CHARACTERS, CHARACTER_LINES, TECH_CATEGORIES, TECH_CARDS,
   MAIN_TIER_COPIES, TIER4_COPIES, TIER5_COPIES, OPS_CARDS, OPS_DECK_COMPOSITION,
   OPS_TIER4_COMPOSITION, OPS_TIER5_COMPOSITION, EVENT_CARDS,
-  RULES, REGIONS, RES_KEYS, RESOURCES, STRENGTH_AXES,
+  RULES, REGIONS, RES_KEYS, RESOURCES, STRENGTH_AXES, adjacencyOf,
   charAvatar, charPortrait, charLogo, factionFlag, applyRulesOverrides } from './data.js';
 import { Board3D } from './board3d.js';
 import { Net } from './net.js';
@@ -891,6 +891,17 @@ function showEventDeckInfo() {
     [{ label: '關閉', value: null }]);
 }
 
+// 尋找當前位置:把 3D 鏡頭平滑聚焦到「你」(觀戰/上帝模式時為當前回合玩家)所在的城市
+function locateMe() {
+  if (!board || !last?.state) return;
+  const me = myPlayer() || last.state.players[last.state.turnIdx];
+  if (!me) return;
+  if (board.focusRegion(me.pos)) {
+    const r = REGIONS.find(x => x.id === me.pos);
+    toast(`📍 鏡頭聚焦${me === myPlayer() ? '你所在的' : '當前玩家的'}${r ? r.name : '城市'}`);
+  }
+}
+
 function showRegionInfo(rid) {
   const s = last.state;
   const r = s.regions[rid];
@@ -912,8 +923,19 @@ function showRegionInfo(rid) {
   const blocked = (r.builtRound && s.round < r.builtRound + RULES.cityBuildCooldown
     ? `<div style="color:#ff6">🚧 今年已建造過,須過一年才可重新建造</div>` : '');
   const country = rDef.country ? `|${{ US: '🇺🇸米國', CN: '🇨🇳牆國', JP: '🇯🇵日本', KR: '🇰🇷韓國', TW: '🇹🇼台灣' }[rDef.country]}地盤` : '|中立';
+  // 相鄰城市的交通(鐵路/航運=相鄰移動 🛢️1;飛機=長程航線 🛢️5)
+  const adj = adjacencyOf(rid);
+  const TT = { train: { icon: '🚆', name: '鐵路' }, ship: { icon: '🚢', name: '航運' }, plane: { icon: '✈️', name: '航線' } };
+  const adjRows = ['train', 'ship', 'plane'].map(t => {
+    const names = adj.filter(a => a.type === t).map(a => `${a.name} Lv.${s.regions[a.id]?.level ?? '?'}`);
+    return names.length ? `<div class="adj-row">${TT[t].icon} ${TT[t].name}:${names.join('、')}</div>` : '';
+  }).join('');
+  const adjBlock = adj.length
+    ? `<div class="region-adj"><div class="adj-head">🧭 相鄰交通(${adj.length} 條航線)</div>${adjRows}</div>`
+    : '';
   openModal(`${rDef.name} Lv.${r.level}|${rDef.tag}${country}${rDef.chipBonus ? '(晶片重鎮:科技力 +1)' : ''}`,
-    `<p class="modal-desc">城市等級 ${r.level}:可建 ${r.level} 階以下科技卡|米國在牆國地盤(及反之)發展科技花費 ×2</p>` + lines + blocked,
+    `<p class="modal-desc">城市等級 ${r.level}:可建 ${r.level} 階以下科技卡|米國在牆國地盤(及反之)發展科技花費 ×2</p>`
+      + adjBlock + lines + blocked,
     [{ label: '關閉', value: null }]);
 }
 
@@ -923,43 +945,54 @@ function onCardClick(idx) {
   const c = priv.hand[idx];
   if (!c) return;
 
-  const opts = [];
-  let body = `<p class="modal-desc">${c.desc || ''}</p>`;
-  if (c.kind === 'tech') {
-    const cat = TECH_CATEGORIES[c.cat];
-    body = `<p class="modal-desc">${cat.icon} ${cat.name}|${c.tier}階|🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}
-      ${c.special ? `<br>✨ ${c.special.text}` : ''}<br>${c.desc || ''}</p>${techBreakLine(c)}`;
-    if (priv.turnFlags?.forfeitTech) {
-      body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出科技卡的權利</p>`;
-    } else {
-      if (c.playMsg) body += `<p class="modal-desc" style="color:#ff6">⚠️ ${c.playMsg}</p>`;
-      else opts.push({ label: `🏗️ 部署在目前城市(${fmtRes(c.myCost)})`, value: { a: 'play' } });
-      // 盟友改建:改建同陣營盟友被作戰卡 debuff 的科技卡(折舊返還原建設玩家)
-      for (const rt of (priv.rescueTargets || [])) {
-        if (c.tier >= rt.tier)
-          opts.push({ label: `🔧 改建盟友 ${rt.ownerName} 的受損【${rt.name}】(${rt.tier}階,折舊 ${rt.deprec} 返還)`,
-            value: { a: 'rescue', uid: rt.uid } });
-      }
-    }
-  } else {
+  // 灰色作戰卡:點擊後直接顯示依遠近排序的目標清單(略過中間「選擇目標」選單)
+  if (c.kind !== 'tech') {
     const targets = priv.targets?.[c.id] || [];
-    if (priv.turnFlags?.forfeitOps) body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出作戰卡的權利</p>`;
-    else if (targets.length) opts.push({ label: `${c.icon} 選擇目標(基本費 ${fmtRes(c.myCost)},每多 1 格 +50%)`, value: { a: 'target' } });
-    else body += `<p class="modal-desc" style="color:#ff6">⚠️ 沒有合法目標(超出航線範圍/防護太高/已被鎖定過)</p>`;
+    if (priv.turnFlags?.forfeitOps) {
+      openModal(`${c.icon} ${c.name}`,
+        `<p class="modal-desc">${c.desc || ''}</p><p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出作戰卡的權利</p>`,
+        [{ label: '關閉', value: null }]);
+    } else if (!targets.length) {
+      openModal(`${c.icon} ${c.name}`,
+        `<p class="modal-desc">${c.desc || ''}</p><p class="modal-desc" style="color:#ff6">⚠️ 沒有合法目標(超出航線範圍/防護太高/已被鎖定過)</p>`,
+        [{ label: '關閉', value: null }]);
+    } else {
+      chooseOpsTarget(c, idx);
+    }
+    return;
+  }
+
+  const opts = [];
+  const cat = TECH_CATEGORIES[c.cat];
+  let body = `<p class="modal-desc">${cat.icon} ${cat.name}|${c.tier}階|🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}
+    ${c.special ? `<br>✨ ${c.special.text}` : ''}<br>${c.desc || ''}</p>${techBreakLine(c)}`;
+  if (priv.turnFlags?.forfeitTech) {
+    body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出科技卡的權利</p>`;
+  } else {
+    if (c.playMsg) body += `<p class="modal-desc" style="color:#ff6">⚠️ ${c.playMsg}</p>`;
+    else opts.push({ label: `🏗️ 部署在目前城市(${fmtRes(c.myCost)})`, value: { a: 'play' } });
+    // 盟友改建:改建同陣營盟友被作戰卡 debuff 的科技卡(折舊返還原建設玩家)
+    for (const rt of (priv.rescueTargets || [])) {
+      if (c.tier >= rt.tier)
+        opts.push({ label: `🔧 改建盟友 ${rt.ownerName} 的受損【${rt.name}】(${rt.tier}階,折舊 ${rt.deprec} 返還)`,
+          value: { a: 'rescue', uid: rt.uid } });
+    }
   }
   opts.push({ label: '取消', value: null });
 
-  openModal(`${c.kind === 'tech' ? TECH_CATEGORIES[c.cat].icon : c.icon} ${c.name}`, body, opts, val => {
+  openModal(`${cat.icon} ${c.name}`, body, opts, val => {
     if (!val) return;
     if (val.a === 'play') net.action('playTech', { handIdx: idx });
     else if (val.a === 'rescue') net.action('playTech', { handIdx: idx, rebuildUid: val.uid });
-    else if (val.a === 'target') chooseOpsTarget(c, idx);
   });
 }
 
 function chooseOpsTarget(c, idx) {
-  const targets = last.priv.targets?.[c.id] || [];
-  openModal(`${c.icon} ${c.name} — 選擇目標`, `<p class="modal-desc">${c.desc}</p>`,
+  // 依航線距離由近到遠排序(同距離者把科技力高的列前面,優先打大目標)
+  const targets = (last.priv.targets?.[c.id] || []).slice()
+    .sort((a, b) => (a.dist - b.dist) || (b.tech - a.tech));
+  openModal(`${c.icon} ${c.name} — 選擇目標(近 → 遠)`,
+    `<p class="modal-desc">${c.desc}<br>基本費 ${fmtRes(c.myCost)},每超出 1 格航線 +50%;清單已依距離由近到遠排序。</p>`,
     targets.map(t => ({ label: t.label, value: t }))
       .concat([{ label: '取消', value: '__cancel' }]),
     val => {
@@ -1213,6 +1246,7 @@ function setupGameEvents() {
   });
   $('#tradeReadyBtn').addEventListener('click', () => net.action('tradeReady'));
   $('#btnEnd').addEventListener('click', () => { setMode('idle'); net.action('endTurn'); });
+  $('#btnLocate').addEventListener('click', locateMe);
   $('#btnTwChoose').addEventListener('click', openTwChooseModal);
   $('#btnPivot').addEventListener('click', () => {
     openModal('🔄 秘密轉向(整局一次)',

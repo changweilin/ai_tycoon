@@ -415,16 +415,19 @@ export const REGIONS = [
   { id: 'montreal', name: '蒙特婁',   x: 19.9, z: -6.4, tag: '楓葉AI北', country: null, startLevel: 2 },
   { id: 'mexico',   name: '墨西哥城', x: 14.6, z: 9.0,  tag: '近岸製造', country: null, startLevel: 2 },
   { id: 'panama',   name: '巴拿馬城', x: 16.6, z: 11.0, tag: '運河樞紐', country: null, startLevel: 2 },
-  { id: 'london',   name: '倫敦',     x: 20.6, z: -9.0, tag: '金融科技城', country: null, startLevel: 2 },
-  { id: 'amsterdam',name: '阿姆斯特丹', x: 22.6, z: -9.6, tag: '歐陸門戶', country: null, startLevel: 2 },
-  { id: 'paris',    name: '巴黎',     x: 20.8, z: -11.0, tag: '塞納科技', country: null, startLevel: 2 },
-  { id: 'berlin',   name: '柏林',     x: 24.6, z: -10.4, tag: '工業4.0', country: null, startLevel: 2 },
-  // 中立 — 中東/印度側(由西向東:telaviv→dubai→德里/孟買/班加羅爾)
-  { id: 'telaviv',  name: '特拉維夫', x: -19.6, z: 3.0,  tag: '新創之國', country: null, startLevel: 2 },
-  { id: 'dubai',    name: '杜拜',     x: -18.2, z: 4.6,  tag: '石油金庫', country: null, startLevel: 2 },
-  { id: 'delhi',    name: '新德里',   x: -16.2, z: 4.8,  tag: '南亞政經', country: null, startLevel: 2 },
-  { id: 'mumbai',   name: '孟買',     x: -17.4, z: 7.0,  tag: '寶萊塢雲', country: null, startLevel: 2 },
-  { id: 'bangalore',name: '班加羅爾', x: -16.0, z: 8.6,  tag: '印度矽谷', country: null, startLevel: 2 },
+  // 歐洲大陸(地圖最右緣;歐亞大陸的「右半」):倫敦獨踞英國島,歐陸由西向東 paris→amsterdam→berlin
+  // (berlin 最東 = 右邊界城,往東的鐵/海/空運越過邊界淡出)。座標依真實相對位置(英國島隔英倫海峽)。
+  { id: 'london',   name: '倫敦',     x: 20.0, z: -10.2, tag: '金融科技城', country: null, startLevel: 2 },
+  { id: 'paris',    name: '巴黎',     x: 22.2, z: -11.1, tag: '塞納科技', country: null, startLevel: 2 },
+  { id: 'amsterdam',name: '阿姆斯特丹', x: 23.6, z: -9.4, tag: '歐陸門戶', country: null, startLevel: 2 },
+  { id: 'berlin',   name: '柏林',     x: 25.6, z: -10.6, tag: '工業4.0', country: null, startLevel: 2 },
+  // 中立 — 中東/印度(歐亞大陸的「左半」最左緣;由西向東 telaviv→riyadh→dubai→孟買/班加羅爾;
+  // telaviv 最西 = 左邊界城,往西的鐵/海/空運越過邊界淡出通往歐洲)。沙烏地取代以色列其一,與杜拜分居阿拉伯半島。
+  { id: 'telaviv',  name: '特拉維夫', x: -25.5, z: 2.6,  tag: '新創之國', country: null, startLevel: 2 },
+  { id: 'riyadh',   name: '利雅德',   x: -23.5, z: 4.6,  tag: '主權AI都', country: null, startLevel: 2 },
+  { id: 'dubai',    name: '杜拜',     x: -21.5, z: 5.0,  tag: '石油金庫', country: null, startLevel: 2 },
+  { id: 'mumbai',   name: '孟買',     x: -18.6, z: 7.2,  tag: '寶萊塢雲', country: null, startLevel: 2 },
+  { id: 'bangalore',name: '班加羅爾', x: -17.2, z: 9.0,  tag: '印度矽谷', country: null, startLevel: 2 },
   // 中立 — 東南亞/大洋洲側
   { id: 'hanoi',    name: '河內',     x: -13.2, z: 5.6,  tag: '世界工廠2.0', country: null, startLevel: 2 },
   { id: 'bangkok',  name: '曼谷',     x: -14.6, z: 7.2,  tag: '東協門戶', country: null, startLevel: 2 },
@@ -522,15 +525,21 @@ const EDGE_LIST = [
   ['shenzhen', 'hanoi', 'ship'], ['guangzhou', 'hanoi', 'ship'], ['hanoi', 'bangkok', 'train'],
   ['bangkok', 'kualalumpur', 'train'], ['kualalumpur', 'singapore', 'train'], ['singapore', 'jakarta', 'ship'],
   ['jakarta', 'manila', 'ship'], ['manila', 'singapore', 'ship'], ['bangkok', 'bangalore', 'ship'],
-  ['bangalore', 'mumbai', 'train'], ['bangalore', 'delhi', 'train'], ['delhi', 'mumbai', 'train'],
-  ['delhi', 'dubai', 'train'], ['mumbai', 'dubai', 'ship'], ['dubai', 'telaviv', 'train'],
+  ['bangalore', 'mumbai', 'train'], ['mumbai', 'dubai', 'ship'], ['dubai', 'riyadh', 'train'],
+  ['riyadh', 'telaviv', 'train'], // 阿拉伯半島陸路(杜拜-利雅德-特拉維夫)
   // ── 大洋洲 ──
   ['singapore', 'sydney', 'ship'], ['sydney', 'melbourne', 'train'], ['jakarta', 'melbourne', 'ship'],
+  // 印度洋海運:孟買連東南亞門戶(印度↔星馬,補強印度的海運連結)
+  ['mumbai', 'singapore', 'ship'],
   // ── 飛機專用長程航線(可橫跨城市;只有飛機能用)──
   ['sv', 'tokyo', 'plane'], ['sv', 'hsinchu', 'plane'], ['la', 'tokyo', 'plane'], ['sydney', 'austin', 'plane'],
   ['nyc', 'amsterdam', 'plane'], ['amsterdam', 'sv', 'plane'], ['amsterdam', 'seattle', 'plane'],
-  ['dubai', 'singapore', 'plane'], ['bangalore', 'shanghai', 'plane'], ['berlin', 'telaviv', 'plane'],
+  ['bangalore', 'shanghai', 'plane'],
   ['paris', 'nyc', 'plane'], ['manila', 'tokyo', 'plane'],
+  // ── 歐洲↔中東 跨地圖邊界(歐居右緣、中東居左緣;鐵路/海運/空運各一,渲染為「淡化門戶」越界線)──
+  ['berlin', 'telaviv', 'plane'],    // 空運:柏林↔特拉維夫直飛
+  ['berlin', 'riyadh', 'train'],     // 鐵路:歐陸經土耳其/阿拉伯陸橋到利雅德
+  ['amsterdam', 'telaviv', 'ship'],  // 海運:阿姆斯特丹↔特拉維夫(地中海航線)
 ];
 
 // 由單一真相 EDGE_LIST 導出:EDGES(完整連通圖,供飛機 BFS)+ EDGE_TYPES(交通工具,供相鄰/飛機判定)
@@ -539,6 +548,23 @@ export const EDGE_TYPES = Object.fromEntries(EDGE_LIST.map(([a, b, t]) => [`${a}
 
 /** 此邊是否為飛機專用航線:鐵路/航運的相鄰移動不可使用,只有飛機可橫跨 */
 export const isAirEdge = (a, b) => (EDGE_TYPES[`${a}|${b}`] || EDGE_TYPES[`${b}|${a}`]) === 'plane';
+
+// 每座城市的直接航線(供「城市資訊」顯示相鄰交通):cityId → [{ id, type }]
+const ADJACENCY = (() => {
+  const m = {};
+  for (const [a, b, t] of EDGE_LIST) {
+    (m[a] = m[a] || []).push({ id: b, type: t });
+    (m[b] = m[b] || []).push({ id: a, type: t });
+  }
+  return m;
+})();
+/** 取得某城市所有直接相連城市與交通工具,依「鐵路→航運→飛機」與城市名排序,附帶名稱 */
+export function adjacencyOf(cityId) {
+  const order = { train: 0, ship: 1, plane: 2 };
+  return (ADJACENCY[cityId] || [])
+    .map(e => ({ ...e, name: (REGIONS.find(r => r.id === e.id) || {}).name || e.id }))
+    .sort((a, b) => (order[a.type] - order[b.type]) || a.name.localeCompare(b.name, 'zh-Hant'));
+}
 
 /** 遊戲回合數依人數決定:2~4 人 = 20 季(5 年)、5~6 人 = 16 季(4 年)、7~8 人 = 12 季(3 年)。
  *  人多 → 每季行動總量大、單季耗時長,縮短季數讓整局時間維持合理。皆為整年數,季標籤不會出現半年。 */

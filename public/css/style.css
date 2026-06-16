@@ -161,6 +161,16 @@ body {
 /* 觀戰者沒有行動列/手牌 → 標籤放空著的底部置中欄,避開左上角(房主+觀戰會同時出現) */
 .spectator-tag { bottom: 16px; left: var(--col-left); right: var(--col-right); margin-inline: auto; width: fit-content; color: #ffd02e; }
 
+/* 尋找當前位置:地圖右緣中央的圓形按鈕 */
+.map-locate {
+  right: 12px; top: 50%; transform: translateY(-50%);
+  width: 46px; height: 46px; padding: 0; font-size: 1.45rem; line-height: 1;
+  border-radius: 50%; cursor: pointer; color: #eaffff;
+  display: flex; align-items: center; justify-content: center; user-select: none;
+}
+.map-locate:hover { border-color: var(--cyan); box-shadow: 0 0 18px rgba(0,240,255,.5); }
+.map-locate:active { transform: translateY(-50%) scale(.92); }
+
 #playerPanel { top: 110px; left: 12px; max-width: 320px; font-size: .92rem; line-height: 1.7; }
 #curName { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .panel-avatar {
@@ -255,6 +265,11 @@ body {
 .region-card-row { padding: 6px 0; border-bottom: 1px dashed rgba(0,240,255,.15); }
 .rc-stats { color: #9ab; font-size: .8rem; }
 .rc-debuff { color: #ff7b7b; font-size: .78rem; }
+
+/* 城市資訊:相鄰交通區塊 */
+.region-adj { margin: 8px 0; padding: 8px 10px; border: 1px solid rgba(0,240,255,.18); border-radius: 8px; background: rgba(0,240,255,.05); }
+.adj-head { color: var(--cyan); font-size: .82rem; margin-bottom: 4px; }
+.adj-row { color: #cfe6f2; font-size: .82rem; line-height: 1.6; }
 
 /* 棋子資訊面板(點擊角色棋子) */
 .pawn-info { display: flex; flex-direction: column; gap: 6px; line-height: 1.6; }

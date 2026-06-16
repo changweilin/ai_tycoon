@@ -122,26 +122,42 @@ function mulberry32(seed) {
 // 風格化但更貼近現實的環太平洋輪廓([x,z] 世界座標;x 正=美洲側、z 負=北/寒、z 正=南/熱)。
 // 海岸線須包住 REGIONS 內對應的城市群(城市座標改動時一併重繪邊界);環太平洋以外(歐洲/印度/中東)刻意收斂不外推。
 const LANDMASSES = [
-  // 北美(12 米國城 + 溫哥華/多倫多/蒙特婁/墨西哥/巴拿馬):西岸太平洋沿線、南方收窄到墨西哥/巴拿馬、東岸抵波士頓。
+  // 北美(12 米國城 + 溫哥華/多倫多/蒙特婁/墨西哥/巴拿馬):西北角伸出阿拉斯加半島(朝白令海峽/楚克奇),
+  // 西岸太平洋沿線南下、南方收窄到墨西哥/巴拿馬、東岸(波士頓/紐約)再北折回加拿大。
   // 座標依真實經緯度重排,海岸線一併重繪包住整個城市群(已程式驗證 point-in-polygon)。
   { name: 'northAmerica', coast: '#2bd6ff', biome: 'temperate', pts: [
-    [7.8, -10.4], [8.2, -8.0], [8.2, -1.0], [9.2, 3.6], [10.6, 6.2],
-    [12.6, 9.8], [15.0, 12.2], [17.4, 12.2], [18.6, 9.0], [18.4, 3.6],
-    [19.4, -0.4], [21.4, -3.2], [21.8, -5.6], [20.2, -7.8], [16.8, -8.2],
-    [12.0, -9.2], [9.2, -10.2],
+    [5.4, -12.6], [7.0, -11.0],                                  // 阿拉斯加半島(西北尖端,朝白令海峽)
+    [7.8, -10.4], [8.2, -8.0], [8.2, -1.0], [9.2, 3.6], [10.6, 6.2], // 太平洋西岸南下
+    [12.6, 9.8], [15.0, 12.2], [17.4, 12.2], [18.6, 9.0], [18.4, 3.6], // 墨西哥/巴拿馬南緣
+    [19.4, -0.4], [21.4, -3.2], [21.8, -5.6],                    // 東岸大西洋(紐約/波士頓)
+    [20.2, -7.8], [16.8, -8.2], [12.0, -9.2], [9.2, -10.2], [7.4, -11.4], // 加拿大北緣回阿拉斯加
   ] },
-  // 歐洲:越大西洋的東北角小陸塊(london/amsterdam/paris/berlin),與北美間留海峽
+  // 歐洲大陸(地圖最右緣;歐亞大陸的「右半」):歐陸本體 paris/amsterdam/berlin 由西向東,
+  // 北岸(北海/波羅的海)起伏、南岸收窄;東緣(berlin)即右邊界,往東的交通越界淡出(不畫邊界外陸地)。
   { name: 'europe', coast: '#9c8cff', biome: 'temperate', pts: [
-    [20.0, -8.4], [22.0, -8.2], [24.4, -9.0], [25.4, -10.6], [24.6, -11.8],
-    [21.2, -12.0], [20.2, -10.4],
+    [21.6, -9.4], [21.9, -8.4], [23.6, -8.0], [25.4, -8.2], [27.0, -8.8],
+    [27.8, -10.2], [27.4, -11.8], [25.8, -12.8], [23.6, -12.8], [22.0, -12.0], [21.4, -10.6],
   ] },
-  // 歐亞大陸(12 牆國城 + 中東/印度中立 telaviv/dubai/delhi/mumbai/bangalore + 中南半島 hanoi/bangkok):
-  // 東海岸面太平洋(shanghai/shenzhen/guangzhou)、南岸接東南亞、西緣到中東;內陸城居中。
+  // 英國島(london):隔英倫海峽(london↔paris/amsterdam 海運)獨立於歐陸西北外海的島嶼。
+  { name: 'britain', coast: '#9c8cff', biome: 'temperate', pts: [
+    [18.6, -10.6], [19.0, -11.6], [20.0, -12.0], [20.8, -11.2], [21.0, -10.0], [20.4, -9.0], [19.4, -9.2], [18.7, -9.8],
+  ] },
+  // 歐亞大陸(地圖左側一整塊;歐亞大陸的「左半」,真實世界中與右半的歐洲是同一塊),依現實地形重繪輪廓:
+  //   右(東)側 = 牆國 12 城面太平洋的海岸(渤海灣內凹、長江口外凸 shanghai),最北伸出「楚克奇半島」朝白令海峽;
+  //   南緣由東向西依序伸出三條尖半島 —— 印度支那半島(hanoi/bangkok)、印度次大陸三角(mumbai/bangalore)、阿拉伯半島(dubai/riyadh/telaviv);
+  //   半島之間以海灣內凹分隔(孟加拉灣、阿拉伯海、波斯灣/紅海);telaviv 在最左邊界,西緣往歐洲方向越界淡出。
+  //   高原/高山/草原/沙漠等地形由 _buildLandmarks 依現實相對位置鋪在此塊上。
   { name: 'eurasia', coast: '#ff7b9c', biome: 'temperate', pts: [
-    [-7.6, -10.6], [-7.4, -7.0], [-8.6, -2.0], [-9.2, 0.0], [-10.0, 2.0],
-    [-11.0, 4.6], [-13.0, 6.4], [-14.0, 8.0], [-15.4, 9.6], [-17.0, 9.4],
-    [-18.6, 8.0], [-20.4, 4.8], [-20.6, 2.0], [-19.0, -2.0], [-16.4, -5.4],
-    [-13.0, -9.2], [-10.0, -10.8],
+    [-5.2, -13.0], [-6.4, -11.8], [-6.6, -10.6],                  // 楚克奇半島(東北尖端,朝白令海峽)
+    [-7.4, -9.0], [-8.8, -7.4], [-8.6, -5.0], [-7.8, -3.0], [-8.2, -1.0], // 東岸:渤海灣內凹→長江口外凸(shanghai)
+    [-9.2, 1.4], [-10.4, 3.2], [-10.8, 4.4],                      // 華南海岸南下(shenzhen/guangzhou)
+    [-11.8, 5.4], [-12.4, 6.4], [-13.0, 7.6], [-13.4, 8.8], [-14.2, 8.4], [-14.8, 7.4], // 印度支那半島(尖端朝南)
+    [-15.6, 7.8], [-16.2, 8.4],                                   // 孟加拉灣內凹
+    [-16.8, 9.6], [-17.1, 11.0], [-18.0, 10.6], [-18.9, 9.0], [-19.3, 7.6], // 印度次大陸三角(南尖)
+    [-19.8, 6.4], [-20.6, 6.6],                                   // 阿拉伯海內凹
+    [-21.6, 7.0], [-22.8, 7.2], [-24.2, 6.8], [-25.6, 5.8], [-26.6, 4.2], [-27.0, 2.2], // 阿拉伯半島(西南,紅海側收窄)
+    [-27.6, -0.8], [-27.6, -3.8], [-26.2, -6.2], [-23.6, -8.0], [-20.0, -9.4], // 中亞/西伯利亞內陸西北緣
+    [-16.0, -10.6], [-12.0, -11.4], [-8.6, -11.8], [-6.2, -12.2], // 北緣回楚克奇半島
   ] },
   // 朝鮮半島(seoul/busan)
   { name: 'korea', coast: '#ffd02e', biome: 'cold', pts: [
@@ -175,12 +191,51 @@ const DECOR_ISLANDS = [
   { x: 0.2, z: 13.6, r: 0.5 }, { x: 0.9, z: 14.6, r: 0.4 },         // 紐西蘭
 ].map(i => Array.isArray(i) ? { x: i[0], z: i[1], r: i[2] } : i);
 
+// 歐洲(地圖最右緣)與中東·印度(地圖最左緣)分居這張環太平洋投影的兩側;真實世界它們其實相鄰,
+// 故彼此的長程航線以「越過地圖邊界、世界環繞」呈現:歐洲端往右淡出、中東端往左淡出(見 _addGatewayLink)。
+const GW_EUROPE = new Set(['london', 'amsterdam', 'paris', 'berlin']);
+const GW_MIDEAST = new Set(['telaviv', 'riyadh', 'dubai', 'mumbai', 'bangalore']);
+
 // ---------- 航線交通工具類型(EDGE_TYPES 由 data.js 共用:train/ship 相鄰、plane 跨洋) ----------
 const TRAFFIC_STYLE = {
   plane: { color: NEON_PURPLE, opacity: 0.5, speed: 1.7 },
   ship:  { color: NEON_CYAN,   opacity: 0.32, speed: 0.65 },
   train: { color: NEON_AMBER,  opacity: 0.42, speed: 1.0 },
 };
+
+// 路線貼圖(像現實地圖的符號):鐵路=黑白相間區塊、海運=圓點(點虛線);皆沿 tube 長度(UV.x)重複、
+// 環向(UV.y)維持一致 → 任何視角都看得出。基底貼圖只建一次;每條邊各 clone 一份設定 repeat.x。
+let _railTexBase = null, _shipTexBase = null;
+function _railTexBaseTex() {
+  if (_railTexBase) return _railTexBase;
+  const c = document.createElement('canvas'); c.width = 64; c.height = 8;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#101010'; ctx.fillRect(0, 0, 32, 8);   // 黑
+  ctx.fillStyle = '#f2f2f2'; ctx.fillRect(32, 0, 32, 8);  // 白
+  _railTexBase = new THREE.CanvasTexture(c);
+  _railTexBase.colorSpace = THREE.SRGBColorSpace;
+  return _railTexBase;
+}
+function _shipTexBaseTex() {
+  if (_shipTexBase) return _shipTexBase;
+  const c = document.createElement('canvas'); c.width = 32; c.height = 8;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, 32, 8);
+  ctx.fillStyle = '#cdeeff'; ctx.fillRect(0, 0, 11, 8); // 約 1/3 實心 + 透明間隔 → 點虛線
+  _shipTexBase = new THREE.CanvasTexture(c);
+  _shipTexBase.colorSpace = THREE.SRGBColorSpace;
+  return _shipTexBase;
+}
+// 取得沿長度 len 的重複路線貼圖(已 clone 並設好 repeat);plane 走實線(回傳 null)
+function routeTexture(type, len) {
+  const base = type === 'train' ? _railTexBaseTex() : type === 'ship' ? _shipTexBaseTex() : null;
+  if (!base) return null;
+  const t = base.clone();
+  t.wrapS = THREE.RepeatWrapping; t.wrapT = THREE.ClampToEdgeWrapping;
+  t.repeat.set(Math.max(1, Math.round(len / (type === 'train' ? 0.55 : 0.34))), 1);
+  t.needsUpdate = true;
+  return t;
+}
 
 // Quaternius 純扁平 matte 材質:消金屬、全粗糙、flat shading。保留 color 語意,
 // 僅留極少量同色自發光讓夜景下仍可辨識(非霓虹發光)。沿用此函式的程式生成
@@ -1304,11 +1359,120 @@ export class Board3D {
       ring.position.set(isl.x, -0.18, isl.z);
       this.scene.add(ring);
     }
-    this._buildTerrain();
+    this._buildLandmarks();
   }
 
-  // 地形地標:矽谷東邊的大峽谷、雪梨西邊的澳洲沙漠(坐落於陸地頂面 y=-0.16,低於城市卡格)
-  _buildTerrain() {
+  // 大陸地形:依現實世界相對位置,把高山 / 高原 / 草原 / 沙漠鋪在「主大陸本體上」
+  // (歐亞大陸的喜馬拉雅/青藏高原/伊朗高原/戈壁/阿拉伯沙漠/中亞草原、歐洲的阿爾卑斯山)。
+  // 不再畫「邊界外的續接大陸」——邊界外只靠淡化的交通門戶線暗示(見 _addGatewayLink)。
+  _buildLandmarks() {
+    const rand = mulberry32(0x4d7a13);
+    const matte = (c, opt = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 1, metalness: 0, flatShading: true, ...opt });
+    const nearCity = (x, z, d = 1.6) => REGIONS.some(r => (r.x - x) ** 2 + (r.z - z) ** 2 < d * d);
+    const onLand = (x, z) => LANDMASSES.some(l => pointInPolygon(x, z, l.pts));
+    const ok = (x, z) => onLand(x, z) && !nearCity(x, z);
+    const dummy = new THREE.Object3D();
+    const addInst = m => { m.instanceMatrix.needsUpdate = true; m.frustumCulled = false; this.scene.add(m); };
+
+    // 雪冠高山:沿路徑插值連成一道山脈(岩錐 + 可選雪冠)
+    const mountainRange = (path, opts = {}) => {
+      const { density = 2.4, hMin = 0.9, hMax = 1.9, jitter = 0.55, snow = true } = opts;
+      const out = [];
+      for (let s = 0; s < path.length - 1; s++) {
+        const [x0, z0] = path[s], [x1, z1] = path[s + 1];
+        const n = Math.max(1, Math.round(Math.hypot(x1 - x0, z1 - z0) * density));
+        for (let i = 0; i < n; i++) {
+          const t = (i + rand() * 0.6) / n;
+          const x = x0 + (x1 - x0) * t + (rand() - 0.5) * jitter;
+          const z = z0 + (z1 - z0) * t + (rand() - 0.5) * jitter;
+          if (ok(x, z)) out.push([x, z, hMin + rand() * (hMax - hMin)]);
+        }
+      }
+      if (!out.length) return;
+      const mm = new THREE.InstancedMesh(new THREE.ConeGeometry(0.5, 1.0, 6), matte(0x6b7689), out.length);
+      const cap = snow ? new THREE.InstancedMesh(new THREE.ConeGeometry(0.24, 0.44, 6), matte(0xeef6ff), out.length) : null;
+      out.forEach(([x, z, s], i) => {
+        dummy.position.set(x, TERRAIN_Y + 0.5 * s, z); dummy.rotation.set(0, rand() * Math.PI, 0); dummy.scale.setScalar(s); dummy.updateMatrix(); mm.setMatrixAt(i, dummy.matrix);
+        if (cap) { dummy.position.set(x, TERRAIN_Y + 0.78 * s, z); dummy.updateMatrix(); cap.setMatrixAt(i, dummy.matrix); }
+      });
+      addInst(mm); if (cap) addInst(cap);
+    };
+
+    // 高原:層疊平頂台地(寬扁圓柱,赭土色 + 較暗頂面)
+    const plateaus = (centers) => {
+      for (const [cx, cz, rr] of centers) {
+        if (!onLand(cx, cz) || nearCity(cx, cz, 1.2)) continue;
+        const r = rr || (1.0 + rand() * 0.8);
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 1.18, 0.5, 8), matte(0xb98a52));
+        body.position.set(cx, TERRAIN_Y + 0.25, cz); this.scene.add(body);
+        const top = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.82, r * 0.92, 0.16, 8), matte(0x9c6f3e));
+        top.position.set(cx, TERRAIN_Y + 0.58, cz); this.scene.add(top);
+      }
+    };
+
+    // 沙漠:成片沙丘 + 偶見仙人掌
+    const dunes = (cx, cz, n, spread) => {
+      const ds = [], cs = [];
+      for (let i = 0; i < n; i++) {
+        const x = cx + (rand() - 0.5) * spread, z = cz + (rand() - 0.5) * spread;
+        if (!ok(x, z)) continue;
+        if (rand() < 0.16) cs.push([x, z, 0.5 + rand() * 0.4]); else ds.push([x, z, 0.7 + rand() * 1.0]);
+      }
+      if (ds.length) {
+        const dm = new THREE.InstancedMesh(new THREE.ConeGeometry(0.6, 0.3, 7), matte(0xcdb27a), ds.length);
+        ds.forEach(([x, z, s], i) => { dummy.position.set(x, TERRAIN_Y + 0.12 * s, z); dummy.rotation.set(0, rand() * Math.PI, 0); dummy.scale.set(s, s * 0.5, s); dummy.updateMatrix(); dm.setMatrixAt(i, dummy.matrix); });
+        addInst(dm);
+      }
+      if (cs.length) {
+        const cm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.06, 0.07, 0.5, 6), matte(0x3f7d4a), cs.length);
+        cs.forEach(([x, z, s], i) => { dummy.position.set(x, TERRAIN_Y + 0.25 * s, z); dummy.scale.setScalar(s); dummy.updateMatrix(); cm.setMatrixAt(i, dummy.matrix); });
+        addInst(cm);
+      }
+    };
+
+    // 草原:成片矮草叢(細高綠錐)
+    const steppe = (cx, cz, n, spread) => {
+      const gs = [];
+      for (let i = 0; i < n; i++) {
+        const x = cx + (rand() - 0.5) * spread, z = cz + (rand() - 0.5) * spread;
+        if (ok(x, z)) gs.push([x, z]);
+      }
+      if (!gs.length) return;
+      const gm = new THREE.InstancedMesh(new THREE.ConeGeometry(0.06, 0.34, 4), matte(0x7caa3e), gs.length);
+      gs.forEach(([x, z], i) => { dummy.position.set(x, TERRAIN_Y + 0.14, z); dummy.rotation.set(0, rand() * Math.PI, 0); dummy.scale.set(0.8 + rand() * 0.6, 0.7 + rand() * 0.8, 0.8 + rand() * 0.6); dummy.updateMatrix(); gm.setMatrixAt(i, dummy.matrix); });
+      addInst(gm);
+    };
+
+    // ===== 歐亞大陸(左):依現實相對位置鋪地形(對齊重繪後的半島) =====
+    // 喜馬拉雅:印度次大陸與青藏高原之間的高聳雪山牆,沿印度半島北緣呈弧形(東↔西)
+    mountainRange([[-20.0, 6.2], [-18.5, 5.6], [-17.0, 5.4], [-15.6, 5.8]], { hMin: 1.1, hMax: 2.0, density: 2.8 });
+    // 天山/中亞群山(草原中的較矮山脈)
+    mountainRange([[-21.5, -3.5], [-23.0, -2.2], [-24.5, -1.2]], { hMin: 0.8, hMax: 1.4, density: 2.0 });
+    // 青藏高原(喜馬拉雅以北)+ 伊朗高原(阿拉伯與印度之間)
+    plateaus([[-17.5, 3.8], [-19.0, 4.4], [-18.0, 2.6], [-20.5, 3.0], [-22.0, 2.2], [-23.0, 1.4]]);
+    // 阿拉伯沙漠(telaviv/riyadh/dubai 所在的西南半島)
+    dunes(-24.0, 5.2, 26, 3.2); dunes(-22.5, 5.6, 20, 2.8);
+    // 戈壁 / 塔克拉瑪干沙漠(牆國北方內陸)
+    dunes(-16.5, -5.5, 24, 3.6); dunes(-14.0, -7.5, 16, 3.0);
+    // 中亞大草原(往歐洲方向的西北乾草原)
+    steppe(-24.5, -3.5, 88, 4.4); steppe(-26.0, -5.5, 48, 3.2);
+    // 中南半島(印度支那)安南山脈(hanoi/bangkok 內陸的低嶺)
+    mountainRange([[-13.0, 6.4], [-13.6, 7.4], [-14.0, 8.2]], { hMin: 0.6, hMax: 1.1, density: 2.0, snow: false });
+
+    // ===== 北美(右):洛磯山脈 + 中部大平原(填補美洲內陸空白) =====
+    // 洛磯山脈:西部南北縱列雪山牆(denver 一帶)
+    mountainRange([[11.5, -5.0], [11.8, -1.5], [12.2, 2.0]], { hMin: 0.9, hMax: 1.6, density: 2.4 });
+    // 中部大平原:洛磯與東岸之間的廣闊草原
+    steppe(15.0, 0.0, 70, 4.2); steppe(15.5, -3.0, 40, 3.0);
+
+    // ===== 歐洲(右):阿爾卑斯雪山 =====
+    mountainRange([[23.2, -11.9], [24.2, -11.6], [25.2, -11.3]], { hMin: 0.7, hMax: 1.3, density: 2.2 });
+
+    this._buildSpecialLandmarks();
+  }
+
+  // 地標:矽谷東邊的大峽谷、雪梨西邊的澳洲沙漠(坐落於陸地頂面 y=-0.16,低於城市卡格)
+  _buildSpecialLandmarks() {
     const matte = (c, opt = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 1, metalness: 0, flatShading: true, ...opt });
 
     // 矽谷東邊:大峽谷(紅色層理峽谷 + 谷底科羅拉多河)
@@ -1339,6 +1503,23 @@ export class Board3D {
       dune.scale.y = 0.3; dune.position.set(dx, 0.04, dz); desert.add(dune);
     }
     this.scene.add(desert);
+
+    // 內陸湖泊:橢圓水面(略高於陸地頂面)+ 岸線霓虹環,填補大陸內陸空白
+    const lake = (cx, cz, rx, rz) => {
+      const water = new THREE.Mesh(new THREE.CircleGeometry(1, 22),
+        matte(0x1f6fd0, { emissive: 0x123a6a, emissiveIntensity: 0.5, roughness: 0.5 }));
+      water.rotation.x = -Math.PI / 2; water.scale.set(rx, rz, 1);
+      water.position.set(cx, TERRAIN_Y + 0.03, cz); this.scene.add(water);
+      const shore = new THREE.Mesh(new THREE.TorusGeometry(1, 0.03, 6, 28),
+        new THREE.MeshBasicMaterial({ color: 0x3fd0ff, transparent: true, opacity: 0.5 }));
+      shore.rotation.x = Math.PI / 2; shore.scale.set(rx, rz, 1);
+      shore.position.set(cx, TERRAIN_Y + 0.04, cz); this.scene.add(shore);
+    };
+    // 北美五大湖(chicago↔toronto 之間,由西向東相連的數座湖)
+    lake(16.1, -5.5, 1.0, 0.45); lake(17.0, -4.7, 0.55, 0.8);
+    lake(17.9, -4.1, 0.85, 0.42); lake(18.6, -3.5, 0.5, 0.4);
+    // 歐亞大陸:裏海(中亞草原與伊朗高原之間的內陸大湖)
+    lake(-24.5, -2.0, 0.7, 1.3);
   }
 
   _buildRegions() {
@@ -1485,33 +1666,90 @@ export class Board3D {
       const r = REGIONS.find(x => x.id === id);
       return new THREE.Vector3(r.x, 0.08, r.z);
     };
+    // 歐洲 / 中東·印度在這張環太平洋地圖上分居左右兩緣,彼此(或與遠側大陸)的長程連線
+    // 不直接橫跨整張地圖,改以「淡化門戶」:漸淡線條越過邊界 + 路線上標出通往的城市名。
+    const GATEWAY_DIST = 9; // 世界座標距離超過此值且牽涉歐洲/中東 → 走門戶圖示而非實線
+
     for (const [a, b] of EDGES) {
       const type = EDGE_TYPES[`${a}|${b}`] || EDGE_TYPES[`${b}|${a}`] || 'ship';
       const style = TRAFFIC_STYLE[type];
       const pa = posOf(a), pb = posOf(b);
       const dist = pa.distanceTo(pb);
+
+      const involvesFarRim = GW_EUROPE.has(a) || GW_EUROPE.has(b) || GW_MIDEAST.has(a) || GW_MIDEAST.has(b);
+      if (involvesFarRim && dist > GATEWAY_DIST) { this._addGatewayLink(a, b, pa, pb, type); continue; }
+
       const mid = pa.clone().add(pb).multiplyScalar(0.5);
       mid.y = type === 'plane' ? 1.3 + dist * 0.15
             : type === 'train' ? 0.16
             : 0.1;
       const curve = new THREE.QuadraticBezierCurve3(pa, mid, pb);
 
-      const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(28));
-      let lineMat;
+      // 粗管狀路線:THREE.Line 寬度大多平台被忽略,改用 TubeGeometry 才看得出粗細
+      const radius = type === 'plane' ? 0.055 : 0.078;
+      const tubularSeg = Math.max(10, Math.round(curve.getLength() * 5));
+      const tube = new THREE.Mesh(
+        new THREE.TubeGeometry(curve, tubularSeg, radius, 6, false),
+        new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: Math.min(0.9, style.opacity + 0.4) }));
+      this.scene.add(tube);
+      // 火車保留虛線質感:粗管上再疊一條亮虛線
       if (type === 'train') {
-        lineMat = new THREE.LineDashedMaterial({
-          color: style.color, transparent: true, opacity: style.opacity,
-          dashSize: 0.3, gapSize: 0.2,
-        });
-      } else {
-        lineMat = new THREE.LineBasicMaterial({ color: style.color, transparent: true, opacity: style.opacity });
+        const dl = new THREE.Line(
+          new THREE.BufferGeometry().setFromPoints(curve.getPoints(28)),
+          new THREE.LineDashedMaterial({ color: 0xfff0d0, transparent: true, opacity: 0.6, dashSize: 0.3, gapSize: 0.22 }));
+        dl.computeLineDistances(); this.scene.add(dl);
       }
-      const line = new THREE.Line(geo, lineMat);
-      if (type === 'train') line.computeLineDistances();
-      this.scene.add(line);
 
       this._addVehicle(type, curve, dist);
     }
+  }
+
+  // 淡化門戶連線:每端城市旁畫一條「越過邊界後漸淡」的線條(顏色沿線融入海色 → 像通往邊界外的城市),
+  // 線上標出通往的城市名。歐洲↔中東分居地圖左右兩緣,故歐洲端往右淡出、中東端往左淡出(世界環繞);
+  // 其餘長程(歐/中東 ↔ 環太平洋實城)則朝真實夥伴方向淡出。
+  _addGatewayLink(aId, bId, pa, pb, type) {
+    this._gatewayCount = this._gatewayCount || {};
+    const style = TRAFFIC_STYLE[type];
+    const icon = type === 'plane' ? '✈️' : type === 'ship' ? '🚢' : '🚆';
+    const css = '#' + style.color.toString(16).padStart(6, '0');
+    const nameOf = id => (REGIONS.find(r => r.id === id) || {}).name || id;
+    const fade = (this.scene.background && this.scene.background.isColor)
+      ? this.scene.background.clone() : new THREE.Color(0x1a2742);
+
+    const stub = (cityId, otherId, from, to, destName) => {
+      // 同一城市的多條長程門戶往同方向,名牌依序往上抬避免互相覆蓋
+      const lift = (this._gatewayCount[cityId] = (this._gatewayCount[cityId] || 0) + 1) - 1;
+      // 方向:歐洲↔中東 → 越過邊界(歐 +x、中東 -x);其餘 → 朝真實夥伴方向
+      let dir;
+      const wrap = (GW_EUROPE.has(cityId) && GW_MIDEAST.has(otherId)) || (GW_MIDEAST.has(cityId) && GW_EUROPE.has(otherId));
+      if (wrap) dir = new THREE.Vector3(GW_EUROPE.has(cityId) ? 1 : -1, 0, 0);
+      else { dir = to.clone().sub(from); dir.y = 0; dir.normalize(); }
+      const len = wrap ? 4.0 : 2.4; // 環繞門戶拉長一點,明顯「衝出邊界」
+
+      // 漸淡線:由城市端(亮)沿線把顏色 lerp 到海色(暗)→ 末端融進海面像消失在邊界外
+      const SEG = 20, pts = [], cols = [];
+      const c0 = new THREE.Color(style.color);
+      for (let i = 0; i <= SEG; i++) {
+        const f = i / SEG;
+        pts.push(from.clone().addScaledVector(dir, 0.4 + (len - 0.4) * f).setY(0.13));
+        const c = c0.clone().lerp(fade, f * f); cols.push(c.r, c.g, c.b);
+      }
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+      this.scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.92 })));
+
+      // 路線上的目的地名牌(騎在線中段)+ 線末端的交通圖示
+      const labelP = from.clone().addScaledVector(dir, 0.4 + (len - 0.4) * 0.5);
+      const tag = makeNameTag(`${icon} ${destName}`, css, 0.46);
+      tag.position.set(labelP.x, 0.62 + lift * 0.64, labelP.z); this.scene.add(tag);
+      const tip = from.clone().addScaledVector(dir, len);
+      const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 8),
+        new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: 0.45 }));
+      arrow.position.set(tip.x, 0.13, tip.z); arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      this.scene.add(arrow);
+    };
+    stub(aId, bId, pa, pb, nameOf(bId));
+    stub(bId, aId, pb, pa, nameOf(aId));
   }
 
   _addVehicle(type, curve, dist) {
@@ -1659,8 +1897,10 @@ export class Board3D {
   // ---------- 地形:山林 / 平原 / 小島(決定性散布,InstancedMesh 省 draw call)----------
   // 氣候帶:z 負=北寒、z 正=南熱;中東阿拉伯半島與澳洲內陸=沙漠
   _biomeOf(x, z) {
-    if (x < -13 && z >= 3.5 && z <= 8.5) return 'desert';  // 阿拉伯半島
-    if (x > -6 && x < 1.2 && z > 8.5) return 'desert';     // 澳洲內陸
+    if (x < -19.5 && z >= 1.0 && z <= 7.0) return 'desert';          // 阿拉伯半島(telaviv/riyadh/dubai)
+    if (x < -21 && z > -7 && z < 1.0) return 'desert';               // 中亞乾燥帶
+    if (x >= -19 && x < -13 && z >= -7 && z <= -3) return 'desert';  // 戈壁/塔克拉瑪干(牆國北方內陸)
+    if (x > -6 && x < 1.2 && z > 8.5) return 'desert';               // 澳洲內陸
     if (z < -4.5) return 'cold';
     if (z > 4.5) return 'tropical';
     return 'temperate';
@@ -2254,6 +2494,22 @@ export class Board3D {
     return r ? new THREE.Vector3(r.x, 0.3, r.z) : null;
   }
 
+  // 平滑把鏡頭聚焦到某城(維持目前觀看角度,拉近距離);供「尋找當前位置」按鈕呼叫
+  focusRegion(regionId) {
+    const r = REGIONS.find(x => x.id === regionId);
+    if (!r) return false;
+    const target = new THREE.Vector3(r.x, 0, r.z);
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    const dist = THREE.MathUtils.clamp(offset.length(), this.controls.minDistance + 2, 26);
+    offset.normalize().multiplyScalar(dist);
+    this._focusTween = {
+      t0: this._elapsed || 0, dur: 0.7,
+      fromT: this.controls.target.clone(), toT: target,
+      fromC: this.camera.position.clone(), toC: target.clone().add(offset),
+    };
+    return true;
+  }
+
   _registerFx(g, life, update) {
     this.fxGroup.add(g);
     this.fxItems.push({ t0: this._elapsed || 0, life, update, dispose: () => { this.fxGroup.remove(g); disposeFx(g); } });
@@ -2613,6 +2869,16 @@ export class Board3D {
       const age = (t - fx.t0) / fx.life;
       if (age >= 1) { fx.dispose(); this.fxItems.splice(i, 1); continue; }
       fx.update(age, t);
+    }
+
+    // 「尋找當前位置」鏡頭聚焦補間(同步推進 target 與 camera,讓 OrbitControls 保持一致)
+    if (this._focusTween) {
+      const ft = this._focusTween;
+      const k = Math.min(1, (t - ft.t0) / ft.dur);
+      const e = smooth(k);
+      this.controls.target.lerpVectors(ft.fromT, ft.toT, e);
+      this.camera.position.lerpVectors(ft.fromC, ft.toC, e);
+      if (k >= 1) this._focusTween = null;
     }
 
     this.controls.update();
