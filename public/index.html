@@ -252,6 +252,22 @@
 </div>
 
 <div id="toast"></div>
+
+<!-- 開局擲骰決定回合順序的動畫覆蓋層 -->
+<div id="diceOverlay">
+  <div class="dice-box">
+    <div class="dice-title">🎲 擲骰決定回合順序</div>
+    <div class="dice-row">
+      <div class="die-wrap"><div class="die" id="die0">⚀</div><div class="die-side">米</div></div>
+      <span class="die-vs">⚔️</span>
+      <div class="die-wrap"><div class="die" id="die1">⚀</div><div class="die-side">牆</div></div>
+      <div class="die-wrap die-arb"><div class="die die-sm" id="die2">⚀</div><div class="die-side">裁決</div></div>
+    </div>
+    <div class="dice-result" id="diceResult"></div>
+    <div class="dice-order" id="diceOrder"></div>
+  </div>
+</div>
+
 <script type="module" src="js/ui.js"></script>
 </body>
 </html>

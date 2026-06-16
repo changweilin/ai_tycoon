@@ -26,6 +26,9 @@ host.send({ t: 'createRoom', name: '房主' });
 await host.wait();
 const pin = host.last.lobby.pin;
 console.log('房間 PIN:', pin);
+// 設為 3 人(米/牆/台,無 AI 頂替)→ 擲骰回合順序下當前玩家恆為可查詢的真人
+host.send({ t: 'setRoomConfig', expectedCount: 3 });
+await host.wait();
 
 const p2 = await client('p2');
 p2.send({ t: 'joinRoom', pin, name: '玩家二', mode: 'player' });
@@ -60,7 +63,8 @@ const clients = { '皮衣刀客·黃仁薰': host, '菊廠廠長·任正飛': p2
   '房主': host, '玩家二': p2, '玩家三': p3 };
 const actor = clients[turnP.name];
 // 非當前玩家開局手牌 4 張;當前玩家回合開始已自動抽牌(算力 perk 抽 2 張)
-const nonCurrent = host.last.state.players.find(p => p.id !== turnP.id);
+// 擲骰回合順序下,AI 頂替者可能排在非當前位,故只挑「可查詢的真人」非當前玩家驗證
+const nonCurrent = host.last.state.players.find(p => p.id !== turnP.id && clients[p.name]);
 const ncClient = clients[nonCurrent.name];
 if (ncClient.last.priv?.hand?.length !== 4) throw new Error('非當前玩家開局手牌應為 4 張');
 if (actor.last.priv.hand.length <= 4) throw new Error('當前玩家回合開始應已自動抽牌');

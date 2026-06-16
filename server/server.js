@@ -558,6 +558,7 @@ wss.on('connection', ws => {
       }
       console.log(`🎮 房間 ${room.pin} 開始遊戲(模式 ${gameMode},${seats.length} 角色)`);
       broadcast(room);
+      autosave(room); // 開局即留一份自動存檔,確保剛開局(尚無人行動)也能斷線復原
       pumpAI(room);
       return;
     }

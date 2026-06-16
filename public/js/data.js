@@ -141,34 +141,65 @@ export const INDUSTRY_CATEGORY = {
   '資訊': 'info', 'AI': 'ai', '娛樂': 'fun',
 };
 
-// ---- 灰色作戰卡三大類 ----
-// atk 攻擊力:需 >= 目標科技卡的有效防護力才能鎖定。三類都「附 debuff 不拆卡」,
-// debuff 數值與「攻擊力−有效防護力」(overkill)成正比:打得越乾脆,削得越狠。
+// ---- 灰色作戰卡三大類 × 四級(Lv.2~5) ----
+// level 等級(2~5):實質強度 ≈ 科技卡的 (level − 0.5) 級(Lv.2≈1.5、Lv.5≈4.5)。
+//   兩道上限 —「城市等級」與「攻擊力」:
+//   1) 只能對「城市等級 ≤ 自身 level」的城市出手(科技卡 tier ≤ 城市等級,故同時隱含 tier 上限);
+//      因此 Lv.5 灰卡才碰得到 Lv.5 城市裡的 5 階科技卡,Lv.2 灰卡只能打仍停在 Lv.2 的城市,以此類推。
+//   2) atk 攻擊力需 ≥ 目標科技卡的有效防護力才鎖得住 → 同級時只打得動「低防護」的卡
+//      (各 tier 的高防護「資訊類/光環疊加」會擋下同級灰卡,正是「只能對付低防護力的 N 級科技卡」)。
+// 三類都「附 debuff 不拆卡」,debuff 數值與「攻擊力−有效防護力」(overkill)成正比。
 // 每張科技卡只能被灰色作戰卡鎖定一次(opsHit)。
+// Lv.4/Lv.5 灰卡與 4/5 階科技卡同住 tier4/tier5 牌庫(數量約該階科技卡的 50%),只能靠捨牌升階取得。
 export const OPS_CARDS = {
-  spy1:   { id: 'spy1', cat: 'spy', name: '商業間諜', cost: 7, atk: 4, icon: '💣',
+  // ── 間諜 spy:減少目標科技卡的科技力 ──
+  spy2:   { id: 'spy2', cat: 'spy', level: 2, name: '商業間諜', cost: 7,  atk: 4,  icon: '💣',
     ratio: { money: 2, power: 1, oil: 1 },
-    desc: '對一張敵對科技卡植入「減少科技力」debuff(攻擊力4,需≥有效防護力):削減其科技力,數值隨 攻擊力−防護力 放大' },
-  spy2:   { id: 'spy2', cat: 'spy', name: '王牌特工', cost: 12, atk: 7, icon: '🕶️',
+    desc: 'Lv.2 間諜(攻擊力4):對城市等級 ≤2、防護 ≤4 的敵對科技卡植入「減科技力」debuff,數值隨 攻−防 放大' },
+  spy3:   { id: 'spy3', cat: 'spy', level: 3, name: '王牌特工', cost: 12, atk: 7,  icon: '🕶️',
     ratio: { money: 2, power: 1, oil: 1 },
-    desc: '對一張敵對科技卡植入「減少科技力」debuff(攻擊力7):大幅削減其科技力,數值隨 攻擊力−防護力 放大' },
-  steal1: { id: 'steal1', cat: 'steal', name: '駭客入侵', cost: 9, atk: 4, icon: '🕵️',
+    desc: 'Lv.3 間諜(攻擊力7):對城市等級 ≤3、防護 ≤7 的敵對科技卡植入「減科技力」debuff,數值隨 攻−防 放大' },
+  spy4:   { id: 'spy4', cat: 'spy', level: 4, name: '衛星偵蒐', cost: 17, atk: 9,  icon: '🛰️',
+    ratio: { money: 2, power: 1, oil: 1 },
+    desc: 'Lv.4 間諜(攻擊力9):對城市等級 ≤4、防護 ≤9 的敵對科技卡大幅削減科技力,數值隨 攻−防 放大' },
+  spy5:   { id: 'spy5', cat: 'spy', level: 5, name: '量子破密', cost: 22, atk: 11, icon: '🔓',
+    ratio: { money: 2, power: 1, oil: 1 },
+    desc: 'Lv.5 間諜(攻擊力11):對城市等級 ≤5、防護 ≤11 的敵對科技卡極致削減科技力,數值隨 攻−防 放大' },
+  // ── 竊取 steal:每回合把目標科技卡部分交易收益轉給你 ──
+  steal2: { id: 'steal2', cat: 'steal', level: 2, name: '駭客入侵', cost: 9,  atk: 4,  icon: '🕵️',
     ratio: { money: 1, power: 2, oil: 1 },
-    desc: '對一張敵對科技卡植入「竊取收益」debuff(攻擊力4):每回合把該卡部分交易收益轉給你,數值隨 攻擊力−防護力 放大' },
-  steal2: { id: 'steal2', cat: 'steal', name: '供應鏈滲透', cost: 13, atk: 7, icon: '🧬',
+    desc: 'Lv.2 竊取(攻擊力4):對城市等級 ≤2、防護 ≤4 的敵對科技卡植入「竊取收益」debuff,數值隨 攻−防 放大' },
+  steal3: { id: 'steal3', cat: 'steal', level: 3, name: '供應鏈滲透', cost: 13, atk: 7,  icon: '🧬',
     ratio: { money: 1, power: 2, oil: 1 },
-    desc: '對一張敵對科技卡植入「竊取收益」debuff(攻擊力7):每回合把該卡大部分交易收益轉給你,數值隨 攻擊力−防護力 放大' },
-  fake1:  { id: 'fake1', cat: 'fake', name: '假新聞', cost: 6, atk: 4, icon: '📰',
+    desc: 'Lv.3 竊取(攻擊力7):對城市等級 ≤3、防護 ≤7 的敵對科技卡植入「竊取收益」debuff,數值隨 攻−防 放大' },
+  steal4: { id: 'steal4', cat: 'steal', level: 4, name: '工業母機竊圖', cost: 18, atk: 9,  icon: '⚙️',
+    ratio: { money: 1, power: 2, oil: 1 },
+    desc: 'Lv.4 竊取(攻擊力9):對城市等級 ≤4、防護 ≤9 的敵對科技卡大量竊取交易收益,數值隨 攻−防 放大' },
+  steal5: { id: 'steal5', cat: 'steal', level: 5, name: '國家級 APT', cost: 23, atk: 11, icon: '🐉',
+    ratio: { money: 1, power: 2, oil: 1 },
+    desc: 'Lv.5 竊取(攻擊力11):對城市等級 ≤5、防護 ≤11 的敵對科技卡幾乎竊盡交易收益,數值隨 攻−防 放大' },
+  // ── 假新聞 fake:折舊陷阱,對手同類改建該卡時部分折舊資源轉給你 ──
+  fake2:  { id: 'fake2', cat: 'fake', level: 2, name: '假新聞', cost: 6,  atk: 4,  icon: '📰',
     ratio: { money: 2, power: 1, oil: 1 },
-    desc: '對一張敵對科技卡植入「折舊陷阱」debuff(攻擊力4):對手日後同類改建該卡時,你額外賺得折舊收益,數值隨 攻擊力−防護力 放大' },
-  fake2:  { id: 'fake2', cat: 'fake', name: '認知作戰', cost: 10, atk: 7, icon: '📡',
+    desc: 'Lv.2 假新聞(攻擊力4):對城市等級 ≤2、防護 ≤4 的敵對科技卡植入「折舊陷阱」,對手同類改建時你獲利,數值隨 攻−防 放大' },
+  fake3:  { id: 'fake3', cat: 'fake', level: 3, name: '認知作戰', cost: 10, atk: 7,  icon: '📡',
     ratio: { money: 2, power: 1, oil: 1 },
-    desc: '對一張敵對科技卡植入「折舊陷阱」debuff(攻擊力7):對手日後同類改建該卡時,你額外賺得更高折舊收益,數值隨 攻擊力−防護力 放大' },
+    desc: 'Lv.3 假新聞(攻擊力7):對城市等級 ≤3、防護 ≤7 的敵對科技卡植入「折舊陷阱」,對手同類改建時你獲利,數值隨 攻−防 放大' },
+  fake4:  { id: 'fake4', cat: 'fake', level: 4, name: '深偽風暴', cost: 15, atk: 9,  icon: '🎭',
+    ratio: { money: 2, power: 1, oil: 1 },
+    desc: 'Lv.4 假新聞(攻擊力9):對城市等級 ≤4、防護 ≤9 的敵對科技卡植入更狠「折舊陷阱」,數值隨 攻−防 放大' },
+  fake5:  { id: 'fake5', cat: 'fake', level: 5, name: '輿論核爆', cost: 20, atk: 11, icon: '☢️',
+    ratio: { money: 2, power: 1, oil: 1 },
+    desc: 'Lv.5 假新聞(攻擊力11):對城市等級 ≤5、防護 ≤11 的敵對科技卡植入最狠「折舊陷阱」,數值隨 攻−防 放大' },
 };
 
+// 公牌(主牌庫)只放 Lv.2/Lv.3 灰卡;Lv.4/Lv.5 灰卡入 tier4/tier5 牌庫(見下)
 export const OPS_DECK_COMPOSITION = [
-  ['spy1', 6], ['spy2', 3], ['steal1', 5], ['steal2', 3], ['fake1', 6], ['fake2', 3],
+  ['spy2', 6], ['spy3', 3], ['steal2', 5], ['steal3', 3], ['fake2', 6], ['fake3', 3],
 ];
+// Lv.4 灰卡入 4 階牌庫、Lv.5 灰卡入 5 階牌庫(張數約該階科技卡總數的 50%;升階抽卡時不分科技/灰卡)
+export const OPS_TIER4_COMPOSITION = [['spy4', 3], ['steal4', 3], ['fake4', 2]]; // ≈ 4 階科技卡(15)×50%
+export const OPS_TIER5_COMPOSITION = [['spy5', 2], ['steal5', 2], ['fake5', 1]]; // ≈ 5 階科技卡(10)×50%
 
 // ---- 科技巨頭角色(網路梗綽號 + 諧音名) ----
 // avatar/portrait 路徑由 id 推導(images/avatars/<id>_chibi.png、images/characters/<id>.png);
@@ -337,42 +368,72 @@ export const charLogo     = c => {
 // 陣營國旗(images/flags/flag_<faction>.png:us/cn/tw/jp/kr)
 export const factionFlag  = fac => `images/flags/flag_${(typeof fac === 'string' ? fac : fac.id).toLowerCase()}.png`;
 
-// ---- 環太平洋地圖 ----
+// ---- 環太平洋地圖(城市數加倍版:米/牆各 12、台日韓各 2、中立 22,共 52 城) ----
 // country:城市所屬國家。米國玩家在牆國地盤(及反之)發展科技花費加倍,其他國家不在此限。
 // startLevel:城市初始等級 — 全部城市一律 Lv.2 起跳(等級 ≥ 科技卡階級才能建造,用電力升級)。
+// 城市座標依真實經緯度相對排列(各區以線性 lat/lon→x/z 投影,真實太近的城市群微調至間距 ≈2;
+// 六角卡格大小由 board3d 依最近鄰自動縮放,維持一致且不重疊)。x 正=美洲、x 負=亞洲/中東;z 負=北、z 正=南。
 export const REGIONS = [
-  // 米國(6 城)
-  // 依真實經緯度排列:西岸(seattle/sv/la)沿太平洋、紐約在東岸、phoenix/austin 內陸南方
-  { id: 'seattle',  name: '西雅圖',   x: 9.5,  z: -7.5, tag: '雲端走廊', country: 'US', startLevel: 2 },
-  { id: 'sv',       name: '矽谷',     x: 10.5, z: -3, tag: '科技聖地', country: 'US', startLevel: 2 },
-  { id: 'austin',   name: '奧斯汀',   x: 16.5, z: 4.5, tag: '火箭基地', country: 'US', startLevel: 2 },
-  { id: 'nyc',      name: '紐約',     x: 18.5, z: -4, tag: '華爾街', country: 'US', startLevel: 2 },
-  { id: 'phoenix',  name: '鳳凰城',   x: 14.8, z: 2.3, tag: '晶片新廠', country: 'US', startLevel: 2 },
-  { id: 'la',       name: '洛杉磯',   x: 12, z: 1, tag: '好萊塢', country: 'US', startLevel: 2 },
-  // 牆國(6 城)
-  { id: 'beijing',  name: '北京',     x: -11, z: -6.5, tag: '中關村', country: 'CN', startLevel: 2 },
-  { id: 'shanghai', name: '上海',     x: -9,  z: -2.5, tag: '魔都', country: 'CN', startLevel: 2 },
-  { id: 'shenzhen', name: '深圳',     x: -10.5, z: 1.5, tag: '硬體矽谷', country: 'CN', startLevel: 2 },
-  { id: 'hangzhou', name: '杭州',     x: -13, z: -4.5, tag: '電商之都', country: 'CN', startLevel: 2 },
-  { id: 'wuhan',    name: '武漢',     x: -13.5, z: -1, tag: '光谷', country: 'CN', startLevel: 2 },
-  { id: 'chengdu',  name: '成都',     x: -14.5, z: 2.5, tag: '遊戲山城', country: 'CN', startLevel: 2 },
-  // 東亞高科技城
-  { id: 'tokyo',    name: '東京',     x: -3.5, z: -5.5, tag: '電子街', country: 'JP', startLevel: 2 },
-  { id: 'seoul',    name: '首爾',     x: -6.5, z: -7.5, tag: '財閥都心', country: 'KR', startLevel: 2 },
-  { id: 'hsinchu',  name: '新竹',     x: -6,  z: -1, tag: '護國神山', chipBonus: true, country: 'TW', startLevel: 2 },
-  // 中立 — 北美/歐洲側(座標依真實地理相對位置:加拿大在北、墨西哥在南、歐洲在東北越洋處,不過度外推)
-  { id: 'toronto',  name: '多倫多',   x: 17, z: -7, tag: '楓葉AI谷', country: null, startLevel: 2 },
-  { id: 'vancouver',name: '溫哥華',   x: 8.3, z: -10.2, tag: '北境雲廠', country: null, startLevel: 2 },
-  { id: 'mexico',   name: '墨西哥城', x: 15.5, z: 9, tag: '近岸製造', country: null, startLevel: 2 },
-  { id: 'london',   name: '倫敦',     x: 20.5, z: -8.5, tag: '金融科技城', country: null, startLevel: 2 },
-  { id: 'amsterdam',name: '阿姆斯特丹', x: 23, z: -10, tag: '歐陸門戶', country: null, startLevel: 2 },
-  // 中立 — 亞太側(6 城;東協在南、印度與中東在西、澳洲在最南)
-  { id: 'hanoi',    name: '河內',     x: -11.5, z: 4.5, tag: '世界工廠2.0', country: null, startLevel: 2 },
-  { id: 'singapore',name: '新加坡',   x: -11, z: 8.5, tag: '中立樞紐', country: null, startLevel: 2 },
-  { id: 'sydney',   name: '雪梨',     x: -3,  z: 11, tag: '南方節點', country: null, startLevel: 2 },
-  { id: 'bangkok',  name: '曼谷',     x: -14, z: 6.5, tag: '東協門戶', country: null, startLevel: 2 },
-  { id: 'bangalore',name: '班加羅爾', x: -16.5, z: 8.5, tag: '印度矽谷', country: null, startLevel: 2 },
-  { id: 'dubai',    name: '杜拜',     x: -17.5, z: 5.5, tag: '石油金庫', country: null, startLevel: 2 },
+  // 米國(12 城)— 西岸太平洋沿線(seattle/portland/sv/la 同經度帶)、洛磯/南方內陸、東岸(chicago/atlanta/nyc/boston)
+  { id: 'seattle',  name: '西雅圖',   x: 9.1,  z: -8.0, tag: '雲端走廊', country: 'US', startLevel: 2 },
+  { id: 'portland', name: '波特蘭',   x: 9.3,  z: -6.0, tag: '開源綠都', country: 'US', startLevel: 2 },
+  { id: 'sv',       name: '矽谷',     x: 9.1,  z: -0.3, tag: '科技聖地', country: 'US', startLevel: 2 },
+  { id: 'la',       name: '洛杉磯',   x: 10.0, z: 2.6,  tag: '好萊塢', country: 'US', startLevel: 2 },
+  { id: 'denver',   name: '丹佛',     x: 12.9, z: -1.8, tag: '洛磯算力', country: 'US', startLevel: 2 },
+  { id: 'phoenix',  name: '鳳凰城',   x: 11.8, z: 3.4,  tag: '晶片新廠', country: 'US', startLevel: 2 },
+  { id: 'chicago',  name: '芝加哥',   x: 16.8, z: -3.5, tag: '風城期交', country: 'US', startLevel: 2 },
+  { id: 'dallas',   name: '達拉斯',   x: 14.7, z: 3.6,  tag: '油氣樞紐', country: 'US', startLevel: 2 },
+  { id: 'austin',   name: '奧斯汀',   x: 14.5, z: 5.6,  tag: '火箭基地', country: 'US', startLevel: 2 },
+  { id: 'atlanta',  name: '亞特蘭大', x: 17.5, z: 2.9,  tag: '南方矽林', country: 'US', startLevel: 2 },
+  { id: 'nyc',      name: '紐約',     x: 19.8, z: -2.6, tag: '華爾街', country: 'US', startLevel: 2 },
+  { id: 'boston',   name: '波士頓',   x: 20.8, z: -4.4, tag: '常春藤實驗室', country: 'US', startLevel: 2 },
+  // 牆國(12 城)— 東部沿海(tianjin/shanghai/shenzhen/guangzhou)、華中華西內陸、東北(harbin)
+  { id: 'harbin',   name: '哈爾濱',   x: -8.0,  z: -10.0, tag: '冰封數據', country: 'CN', startLevel: 2 },
+  { id: 'tianjin',  name: '天津',     x: -10.4, z: -5.4, tag: '渤海港城', country: 'CN', startLevel: 2 },
+  { id: 'beijing',  name: '北京',     x: -12.2, z: -7.0, tag: '中關村', country: 'CN', startLevel: 2 },
+  { id: 'hangzhou', name: '杭州',     x: -11.0, z: 0.4,  tag: '電商之都', country: 'CN', startLevel: 2 },
+  { id: 'xian',     name: '西安',     x: -14.3, z: -3.1, tag: '古都晶圓', country: 'CN', startLevel: 2 },
+  { id: 'nanjing',  name: '南京',     x: -11.2, z: -2.0, tag: '長江算力', country: 'CN', startLevel: 2 },
+  { id: 'shanghai', name: '上海',     x: -9.4,  z: -1.0, tag: '魔都', country: 'CN', startLevel: 2 },
+  { id: 'wuhan',    name: '武漢',     x: -12.8, z: -0.6, tag: '光谷', country: 'CN', startLevel: 2 },
+  { id: 'chongqing',name: '重慶',     x: -14.8, z: 0.2,  tag: '山城雲倉', country: 'CN', startLevel: 2 },
+  { id: 'shenzhen', name: '深圳',     x: -11.6, z: 4.2,  tag: '硬體矽谷', country: 'CN', startLevel: 2 },
+  { id: 'chengdu',  name: '成都',     x: -16.2, z: -1.4, tag: '遊戲山城', country: 'CN', startLevel: 2 },
+  { id: 'guangzhou',name: '廣州',     x: -13.6, z: 3.0,  tag: '南方智造', country: 'CN', startLevel: 2 },
+  // 日本(2 城)— 大阪在東京西南
+  { id: 'tokyo',    name: '東京',     x: -2.6, z: -5.8, tag: '電子街', country: 'JP', startLevel: 2 },
+  { id: 'osaka',    name: '大阪',     x: -3.8, z: -4.2, tag: '關西商都', country: 'JP', startLevel: 2 },
+  // 韓國(2 城)— 釜山在首爾東南
+  { id: 'seoul',    name: '首爾',     x: -7.2, z: -8.0, tag: '財閥都心', country: 'KR', startLevel: 2 },
+  { id: 'busan',    name: '釜山',     x: -6.0, z: -5.8, tag: '海港財閥', country: 'KR', startLevel: 2 },
+  // 台灣(2 城)— 台北在新竹東北
+  { id: 'hsinchu',  name: '新竹',     x: -6.6, z: -0.4, tag: '護國神山', chipBonus: true, country: 'TW', startLevel: 2 },
+  { id: 'taipei',   name: '台北',     x: -5.6, z: -2.4, tag: '南港軟體', country: 'TW', startLevel: 2 },
+  // 中立 — 北美/歐洲側
+  { id: 'vancouver',name: '溫哥華',   x: 8.3,  z: -9.8, tag: '北境雲廠', country: null, startLevel: 2 },
+  { id: 'toronto',  name: '多倫多',   x: 18.6, z: -4.9, tag: '楓葉AI谷', country: null, startLevel: 2 },
+  { id: 'montreal', name: '蒙特婁',   x: 19.9, z: -6.4, tag: '楓葉AI北', country: null, startLevel: 2 },
+  { id: 'mexico',   name: '墨西哥城', x: 14.6, z: 9.0,  tag: '近岸製造', country: null, startLevel: 2 },
+  { id: 'panama',   name: '巴拿馬城', x: 16.6, z: 11.0, tag: '運河樞紐', country: null, startLevel: 2 },
+  { id: 'london',   name: '倫敦',     x: 20.6, z: -9.0, tag: '金融科技城', country: null, startLevel: 2 },
+  { id: 'amsterdam',name: '阿姆斯特丹', x: 22.6, z: -9.6, tag: '歐陸門戶', country: null, startLevel: 2 },
+  { id: 'paris',    name: '巴黎',     x: 20.8, z: -11.0, tag: '塞納科技', country: null, startLevel: 2 },
+  { id: 'berlin',   name: '柏林',     x: 24.6, z: -10.4, tag: '工業4.0', country: null, startLevel: 2 },
+  // 中立 — 中東/印度側(由西向東:telaviv→dubai→德里/孟買/班加羅爾)
+  { id: 'telaviv',  name: '特拉維夫', x: -19.6, z: 3.0,  tag: '新創之國', country: null, startLevel: 2 },
+  { id: 'dubai',    name: '杜拜',     x: -18.2, z: 4.6,  tag: '石油金庫', country: null, startLevel: 2 },
+  { id: 'delhi',    name: '新德里',   x: -16.2, z: 4.8,  tag: '南亞政經', country: null, startLevel: 2 },
+  { id: 'mumbai',   name: '孟買',     x: -17.4, z: 7.0,  tag: '寶萊塢雲', country: null, startLevel: 2 },
+  { id: 'bangalore',name: '班加羅爾', x: -16.0, z: 8.6,  tag: '印度矽谷', country: null, startLevel: 2 },
+  // 中立 — 東南亞/大洋洲側
+  { id: 'hanoi',    name: '河內',     x: -13.2, z: 5.6,  tag: '世界工廠2.0', country: null, startLevel: 2 },
+  { id: 'bangkok',  name: '曼谷',     x: -14.6, z: 7.2,  tag: '東協門戶', country: null, startLevel: 2 },
+  { id: 'kualalumpur', name: '吉隆坡', x: -13.8, z: 9.2, tag: '雙塔數據', country: null, startLevel: 2 },
+  { id: 'singapore',name: '新加坡',   x: -12.8, z: 11.0, tag: '中立樞紐', country: null, startLevel: 2 },
+  { id: 'jakarta',  name: '雅加達',   x: -10.8, z: 12.0, tag: '群島樞紐', country: null, startLevel: 2 },
+  { id: 'manila',   name: '馬尼拉',   x: -8.6,  z: 8.2,  tag: '外包重鎮', country: null, startLevel: 2 },
+  { id: 'sydney',   name: '雪梨',     x: -3.2,  z: 10.8, tag: '南方節點', country: null, startLevel: 2 },
+  { id: 'melbourne',name: '墨爾本',   x: -5.0,  z: 12.4, tag: '南境花園', country: null, startLevel: 2 },
 ];
 
 // ---- 集體事件卡(每一輪開始前抽一張,效果持續該輪) ----
@@ -429,62 +490,62 @@ export const EVENT_CARDS = [
     desc: '千萬人擠進虛擬會場 — 本輪娛樂類科技卡花費 -25%' },
 ];
 
-// 路網以城市座標自動整理而成:相鄰鐵路/海運不會穿過中間城市(無碰撞);越洋以海運連通;
-// 另疊一層飛機專用長程(可橫跨城市)。鐵路/海運=便宜相鄰移動(1🛢️),飛機=可跨多城(5🛢️)。
-export const EDGES = [
-  // 美洲(鐵路/近海;含跨大西洋海運至歐洲)
-  ['seattle', 'sv'], ['seattle', 'vancouver'], ['sv', 'austin'], ['sv', 'nyc'], ['sv', 'phoenix'],
-  ['austin', 'nyc'], ['austin', 'phoenix'], ['austin', 'la'], ['austin', 'mexico'],
-  ['nyc', 'phoenix'], ['nyc', 'toronto'], ['nyc', 'london'], ['la', 'mexico'],
-  ['toronto', 'london'], ['toronto', 'amsterdam'], ['london', 'amsterdam'],
-  // 亞洲 / 大洋洲(鐵路/近海)
-  ['beijing', 'shanghai'], ['beijing', 'hangzhou'], ['beijing', 'seoul'],
-  ['shanghai', 'shenzhen'], ['shanghai', 'hangzhou'], ['shanghai', 'wuhan'], ['shanghai', 'tokyo'], ['shanghai', 'seoul'], ['shanghai', 'hsinchu'],
-  ['shenzhen', 'hangzhou'], ['shenzhen', 'wuhan'], ['shenzhen', 'chengdu'], ['shenzhen', 'hsinchu'], ['shenzhen', 'hanoi'], ['shenzhen', 'bangkok'],
-  ['hangzhou', 'wuhan'], ['wuhan', 'chengdu'], ['wuhan', 'bangkok'],
-  ['chengdu', 'hanoi'], ['chengdu', 'bangkok'], ['chengdu', 'dubai'],
-  ['tokyo', 'seoul'], ['tokyo', 'hsinchu'], ['seoul', 'hsinchu'], ['hsinchu', 'hanoi'],
-  ['hanoi', 'singapore'], ['hanoi', 'bangkok'], ['hanoi', 'bangalore'],
-  ['singapore', 'sydney'], ['singapore', 'bangkok'], ['singapore', 'bangalore'],
-  ['bangkok', 'bangalore'], ['bangkok', 'dubai'], ['bangalore', 'dubai'],
-  // 越洋海運(開放海域,連接美洲↔亞洲/大洋洲;便宜相鄰移動)— 太平洋主要貨櫃航線加密
-  ['seattle', 'tokyo'], ['vancouver', 'tokyo'], ['la', 'sydney'],
-  ['la', 'hsinchu'], ['la', 'shanghai'], ['seattle', 'seoul'], ['vancouver', 'seoul'],
-  // 飛機專用長程航線(可橫跨城市;只有飛機能用)
-  ['sv', 'tokyo'], ['sv', 'hsinchu'], ['la', 'tokyo'], ['sydney', 'austin'], ['nyc', 'amsterdam'],
-  // 後方中立城市加強空運(尤其阿姆斯特丹/杜拜):讓各陣營更易以飛機抵達自家後方樞紐。
-  // 杜拜以新加坡為空運門戶(而非直連上海/深圳),保留其「最深的後方」距離,維持飛機 3 格上限的張力。
-  ['amsterdam', 'sv'], ['amsterdam', 'seattle'], ['london', 'sv'],
-  ['dubai', 'singapore'], ['bangalore', 'shanghai'],
+// 路網以「每座城市的航線數上限」重新設計(鐵路/海運=便宜相鄰移動 1🛢️;飛機=可橫跨多城 5🛢️):
+//   ● 鐵路 + 海運(合計,即非 plane 的邊):靠海城市 ≤4 條、內陸城市 ≤3 條。
+//   ● 空運(plane 邊,獨立計算):環太平洋城市 ≤3 條、其他城市 ≤4 條。
+//   越洋以海運/空運連通;城市加倍後重排,單一真相 EDGE_LIST = [a, b, 交通工具];
+//   train 鐵路 / ship 航運 → 只能通行到「相鄰」城市(1🛢️;越洋海運亦可);
+//   plane 飛機 → 長程航線,唯有飛機能橫跨多座城市(須搭機 5🛢️)。EDGES 仍為完整連通圖(飛機 BFS 用)。
+const EDGE_LIST = [
+  // ── 北美(鐵路為主,西岸太平洋海運少量)──
+  ['vancouver', 'seattle', 'train'], ['seattle', 'sv', 'train'], ['seattle', 'portland', 'train'],
+  ['portland', 'denver', 'train'], ['sv', 'la', 'train'], ['sv', 'denver', 'train'], ['sv', 'phoenix', 'train'],
+  ['phoenix', 'dallas', 'train'], ['phoenix', 'austin', 'train'], ['denver', 'chicago', 'train'],
+  ['chicago', 'toronto', 'train'], ['toronto', 'montreal', 'train'], ['toronto', 'nyc', 'train'],
+  ['nyc', 'dallas', 'train'], ['nyc', 'boston', 'train'], ['nyc', 'atlanta', 'ship'], ['dallas', 'atlanta', 'train'],
+  ['austin', 'mexico', 'train'], ['mexico', 'panama', 'ship'],
+  // ── 歐洲(跨大西洋海運 + 近海/內陸)──
+  ['boston', 'london', 'ship'], ['montreal', 'london', 'ship'], ['london', 'paris', 'ship'],
+  ['london', 'amsterdam', 'ship'], ['amsterdam', 'berlin', 'train'], ['paris', 'amsterdam', 'train'], ['paris', 'berlin', 'train'],
+  // ── 越洋太平洋主航線(海運)+ 東亞沿海(海運)──
+  ['seattle', 'tokyo', 'ship'], ['vancouver', 'seoul', 'ship'], ['la', 'hsinchu', 'ship'], ['la', 'sydney', 'ship'],
+  ['tokyo', 'osaka', 'ship'], ['tokyo', 'seoul', 'ship'], ['tokyo', 'shanghai', 'ship'],
+  ['osaka', 'busan', 'ship'], ['seoul', 'busan', 'ship'], ['seoul', 'tianjin', 'ship'],
+  ['hsinchu', 'shanghai', 'ship'], ['hsinchu', 'taipei', 'ship'], ['hsinchu', 'shenzhen', 'ship'],
+  ['shanghai', 'taipei', 'ship'], ['shenzhen', 'guangzhou', 'ship'],
+  // ── 牆國本土(鐵路)──
+  ['beijing', 'tianjin', 'train'], ['beijing', 'harbin', 'train'], ['beijing', 'hangzhou', 'train'], ['harbin', 'tianjin', 'train'],
+  ['hangzhou', 'xian', 'train'], ['hangzhou', 'nanjing', 'train'], ['xian', 'wuhan', 'train'], ['xian', 'chongqing', 'train'],
+  ['nanjing', 'shanghai', 'train'], ['nanjing', 'wuhan', 'train'], ['wuhan', 'chongqing', 'train'],
+  ['chongqing', 'chengdu', 'train'], ['chengdu', 'guangzhou', 'train'],
+  // ── 東南亞 / 南海 / 印度洋 / 中東(海運為主,半島走鐵路)──
+  ['shenzhen', 'hanoi', 'ship'], ['guangzhou', 'hanoi', 'ship'], ['hanoi', 'bangkok', 'train'],
+  ['bangkok', 'kualalumpur', 'train'], ['kualalumpur', 'singapore', 'train'], ['singapore', 'jakarta', 'ship'],
+  ['jakarta', 'manila', 'ship'], ['manila', 'singapore', 'ship'], ['bangkok', 'bangalore', 'ship'],
+  ['bangalore', 'mumbai', 'train'], ['bangalore', 'delhi', 'train'], ['delhi', 'mumbai', 'train'],
+  ['delhi', 'dubai', 'train'], ['mumbai', 'dubai', 'ship'], ['dubai', 'telaviv', 'train'],
+  // ── 大洋洲 ──
+  ['singapore', 'sydney', 'ship'], ['sydney', 'melbourne', 'train'], ['jakarta', 'melbourne', 'ship'],
+  // ── 飛機專用長程航線(可橫跨城市;只有飛機能用)──
+  ['sv', 'tokyo', 'plane'], ['sv', 'hsinchu', 'plane'], ['la', 'tokyo', 'plane'], ['sydney', 'austin', 'plane'],
+  ['nyc', 'amsterdam', 'plane'], ['amsterdam', 'sv', 'plane'], ['amsterdam', 'seattle', 'plane'],
+  ['dubai', 'singapore', 'plane'], ['bangalore', 'shanghai', 'plane'], ['berlin', 'telaviv', 'plane'],
+  ['paris', 'nyc', 'plane'], ['manila', 'tokyo', 'plane'],
 ];
 
-// 航線交通工具類型(前後端共用,亦為「鐵路/航運 vs 飛機」移動規則的單一真相):
-//   train 鐵路 / ship 航運 → 只能通行到「相鄰」城市(便宜的相鄰移動,1🛢️;越洋海運亦可);
-//   plane 飛機 → 長程航線,唯有飛機能橫跨多座城市(不能用便宜的相鄰移動,須搭機 5🛢️)。
-//   未列出的邊預設 'ship'(視為相鄰陸海運)。EDGES 仍為完整連通圖(飛機 BFS 用)。
-export const EDGE_TYPES = {
-  'seattle|sv': 'train', 'seattle|vancouver': 'train', 'sv|austin': 'train', 'sv|nyc': 'train', 'sv|phoenix': 'train',
-  'austin|nyc': 'train', 'austin|phoenix': 'train', 'austin|la': 'train', 'austin|mexico': 'train',
-  'nyc|phoenix': 'train', 'nyc|toronto': 'train', 'nyc|london': 'ship', 'la|mexico': 'train',
-  'toronto|london': 'ship', 'toronto|amsterdam': 'train', 'london|amsterdam': 'ship',
-  'beijing|shanghai': 'train', 'beijing|hangzhou': 'train', 'beijing|seoul': 'train',
-  'shanghai|shenzhen': 'train', 'shanghai|hangzhou': 'train', 'shanghai|wuhan': 'train', 'shanghai|tokyo': 'ship', 'shanghai|seoul': 'train', 'shanghai|hsinchu': 'ship',
-  'shenzhen|hangzhou': 'train', 'shenzhen|wuhan': 'train', 'shenzhen|chengdu': 'train', 'shenzhen|hsinchu': 'ship', 'shenzhen|hanoi': 'ship', 'shenzhen|bangkok': 'ship',
-  'hangzhou|wuhan': 'train', 'wuhan|chengdu': 'train', 'wuhan|bangkok': 'train',
-  'chengdu|hanoi': 'train', 'chengdu|bangkok': 'train', 'chengdu|dubai': 'train',
-  'tokyo|seoul': 'ship', 'tokyo|hsinchu': 'ship', 'seoul|hsinchu': 'ship', 'hsinchu|hanoi': 'ship',
-  'hanoi|singapore': 'ship', 'hanoi|bangkok': 'train', 'hanoi|bangalore': 'ship',
-  'singapore|sydney': 'ship', 'singapore|bangkok': 'train', 'singapore|bangalore': 'ship',
-  'bangkok|bangalore': 'ship', 'bangkok|dubai': 'ship', 'bangalore|dubai': 'ship',
-  'seattle|tokyo': 'ship', 'vancouver|tokyo': 'ship', 'la|sydney': 'ship',
-  'la|hsinchu': 'ship', 'la|shanghai': 'ship', 'seattle|seoul': 'ship', 'vancouver|seoul': 'ship',
-  'sv|tokyo': 'plane', 'sv|hsinchu': 'plane', 'la|tokyo': 'plane', 'sydney|austin': 'plane', 'nyc|amsterdam': 'plane',
-  'amsterdam|sv': 'plane', 'amsterdam|seattle': 'plane', 'london|sv': 'plane',
-  'dubai|singapore': 'plane', 'bangalore|shanghai': 'plane',
-};
+// 由單一真相 EDGE_LIST 導出:EDGES(完整連通圖,供飛機 BFS)+ EDGE_TYPES(交通工具,供相鄰/飛機判定)
+export const EDGES = EDGE_LIST.map(([a, b]) => [a, b]);
+export const EDGE_TYPES = Object.fromEntries(EDGE_LIST.map(([a, b, t]) => [`${a}|${b}`, t]));
 
 /** 此邊是否為飛機專用航線:鐵路/航運的相鄰移動不可使用,只有飛機可橫跨 */
 export const isAirEdge = (a, b) => (EDGE_TYPES[`${a}|${b}`] || EDGE_TYPES[`${b}|${a}`]) === 'plane';
+
+/** 遊戲回合數依人數決定:2~4 人 = 20 季(5 年)、5~6 人 = 16 季(4 年)、7~8 人 = 12 季(3 年)。
+ *  人多 → 每季行動總量大、單季耗時長,縮短季數讓整局時間維持合理。皆為整年數,季標籤不會出現半年。 */
+export function roundsForPlayers(n) {
+  const c = Math.max(2, Math.min(8, n | 0));
+  return c <= 4 ? 20 : c <= 6 ? 16 : 12;
+}
 
 // 以下為預設值;伺服器啟動時會讀取 config/rules.json 覆寫(前端開局時也會 fetch 同一份套用)
 export const RULES = {
@@ -516,6 +577,7 @@ export const RULES = {
   cityUpgradePower: 3,     // 升級城市電力費用 = 目前等級 × 3(韓國減半)
   opsRange: 2,             // 灰色作戰卡:對兩次航線(2 格)可及處施展
   cnOpsRangeBonus: 1,      // 牆國優勢:灰色作戰卡攻擊範圍 +1(可及 3 格)
+  opsAirHops: 2,           // 灰色作戰卡:每段「空運(飛機航線)」算 2 格(鐵路/航運算 1 格),較難跨洋遠程狙擊
   opsDistSurcharge: 0.5,   // 每多一個航線(超過 1 格)費用 +50%
   // 三類作戰卡 debuff 強度:實際數值與 max(1, 攻擊力 − 有效防護力) 成正比
   opsTechDebuff: 5,        // 間諜:削減目標科技卡的科技力點數(上限為該卡實際貢獻)

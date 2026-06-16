@@ -69,6 +69,7 @@ class AudioManager {
     this.bank = {};         // name → 預載的 HTMLAudioElement(音效母本)
     this.music = null;      // 目前循環的背景樂元素
     this.musicName = null;
+    this.pendingEvent = null; // 解鎖前抽到的事件音(待首次互動後補播,避免事件音被瀏覽器靜默丟棄)
     this._ready = false;
   }
 
@@ -86,6 +87,9 @@ class AudioManager {
       this.unlocked = true;
       // 若已要求播放背景樂卻被擋,於此補播
       if (this.musicName && !this.muted) this.playMusic(this.musicName);
+      // 解鎖前抽到的集體事件音(例如尚未點擊就在觀戰的玩家),於首次互動後補播當前事件音
+      if (this.pendingEvent && !this.muted) this.sfx(this.pendingEvent);
+      this.pendingEvent = null;
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);
     };
@@ -108,10 +112,12 @@ class AudioManager {
     a.play().catch(() => {});
   }
 
-  // 集體事件音(依事件 id 對應六大情境)
+  // 集體事件音(依事件 id 對應六大情境);未解鎖時暫存,待首次互動補播
   event(eventId) {
     const key = EVENT_SOUND[eventId];
-    if (key) this.sfx(key);
+    if (!key) return;
+    if (!this.unlocked) { this.pendingEvent = key; return; }
+    this.sfx(key);
   }
 
   // 卡片 / 行動特效音(依 fx 類型對應)

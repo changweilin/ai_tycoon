@@ -25,6 +25,7 @@
   "cityUpgradePower": 3,
   "opsRange": 2,
   "cnOpsRangeBonus": 1,
+  "opsAirHops": 2,
   "opsDistSurcharge": 0.5,
   "opsTechDebuff": 5,
   "opsIncomeDrain": 1,

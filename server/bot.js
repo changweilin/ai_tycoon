@@ -1,10 +1,19 @@
 // ============ AI 玩家(策略性格驅動的啟發式機器人) ============
-import { RULES, RES_KEYS } from '../public/js/data.js';
+import { RULES, RES_KEYS, OPS_CARDS } from '../public/js/data.js';
 import { neutralStrategy } from './strategy.js';
 
 function rand(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 function totalRes(c) { return RES_KEYS.reduce((s, k) => s + (c[k] || 0), 0); }
 function canPay(p, c) { return RES_KEYS.every(k => p.res[k] >= (c[k] || 0)); }
+/** 卡片級數:科技卡 tier、灰色作戰卡 level */
+function lvlOf(c) { return c.kind === 'tech' ? c.tier : (OPS_CARDS[c.type]?.level || 0); }
+/** 指定類別的灰卡 id,依等級排序(desc=由高到低) */
+function opsIdsByCat(cats, desc = true) {
+  return Object.values(OPS_CARDS)
+    .filter(o => cats.includes(o.cat))
+    .sort((a, b) => (desc ? b.level - a.level : a.level - b.level) || (a.cat < b.cat ? -1 : 1))
+    .map(o => o.id);
+}
 
 /** 自利型優先打擊的對象:領先陣營/資源最雄厚的玩家集合 */
 function leadingPlayerIds(g) {
@@ -12,9 +21,9 @@ function leadingPlayerIds(g) {
   return new Set(sorted.slice(0, Math.ceil(sorted.length / 3)).map(p => p.id));
 }
 
-/** 在手牌中找出 1~3 階科技卡湊成階級加總 target 的索引組合(回傳 null 表示湊不出) */
+/** 在手牌中找出 Lv.1~3 卡(科技卡或灰卡)湊成級數加總 target 的索引組合(回傳 null 表示湊不出) */
 function findTierSubset(hand, target) {
-  const items = hand.map((c, i) => ({ c, i })).filter(o => o.c.kind === 'tech' && o.c.tier <= 3);
+  const items = hand.map((c, i) => ({ c, i, lv: lvlOf(c) })).filter(o => o.lv >= 1 && o.lv <= 3);
   let found = null;
   (function dfs(start, remain, picked) {
     if (found) return;
@@ -22,7 +31,7 @@ function findTierSubset(hand, target) {
     if (start >= items.length || remain < 0) return;
     for (let k = start; k < items.length && !found; k++) {
       picked.push(items[k].i);
-      dfs(k + 1, remain - items[k].c.tier, picked);
+      dfs(k + 1, remain - items[k].lv, picked);
       picked.pop();
     }
   })(0, target, []);
@@ -111,7 +120,8 @@ export function botStep(g) {
 
   // 2. 有好目標就打作戰卡:攻擊型出手門檻低;自利型優先打領先者;合作型手下留情
   const opsThreshold = Math.round(16 - s.aggressive * 12 + s.cooperative * 4);
-  const opsOrder = p.turnFlags.forfeitOps ? [] : ['spy2', 'steal2', 'spy1', 'steal1'];
+  // 間諜/竊取優先用高等級灰卡(debuff 更狠);假新聞另行處理
+  const opsOrder = p.turnFlags.forfeitOps ? [] : opsIdsByCat(['spy', 'steal'], true);
   const leaders = s.selfish > 0.5 ? leadingPlayerIds(g) : null;
   for (const type of opsOrder) {
     const idx = p.hand.findIndex(c => c.kind === 'ops' && c.type === type);
@@ -133,7 +143,7 @@ export function botStep(g) {
   }
   // 假新聞:攻擊型手牌沒滿也丟;保守型只在手牌快滿時清出空間
   const fakeHandGate = s.aggressive > 0.6 ? RULES.handLimit - 3 : RULES.handLimit - 1;
-  for (const type of ['fake1', 'fake2']) {
+  for (const type of opsIdsByCat(['fake'], false)) {
     if (p.turnFlags.forfeitOps) break;
     const idx = p.hand.findIndex(c => c.kind === 'ops' && c.type === type);
     if (idx < 0 || p.hand.length < fakeHandGate) continue;
@@ -163,7 +173,7 @@ export function botStep(g) {
   // 4. 捨牌升階換高階卡(每回合自動抽卡,沒有手動抽卡)。優先衝 5 階,其次 4 階
   if (p.ap >= RULES.cardUpgradeAp) {
     const t4InHand = p.hand.map((c, i) => [c, i])
-      .filter(([c]) => c.kind === 'tech' && c.tier === 4).map(([, i]) => i);
+      .filter(([c]) => lvlOf(c) === 4).map(([, i]) => i);
     // 5 階:手上有足夠 4 階卡且牌庫有貨,長期/中後期升頂
     if (g.tier5Deck.length > 0 && t4InHand.length >= RULES.tier5DiscardCount
       && (s.longTerm > 0.4 || g.round >= 8)) {

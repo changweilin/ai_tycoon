@@ -1,6 +1,7 @@
 // ============ 前端 UI 與流程(連線版) ============
 import { FACTIONS, CHARACTERS, CHARACTER_LINES, TECH_CATEGORIES, TECH_CARDS,
   MAIN_TIER_COPIES, TIER4_COPIES, TIER5_COPIES, OPS_CARDS, OPS_DECK_COMPOSITION,
+  OPS_TIER4_COMPOSITION, OPS_TIER5_COMPOSITION, EVENT_CARDS,
   RULES, REGIONS, RES_KEYS, RESOURCES, STRENGTH_AXES,
   charAvatar, charPortrait, charLogo, factionFlag, applyRulesOverrides } from './data.js';
 import { Board3D } from './board3d.js';
@@ -552,7 +553,7 @@ function renderTechBar(s) {
   $('#techLead').innerHTML = lead > 0 ? `米國領先 <b>${lead}</b> 點(${yrs(lead)} 年)`
     : lead < 0 ? `牆國反超 <b>${-lead}</b> 點(${yrs(-lead)} 年)` : '雙方持平!';
   $('#techGoal').textContent =
-    `1 年 = ${RULES.pointsPerYear} 點|米國勝利:領先 ${yrs(s.usThreshold)} 年|牆國勝利:差距 ≤ ${yrs(s.cnThreshold)} 年|${s.roundLabel}(共 3 年)`;
+    `1 年 = ${RULES.pointsPerYear} 點|米國勝利:領先 ${yrs(s.usThreshold)} 年|牆國勝利:差距 ≤ ${yrs(s.cnThreshold)} 年|${s.roundLabel}(共 ${Math.ceil((s.maxRounds || RULES.maxRounds) / RULES.seasonsPerYear)} 年)`;
   $('#eventLine').textContent = s.event
     ? `🌏 本季事件【${s.event.icon} ${s.event.name}】${s.event.desc}` : '';
   const total = 800;
@@ -614,7 +615,7 @@ function renderHand(m) {
     }
     return `<div class="card" data-idx="${i}">
       <div class="card-icon">${c.icon}</div>
-      <div class="card-name">${c.name}</div>
+      <div class="card-name">${c.name}${c.level ? `|Lv.${c.level}` : ''}</div>
       <div class="card-cost">${fmtRes(c.myCost)}${c.atk ? ` ⚔️${c.atk}` : ''}</div>
       <div class="card-desc">${c.desc}</div>
     </div>`;
@@ -689,22 +690,26 @@ function openCardUpgradeModal() {
   const cu = priv?.cardUpgrade;
   if (!priv || !cu) { toast('目前無法升階'); return; }
   const hand = priv.hand;
+  const lvlOf = c => c.kind === 'tech' ? c.tier : (c.level || 0);
   const draw = toTier => {
-    const eligible = hand.map((c, i) => ({ c, i }))
-      .filter(o => o.c.kind === 'tech' && (toTier === 4 ? o.c.tier <= 3 : o.c.tier === 4));
-    const need = toTier === 4 ? `階級加總正好 ${cu.sum}` : `${cu.need5} 張 4 階卡`;
+    const eligible = hand.map((c, i) => ({ c, i, lv: lvlOf(c) }))
+      .filter(o => o.lv >= 1 && (toTier === 4 ? o.lv <= 3 : o.lv === 4));
+    const need = toTier === 4 ? `級數加總正好 ${cu.sum}` : `${cu.need5} 張 Lv.4 卡`;
     const pool = toTier === 4 ? cu.pool4 : cu.pool5;
     const tabs = `<div class="upg-tabs">
       <button class="btn small-btn ${toTier === 4 ? 'toggled' : ''}" data-totier="4" ${cu.pool4 ? '' : 'disabled'}>換 4 階卡(庫存 ${cu.pool4})</button>
       <button class="btn small-btn ${toTier === 5 ? 'toggled' : ''}" data-totier="5" ${cu.pool5 ? '' : 'disabled'}>換 5 階卡(庫存 ${cu.pool5})</button>
     </div>`;
-    const rows = eligible.length ? eligible.map(o =>
-      `<label class="upg-row"><input type="checkbox" class="upg-ck" data-idx="${o.i}" data-tier="${o.c.tier}">
-        ${TECH_CATEGORIES[o.c.cat].icon}【${o.c.name}】${o.c.tier}階</label>`).join('')
-      : `<div class="modal-desc">(沒有可用於換 ${toTier} 階卡的手牌科技卡)</div>`;
+    const rows = eligible.length ? eligible.map(o => {
+      const icon = o.c.kind === 'tech' ? TECH_CATEGORIES[o.c.cat].icon : o.c.icon;
+      const tag = o.c.kind === 'ops' ? '灰卡' : '階';
+      return `<label class="upg-row"><input type="checkbox" class="upg-ck" data-idx="${o.i}" data-tier="${o.lv}">
+        ${icon}【${o.c.name}】Lv.${o.lv}${tag === '灰卡' ? ' 灰卡' : ''}</label>`;
+    }).join('')
+      : `<div class="modal-desc">(沒有可用於換 ${toTier} 階卡的手牌卡片)</div>`;
     $('#modalTitle').innerHTML = '⏫ 捨牌升階';
     $('#modalBody').innerHTML = tabs
-      + `<p class="modal-desc">捨棄手牌科技卡換取 1 張 ${toTier} 階卡(消耗 ${cu.ap} 行動點)。需${need};該階卡庫剩 ${pool} 張。</p>`
+      + `<p class="modal-desc">捨棄手牌卡片(科技卡或灰色作戰卡,不分類)換取 1 張 ${toTier} 階卡(消耗 ${cu.ap} 行動點)。需${need};該階卡庫剩 ${pool} 張。</p>`
       + `<div class="upg-list">${rows}</div><div id="upgSum" class="modal-desc"></div>`;
     $('#modalOptions').innerHTML =
       `<button class="btn" id="upgConfirm">確定升階</button><button class="btn" id="upgCancel">取消</button>`;
@@ -714,7 +719,7 @@ function openCardUpgradeModal() {
       const sum = cks.reduce((t, e) => t + parseInt(e.dataset.tier, 10), 0);
       const ok = toTier === 4 ? sum === cu.sum : cks.length === cu.need5;
       $('#upgSum').textContent = toTier === 4
-        ? `已選階級加總:${sum} / ${cu.sum}` : `已選 ${cks.length} / ${cu.need5} 張 4 階卡`;
+        ? `已選級數加總:${sum} / ${cu.sum}` : `已選 ${cks.length} / ${cu.need5} 張 Lv.4 卡`;
       $('#upgConfirm').disabled = !ok || pool === 0;
     };
     updateSum();
@@ -830,15 +835,19 @@ function onDeckClick(deckKey) {
 function deckScaleFor(n) { return RULES.deckScale[Math.min(8, Math.max(2, n))] || 1; }
 function copiesScaled(base, scale) { return Math.max(1, Math.round(base * scale)); }
 function showDeckInfo(deckKey) {
+  if (deckKey === 'eventCount') { showEventDeckInfo(); return; }
   const s = last.state;
   const scale = deckScaleFor(s.players.length);
   const map = {
     deckCount: { title: '🃏 公共牌庫(抽牌庫)', remain: s.deckCount, tiers: [1, 2, 3],
-      note: '只放 1~3 階科技卡(比例 4:3:2)+ 灰色作戰卡;抽完會把棄牌洗回。' },
+      ops: OPS_DECK_COMPOSITION,
+      note: '只放 1~3 階科技卡(比例 4:3:2)+ Lv.2~3 灰色作戰卡;抽完會把棄牌洗回。' },
     tier4Count: { title: '🔼 四階牌庫', remain: s.tier4Count, tiers: [4],
-      note: '獨立一疊,只能用「捨牌升階」(捨棄階級加總 6)換取。' },
+      ops: OPS_TIER4_COMPOSITION,
+      note: '獨立一疊(含 Lv.4 灰卡,約科技卡 50%),只能用「捨牌升階」(捨棄級數加總 6)換取。' },
     tier5Count: { title: '🏆 五階牌庫', remain: s.tier5Count, tiers: [5],
-      note: '獨立一疊,只能用「2 張四階卡升階」換取。' },
+      ops: OPS_TIER5_COMPOSITION,
+      note: '獨立一疊(含 Lv.5 灰卡,約科技卡 50%),只能用「2 張 Lv.4 卡升階」換取。' },
   };
   const info = map[deckKey]; if (!info) return;
   let total = 0, body = '';
@@ -852,10 +861,10 @@ function showDeckInfo(deckKey) {
     }).join('');
     if (rows) body += `<div class="dk-group" style="--cc:${cat.css}"><div class="dk-group-head">${cat.icon} ${cat.name}</div>${rows}</div>`;
   }
-  if (deckKey === 'deckCount') {
-    const opsRows = OPS_DECK_COMPOSITION.map(([type, base]) => {
+  if (info.ops) {
+    const opsRows = info.ops.map(([type, base]) => {
       const o = OPS_CARDS[type], copies = copiesScaled(base, scale); total += copies;
-      return `<div class="dk-card">${o.icon}【${o.name}】×${copies} <span class="dk-stat">⚔️${o.atk}</span></div>`;
+      return `<div class="dk-card">${o.icon}【${o.name}】Lv.${o.level} ×${copies} <span class="dk-stat">⚔️${o.atk}</span></div>`;
     }).join('');
     body += `<div class="dk-group" style="--cc:#9aa7c7"><div class="dk-group-head">🎯 灰色作戰卡</div>${opsRows}</div>`;
   }
@@ -863,6 +872,22 @@ function showDeckInfo(deckKey) {
     `<p class="modal-desc">目前牌庫剩 <b>${info.remain}</b> 張(全牌組共 ${total} 張)。${info.note}<br>
        以下為「全牌組組成」(可公開資訊;不顯示個別卡片的剩餘位置):</p>
      <div class="dk-list">${body}</div>`,
+    [{ label: '關閉', value: null }]);
+}
+
+// 點擊地圖中央的「集體事件牌庫」→ 查看全部事件卡內容(本季事件以綠框標示)
+function showEventDeckInfo() {
+  const s = last.state;
+  const curId = s.event?.id || null;
+  const rows = EVENT_CARDS.map(e => `
+    <div class="ev-card${e.id === curId ? ' ev-active' : ''}">
+      <div class="ev-name">${e.icon} ${e.name}</div>
+      <div class="ev-desc">${e.desc}</div>
+    </div>`).join('');
+  openModal('🌏 集體事件牌庫',
+    `<p class="modal-desc">每季開始前自動抽 1 張,效果持續整季;全 ${EVENT_CARDS.length} 張抽完會循環洗回。${
+      curId ? `本季為【${s.event.icon} ${s.event.name}】。` : ''}<br>以下為所有事件卡內容:</p>
+     <div class="dk-list"><div class="dk-group" style="--cc:#2eff8f">${rows}</div></div>`,
     [{ label: '關閉', value: null }]);
 }
 
@@ -992,7 +1017,7 @@ function readTradeInputs(prefix) {
 function processFx(s) {
   const fx = s.fx || [];
   const maxId = fx.length ? fx[fx.length - 1].id : 0;
-  if (lastFxId === null) lastFxId = maxId <= 2 ? 0 : maxId; // 新局播開場;重連略過歷史
+  if (lastFxId === null) lastFxId = maxId <= 4 ? 0 : maxId; // 新局開場 fx(擲骰+事件+抽卡)全播;重連略過歷史
   if (maxId <= lastFxId) { lastFxId = maxId; return; }      // 無新特效(或伺服器讀檔重置)
   for (const f of fx) { if (f.id > lastFxId) dispatchFx(f, s); }
   lastFxId = maxId;
@@ -1024,6 +1049,7 @@ function dispatchFx(f, s) {
   }
   audio.fx(f.type); // 卡片 / 行動特效音(event 另由 showEventFx 處理)
   switch (f.type) {
+    case 'dice': showDiceFx(f); break;
     case 'event': showEventFx(f.event); break;
     case 'build': {
       const c = TECH_CATEGORIES[f.cat];
@@ -1055,6 +1081,44 @@ function dispatchFx(f, s) {
     case 'upgrade':
       board.fxLabel(f.region, `⬆️ ${who} 升級 ${f.name || ''} Lv.${f.level || ''}`.trim(), col); break;
   }
+}
+
+// 開局擲骰決定回合順序:全螢幕骰子滾動動畫,定格後揭示先攻陣營與行動順序
+const DICE_FACES = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+function showDiceFx(f) {
+  const face = v => DICE_FACES[v] || `🎲${v}`;
+  const d = f.dice || [3, 3, 3];
+  const ov = $('#diceOverlay');
+  if (!ov) { // 無覆蓋層時退回 toast
+    toast(`🎲 米${face(d[0])} ⚔️ 牆${face(d[1])} → ${f.usFirst ? '米' : '牆'}陣營先攻`);
+    return;
+  }
+  const die0 = $('#die0'), die1 = $('#die1'), die2 = $('#die2');
+  const tie = d[0] === d[1];
+  const res = $('#diceResult'), ord = $('#diceOrder');
+  res.textContent = ''; ord.textContent = '';
+  $('#die2').parentElement.classList.toggle('show-arb', tie); // 平手才點亮裁決骰
+  for (const el of [die0, die1, die2]) { el.classList.remove('landed'); el.classList.add('rolling'); }
+  ov.classList.add('show');
+  audio.sfx('move'); // 骰子滾動聲(沿用既有音效)
+
+  let ticks = 0;
+  clearInterval(showDiceFx._iv);
+  showDiceFx._iv = setInterval(() => {
+    die0.textContent = face(1 + Math.floor(Math.random() * 6));
+    die1.textContent = face(1 + Math.floor(Math.random() * 6));
+    if (tie) die2.textContent = face(1 + Math.floor(Math.random() * 6));
+    if (++ticks >= 12) {
+      clearInterval(showDiceFx._iv);
+      die0.textContent = face(d[0]); die1.textContent = face(d[1]); die2.textContent = face(d[2]);
+      for (const el of [die0, die1, die2]) { el.classList.remove('rolling'); el.classList.add('landed'); }
+      audio.sfx('upgrade'); // 定格提示音
+      res.textContent = `米 ${d[0]} ⚔️ 牆 ${d[1]}${tie ? `（平手·裁決 ${d[2]}）` : ''} → ${f.usFirst ? '🟦 米' : '🟥 牆'}陣營先攻`;
+      ord.textContent = '行動順序　' + (f.order || []).map(o => o.name).join('　→　');
+    }
+  }, 90);
+  clearTimeout(showDiceFx._t);
+  showDiceFx._t = setTimeout(() => ov.classList.remove('show'), 4600);
 }
 
 function showEventFx(ev) {

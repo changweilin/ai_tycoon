@@ -313,6 +313,12 @@ body {
 .dk-card { display: flex; justify-content: space-between; gap: 12px; font-size: .82rem; color: #d7ecff; padding: 2px 0; line-height: 1.5; }
 .dk-card .dk-stat { color: #8aa9c9; white-space: nowrap; }
 .tc-cost { margin-top: 8px; color: var(--cyan); }
+/* 集體事件牌庫一覽 */
+.ev-card { display: block; padding: 5px 7px; border-radius: 6px; line-height: 1.45; }
+.ev-card .ev-name { color: #eafff4; font-weight: bold; font-size: .86rem; }
+.ev-card .ev-desc { color: #9fb6d2; font-size: .77rem; }
+.ev-card.ev-active { background: rgba(46,255,143,.12); box-shadow: inset 0 0 0 1px rgba(46,255,143,.55); }
+.ev-card.ev-active .ev-name::after { content: ' · 本季'; color: #2eff8f; font-size: .74rem; }
 
 .result-box { text-align: center; }
 .result-box h1 { color: var(--pink); text-shadow: 0 0 16px var(--pink); margin-bottom: 14px; }
@@ -362,6 +368,38 @@ body {
 @keyframes evpop { from { transform: scale(.55); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes evspin { from { transform: rotate(-14deg) scale(1.5); } 55% { transform: rotate(7deg) scale(1); } to { transform: rotate(0) scale(1); } }
 @keyframes evsweep { from { transform: scaleX(0); opacity: 1; } to { transform: scaleX(1); opacity: 0; } }
+
+/* ---------- 開局擲骰動畫覆蓋層 ---------- */
+#diceOverlay {
+  position: fixed; inset: 0; z-index: 64; display: flex;
+  align-items: center; justify-content: center; pointer-events: none;
+  opacity: 0; visibility: hidden; transition: opacity .35s ease;
+}
+#diceOverlay.show { opacity: 1; visibility: visible; }
+#diceOverlay::before {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(circle at center, rgba(46,255,143,.12), rgba(2,4,12,.86) 70%);
+}
+.dice-box { position: relative; text-align: center; }
+#diceOverlay.show .dice-box { animation: evpop .5s cubic-bezier(.2,1.5,.4,1); }
+.dice-title { color: #2eff8f; letter-spacing: 5px; font-size: clamp(15px,2.4vw,22px); font-weight: 800; text-shadow: 0 0 14px rgba(46,255,143,.6); }
+.dice-row { display: flex; align-items: center; justify-content: center; gap: clamp(14px,3vw,34px); margin: 18px 0 6px; }
+.die-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.die {
+  font-size: clamp(64px,12vw,128px); line-height: 1; color: #eafff4;
+  filter: drop-shadow(0 0 22px rgba(0,240,255,.7));
+}
+.die.rolling { animation: diceTumble .28s linear infinite; }
+.die.landed { animation: diceLand .5s cubic-bezier(.2,1.6,.4,1); }
+.die-sm { font-size: clamp(40px,7vw,78px); filter: drop-shadow(0 0 14px rgba(255,209,46,.7)); }
+.die-side { font-size: clamp(13px,1.8vw,18px); font-weight: 700; color: #bfe9ff; letter-spacing: 3px; }
+.die-arb { opacity: .55; }
+.die-arb.show-arb { opacity: 1; }
+.die-vs { font-size: clamp(26px,5vw,52px); filter: drop-shadow(0 0 12px rgba(255,80,80,.7)); }
+.dice-result { font-size: clamp(20px,4vw,40px); font-weight: 900; color: #eaffff; letter-spacing: 2px; text-shadow: 0 0 18px var(--pink); min-height: 1.2em; margin-top: 8px; }
+.dice-order { font-size: clamp(14px,2.2vw,21px); color: #cfeaff; margin-top: 10px; max-width: 86vw; line-height: 1.6; }
+@keyframes diceTumble { 0% { transform: rotate(-16deg) scale(.92); } 50% { transform: rotate(14deg) scale(1.06); } 100% { transform: rotate(-16deg) scale(.92); } }
+@keyframes diceLand { 0% { transform: scale(1.5) rotate(-10deg); } 60% { transform: scale(.92) rotate(4deg); } 100% { transform: scale(1) rotate(0); } }
 
 .rules-box { max-width: min(760px, 94vw); }
 .rules-content p { margin-bottom: 10px; font-size: .88rem; line-height: 1.8; color: #cfeaff; }

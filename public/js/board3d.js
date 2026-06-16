@@ -10,6 +10,12 @@ const NEON_PINK = 0xff2bd6;
 const NEON_PURPLE = 0x7b2bff;
 const NEON_AMBER = 0xffb000;
 
+// 玩家標記(頭頂頭像 / ID 名牌 / 指示箭頭)沿「相機 up 向量」抬升的距離。
+// 因 up ⟂ 螢幕水平軸,沿此方向偏移不改變投影後的螢幕 x → 標記永遠落在腳下光環正上方
+// (取代沿世界 +Y 抬升:後者在斜角相機下會與地面光環產生水平視差,看起來沒對齊)。
+const MARKER_UP = { avatar: 5.6, tag: 3.5, arrow: 6.7 };
+const _camUp = new THREE.Vector3(), _lup = new THREE.Vector3(), _iq = new THREE.Quaternion();
+
 // 把可能偏暗/低飽和的顏色(如中立城的灰)提亮成在深色場景上清楚可讀的版本,保留色相
 function legibleColor(css) {
   const c = new THREE.Color(css);
@@ -116,57 +122,57 @@ function mulberry32(seed) {
 // 風格化但更貼近現實的環太平洋輪廓([x,z] 世界座標;x 正=美洲側、z 負=北/寒、z 正=南/熱)。
 // 海岸線須包住 REGIONS 內對應的城市群(城市座標改動時一併重繪邊界);環太平洋以外(歐洲/印度/中東)刻意收斂不外推。
 const LANDMASSES = [
-  // 北美:真實輪廓 — 西岸太平洋直海岸(vancouver→seattle→sv→la)、南方經墨西哥收窄、
-  // 墨西哥灣凹口 + 佛羅里達半島、東岸抵紐約、加拿大寬頂。沿岸城靠海、phoenix/austin/mexico/toronto 內陸。
+  // 北美(12 米國城 + 溫哥華/多倫多/蒙特婁/墨西哥/巴拿馬):西岸太平洋沿線、南方收窄到墨西哥/巴拿馬、東岸抵波士頓。
+  // 座標依真實經緯度重排,海岸線一併重繪包住整個城市群(已程式驗證 point-in-polygon)。
   { name: 'northAmerica', coast: '#2bd6ff', biome: 'temperate', pts: [
-    [7.8, -11.5], [8.0, -9.8], [9.0, -7.5], [9.8, -3.0], [11.0, 1.0],
-    [12.6, 4.8], [13.8, 8.0], [14.8, 10.6], [15.6, 11.6], [17.0, 10.4],
-    [17.9, 7.6], [19.1, 6.0], [20.3, 7.4], [20.5, 4.8], [19.9, 1.5],
-    [19.4, -1.5], [18.8, -4.2], [19.3, -6.8], [18.0, -8.8], [15.5, -9.8],
-    [12.0, -10.8], [9.5, -11.4],
+    [7.8, -10.4], [8.2, -8.0], [8.2, -1.0], [9.2, 3.6], [10.6, 6.2],
+    [12.6, 9.8], [15.0, 12.2], [17.4, 12.2], [18.6, 9.0], [18.4, 3.6],
+    [19.4, -0.4], [21.4, -3.2], [21.8, -5.6], [20.2, -7.8], [16.8, -8.2],
+    [12.0, -9.2], [9.2, -10.2],
   ] },
-  // 歐洲:越大西洋的東北角小陸塊;london 緊貼西側海岸、amsterdam 緊貼北海東岸,與北美間留窄海峽
+  // 歐洲:越大西洋的東北角小陸塊(london/amsterdam/paris/berlin),與北美間留海峽
   { name: 'europe', coast: '#9c8cff', biome: 'temperate', pts: [
-    [19.6, -7.6], [21.0, -6.6], [23.0, -7.4], [24.2, -9.2], [23.8, -10.6],
-    [22.0, -11.0], [20.0, -10.2], [19.4, -8.6],
+    [20.0, -8.4], [22.0, -8.2], [24.4, -9.0], [25.4, -10.6], [24.6, -11.8],
+    [21.2, -12.0], [20.2, -10.4],
   ] },
-  // 歐亞大陸:上海/深圳緊貼東海岸、hanoi/bangkok 緊貼南岸、dubai 緊貼波灣西岸;
-  // 內陸城(beijing/wuhan/chengdu/bangalore)居中。東緣留海與朝鮮/台灣/日本/新加坡諸島分離。
+  // 歐亞大陸(12 牆國城 + 中東/印度中立 telaviv/dubai/delhi/mumbai/bangalore + 中南半島 hanoi/bangkok):
+  // 東海岸面太平洋(shanghai/shenzhen/guangzhou)、南岸接東南亞、西緣到中東;內陸城居中。
   { name: 'eurasia', coast: '#ff7b9c', biome: 'temperate', pts: [
-    [-19.5, -12.0], [-15.0, -10.2], [-11.8, -9.6], [-8.6, -8.2], [-7.8, -5.0],
-    [-8.3, -2.5], [-9.4, -0.2], [-9.8, 1.5], [-10.6, 3.4], [-11.2, 5.2],
-    [-12.6, 6.9], [-14.0, 7.6], [-15.6, 8.6], [-16.5, 9.6], [-18.2, 7.8],
-    [-18.2, 5.4], [-19.4, 3.0], [-20.0, -1.0], [-20.0, -7.0],
+    [-7.6, -10.6], [-7.4, -7.0], [-8.6, -2.0], [-9.2, 0.0], [-10.0, 2.0],
+    [-11.0, 4.6], [-13.0, 6.4], [-14.0, 8.0], [-15.4, 9.6], [-17.0, 9.4],
+    [-18.6, 8.0], [-20.4, 4.8], [-20.6, 2.0], [-19.0, -2.0], [-16.4, -5.4],
+    [-13.0, -9.2], [-10.0, -10.8],
   ] },
-  // 朝鮮半島(含 seoul)
+  // 朝鮮半島(seoul/busan)
   { name: 'korea', coast: '#ffd02e', biome: 'cold', pts: [
-    [-6.95, -9.8], [-6.3, -9.0], [-6.0, -8.0], [-5.9, -7.0], [-6.2, -6.3],
-    [-6.8, -6.8], [-7.05, -8.0], [-7.0, -9.0],
+    [-7.8, -9.0], [-6.8, -8.6], [-5.6, -6.4], [-5.4, -5.0], [-6.4, -4.6],
+    [-7.0, -6.4], [-7.6, -7.8],
   ] },
-  // 日本列島弧(含 tokyo)
+  // 日本列島弧(tokyo/osaka):大阪在東京西南
   { name: 'japan', coast: '#cdd6ff', biome: 'temperate', pts: [
-    [-1.8, -8.6], [-2.4, -7.4], [-3.0, -6.2], [-3.5, -5.0], [-4.4, -4.0],
-    [-5.0, -4.5], [-4.5, -5.7], [-3.9, -6.9], [-3.1, -8.1], [-2.4, -8.9],
+    [-1.6, -6.8], [-2.0, -4.4], [-2.4, -3.0], [-3.4, -3.2], [-4.4, -4.4],
+    [-4.2, -6.2], [-3.0, -7.4],
   ] },
-  // 台灣(含 hsinchu)
+  // 台灣(hsinchu/taipei)
   { name: 'taiwan', coast: '#2eff8f', biome: 'tropical', pts: [
-    [-5.6, -2.0], [-5.3, -1.0], [-5.5, 0.0], [-6.0, 0.7], [-6.6, 0.2],
-    [-6.7, -0.9], [-6.3, -1.9],
+    [-5.0, -2.8], [-4.8, -1.4], [-5.4, 0.4], [-6.4, 0.6], [-7.2, -0.4],
+    [-7.0, -2.2], [-6.0, -3.2],
   ] },
-  // 澳洲:sydney 緊貼東岸(太平洋),內陸往西延伸(沙漠/Outback 在雪梨西邊)
+  // 澳洲(sydney/melbourne):東岸太平洋,內陸往西為沙漠
   { name: 'australia', coast: '#ffb000', biome: 'desert', pts: [
-    [-2.0, 9.6], [-1.9, 11.0], [-2.5, 12.8], [-4.0, 13.4], [-5.8, 12.8],
-    [-6.6, 11.0], [-5.8, 9.4], [-4.0, 8.8], [-2.8, 9.0],
+    [-2.2, 9.4], [-2.0, 11.0], [-2.8, 13.0], [-4.6, 13.8], [-6.4, 13.0],
+    [-7.0, 11.0], [-6.0, 9.4], [-4.0, 9.0],
   ] },
 ];
 
-// 裝飾用小島(夏威夷/菲律賓/印尼/新加坡/紐西蘭)
+// 裝飾用小島(夏威夷/海洋東南亞諸城下方島嶼/紐西蘭);島礁為純裝飾,城市六角格獨立繪製
 const DECOR_ISLANDS = [
   { x: 4.0, z: -1.0, r: 0.45 }, { x: 4.7, z: -0.4, r: 0.3 },        // 夏威夷
-  { x: -6.4, z: 3.2, r: 0.5 }, { x: -5.9, z: 4.2, r: 0.35 },        // 菲律賓
-  [-9.5, 9.6, 0.5], [-8.0, 10.0, 0.45], [-6.6, 10.2, 0.4],          // 印尼鏈
-  { x: -11.0, z: 8.5, r: 0.55 },                                     // 新加坡島
-  { x: 1.5, z: 13.0, r: 0.5 }, { x: 2.1, z: 14.0, r: 0.4 },          // 紐西蘭
+  { x: -13.8, z: 9.2, r: 0.6 },                                     // 吉隆坡(馬來半島島礁)
+  { x: -12.8, z: 11.0, r: 0.55 },                                   // 新加坡島
+  { x: -10.8, z: 12.0, r: 0.6 }, { x: -9.6, z: 12.6, r: 0.42 },     // 雅加達/印尼鏈
+  { x: -8.6, z: 8.2, r: 0.55 }, { x: -7.6, z: 9.4, r: 0.4 },        // 馬尼拉/菲律賓
+  { x: 0.2, z: 13.6, r: 0.5 }, { x: 0.9, z: 14.6, r: 0.4 },         // 紐西蘭
 ].map(i => Array.isArray(i) ? { x: i[0], z: i[1], r: i[2] } : i);
 
 // ---------- 航線交通工具類型(EDGE_TYPES 由 data.js 共用:train/ship 相鄰、plane 跨洋) ----------
@@ -1384,8 +1390,9 @@ export class Board3D {
         this.scene.add(chipRing);
       }
 
+      // 城名抬到旗幟頂端之上(旗桿頂 ≲3,字牌底邊在 ~3.4),建造科技卡升起的公司旗不再被地名遮住
       const label = makeLabelSprite(r.name, r.tag, '#' + facCol.getHexString());
-      label.position.set(r.x, 3.1, r.z);
+      label.position.set(r.x, 4.25, r.z);
       this.scene.add(label);
 
       const ring = new THREE.Mesh(
@@ -1571,7 +1578,10 @@ export class Board3D {
   // ---------- 太平洋正中央的三疊牌庫:公共牌庫(1-3階) + 四階 / 五階牌庫,上下並排 ----------
   _buildDeck() {
     this.deckStacks = [];
-    const COLX = 2.0; // 同一條 z 軸縱列,三疊上下並排
+    const COLX = 2.0; // 同一條 z 軸縱列(地圖中央太平洋),各疊上下並排
+    // 集體事件牌庫:置於牌庫縱列最上方(地圖中央),點擊可查看所有事件卡內容
+    this._makeDeckStack({ x: COLX, z: -4.2, label: '集體事件', sub: 'EVENT DECK', accent: '#2eff8f',
+      glyph: 'E', icon: '🌏', countKey: 'eventCount', n: 10, scale: 0.9 });
     this._makeDeckStack({ x: COLX, z: -1.0, label: '四階牌庫', sub: 'TIER 4', accent: '#ffb000',
       glyph: '4', icon: '🔼', countKey: 'tier4Count', n: 8, scale: 0.82 });
     const pub = this._makeDeckStack({ x: COLX, z: 2.0, label: '公共牌庫', sub: 'DRAW DECK', accent: '#00f0ff',
@@ -2142,15 +2152,17 @@ export class Board3D {
         pawn.rotation.y = -angle + Math.PI; // 面向城市中心
         pawn.userData.baseY = PAWN_BASE_Y;
 
-        // 玩家標記:頭頂 Q 版圓形頭像 + 名牌(垂直堆疊、置中對齊、互不遮擋;永遠面向鏡頭不被建築擋)
+        // 玩家標記:頭頂 Q 版圓形頭像 + 名牌(垂直堆疊;永遠面向鏡頭不被建築擋)。
+        // 位置每幀沿「相機 up 向量」設定(見 animate),確保兩者連同 ID 都落在腳下光環正上方。
         const isMe = this.myCharId && this.myCharId !== '*' && p.charId === this.myCharId;
         const av = new THREE.Sprite(new THREE.SpriteMaterial({ map: avatarTexture(p.charId), transparent: true, depthTest: false, depthWrite: false, fog: false }));
         const avS = isMe ? 1.85 : 1.5;
         av.center.set(0.5, 0.5); av.scale.set(avS, avS, 1);
-        av.position.set(0, 4.15, 0); av.renderOrder = 12; pawn.add(av);                         // 上:圓形頭像(置中)
+        av.position.set(0, 4.15, 0); av.renderOrder = 12; pawn.add(av);                         // 上:圓形頭像
         const tag = makeNameTag((p.isAI ? '🤖 ' : '') + p.name + (isMe ? '(你)' : ''), isMe ? '#ffd02e' : facCss, isMe ? 0.65 : 0.55);
-        tag.center.set(0.5, 0.5); tag.position.set(0, 2.7, 0); tag.renderOrder = 14; pawn.add(tag); // 下:ID 名牌(與頭像共用 x=0 → 左右對齊)
+        tag.center.set(0.5, 0.5); tag.position.set(0, 2.7, 0); tag.renderOrder = 14; pawn.add(tag); // 下:ID 名牌
         pawn.userData.marker = av;
+        pawn.userData.tag = tag;
         // 腳下陣營色光環(看得出棋子落點)
         const disc = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.72, 32),
           new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }));
@@ -2490,10 +2502,19 @@ export class Board3D {
       const ring = this.blockedRings[rid];
       if (ring.visible) ring.rotation.z = t * 1.5;
     }
+    // 相機 up 向量(世界座標)— 與螢幕水平軸垂直,標記沿此方向抬升即落在光環正上方
+    _camUp.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize();
     this.pawnGroup.children.forEach(p => {
       const ud = p.userData;
       const ph = ud.phase || 0;
       const baseY = ud.baseY || 0;
+      // 標記(頭像/ID/箭頭)沿相機 up 抬升 → 投影後落在腳下光環正上方(消除斜角相機的水平視差)
+      const placeMarkers = () => {
+        _lup.copy(_camUp).applyQuaternion(_iq.copy(p.quaternion).invert());
+        if (ud.marker) ud.marker.position.copy(_lup).multiplyScalar(MARKER_UP.avatar);
+        if (ud.tag) ud.tag.position.copy(_lup).multiplyScalar(MARKER_UP.tag);
+        if (ud.arrow) ud.arrow.position.copy(_lup).multiplyScalar(MARKER_UP.arrow + Math.sin(t * 4) * 0.18);
+      };
       // 移動中:沿弧線從舊城跳到新城,並面向移動方向(略過待機/active 動畫)
       if (ud.moveT !== undefined && ud.moveT < 1) {
         ud.moveT = Math.min(1, ud.moveT + dt / (ud.moveDur || 0.9));
@@ -2504,6 +2525,7 @@ export class Board3D {
         const dx = ud.tx - ud.fromX, dz = ud.tz - ud.fromZ;
         if (dx * dx + dz * dz > 1e-4) p.rotation.y = Math.atan2(dx, dz);
         if (ud.moveT >= 1) { p.position.set(ud.tx, baseY, ud.tz); p.rotation.y = ud.faceY ?? p.rotation.y; }
+        placeMarkers();
         return;
       }
       // 待機:輕浮動;當前回合者:明顯跳動 + 微旋身
@@ -2532,7 +2554,7 @@ export class Board3D {
         ud.disc.scale.set(ds, ds, ds);
       }
       if (ud.beam) ud.beam.material.opacity = 0.14 + Math.abs(Math.sin(t * 2.4)) * 0.16;
-      if (ud.arrow) ud.arrow.position.y = 5.5 + Math.sin(t * 4) * 0.2;
+      placeMarkers();
     });
 
     // 交通工具沿航線移動

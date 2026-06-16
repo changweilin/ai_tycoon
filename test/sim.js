@@ -1,9 +1,11 @@
 // 無頭模擬:隨機跑完整局,驗證邏輯不會崩潰
 import { Game } from '../server/game.js';
 import { botStep } from '../server/bot.js';
-import { RES_KEYS, REGIONS, RULES, CHARACTERS } from '../public/js/data.js';
+import { RES_KEYS, REGIONS, RULES, CHARACTERS, OPS_CARDS } from '../public/js/data.js';
 
 function rand(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+/** 卡片級數:科技卡 tier、灰色作戰卡 level(升階/牌庫歸位時不分科技/灰卡) */
+function lvl(c) { return c.kind === 'tech' ? c.tier : (OPS_CARDS[c.type]?.level || 0); }
 // 全部流通中的卡(開局時:公共牌庫 + 各家手牌 = 完整 1~3 階公牌;另含獨立的 4/5 階疊)。
 // 公牌變小後,直接 g.deck.find 指定類別/階級可能抽不到,改從完整流通池挑代表卡。
 function pool(g) { return [...g.deck, ...g.players.flatMap(p => p.hand), ...g.tier4Deck, ...g.tier5Deck]; }
@@ -153,7 +155,7 @@ for (const seats of seatSets) {
   const sum = c => RES_KEYS.reduce((s, k) => s + c[k], 0);
   const us = g.players.find(q => q.faction === 'US');
   const cn = g.players.find(q => q.faction === 'CN');
-  if (sum(g.opsCostFor(cn, 'spy1')) !== Math.ceil(sum(g.opsCostFor(us, 'spy1')) / 2))
+  if (sum(g.opsCostFor(cn, 'spy2')) !== Math.ceil(sum(g.opsCostFor(us, 'spy2')) / 2))
     throw new Error('牆國作戰卡未半價');
 
   // 金錢兌換:2💰=1,每回合一次,不可反向
@@ -209,22 +211,25 @@ for (const seats of seatSets) {
   console.log('✅ 牆國半價/兌換/城市等級/交易環節(提案3次/成交1次) 通過');
 }
 
-// 作戰卡兩格射程驗證
+// 作戰卡射程驗證:空運(飛機航線)算兩格、鐵路/航運算一格
 {
   const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
-  const p = g.cur(); // jensen 在矽谷
+  const p = g.players.find(q => q.char.id === 'jensen'); g.turnIdx = p.id; // jensen 在矽谷 sv
   const enemy = g.players.find(q => q.faction === 'CN');
   const mk = (uid, rid) => g.regions[rid].cards.push({
     uid, kind: 'tech', cat: 'ai', tier: 1, name: `測試${uid}`, tech: 1, def: 0, trade: 0,
     owner: enemy.id, techApplied: 1, special: null,
   });
-  mk(9001, 'shanghai'); // 矽谷 → 新竹 → 上海 = 2 格內
-  mk(9002, 'beijing');  // 3 格外
+  // 前提:未加權時 shanghai 距 sv 2 格;空運算 2 格後(sv→hsinchu 為飛機)→ shanghai 變 3 格、hsinchu 仍 2 格
+  if (g.distancesFrom('sv', 9).shanghai !== 2) throw new Error('（前提）未加權時 shanghai 應距 sv 2 格');
+  const w = g.opsDistancesFrom('sv', 9);
+  if (w.shanghai !== 3 || w.hsinchu !== 2) throw new Error('空運加權距離錯誤(空運應算 2 格)');
+  mk(9001, 'hsinchu');  // 1 段飛機 = 2 格(射程 2 內)
+  mk(9002, 'shanghai'); // 飛機 + 航運 = 3 格(射程外)
   const uids = g.cardTargets('spy2').map(t => t.uid);
-  if (!uids.includes(9001)) throw new Error('兩格內目標應合法');
-  if (uids.includes(9002)) throw new Error('兩格外目標應不合法');
-  if (g.cardTargets('fake1').some(t => t.regionId === 'beijing')) throw new Error('假新聞超出射程應不合法');
-  console.log('✅ 作戰卡兩格射程 通過');
+  if (!uids.includes(9001)) throw new Error('空運可及(2格)目標應合法');
+  if (uids.includes(9002)) throw new Error('空運再 +1(3格)目標應超出射程');
+  console.log('✅ 作戰卡射程:空運算兩格(plane=2)、鐵路/航運算一格 通過');
 }
 
 // 作戰卡 debuff:間諜減科技力(不拆卡)/竊取收益(每回合轉移)/假新聞折舊陷阱(改建時施法者得利)
@@ -236,15 +241,15 @@ for (const seats of seatSets) {
   const sum = c => RES_KEYS.reduce((s, k) => s + c[k], 0);
   g.turnIdx = us.id; us.ap = 3; us.res = { money: 99, power: 99, oil: 99 };
 
-  // ---- 間諜:削科技力但卡片仍在 ----
-  g.regions.shanghai.cards.push({ uid: 90001, kind: 'tech', cat: 'ai', tier: 3, name: '科技卡',
+  // ---- 間諜:削科技力但卡片仍在(目標置於 sv 射程 2 內的 sydney)----
+  g.regions.sydney.cards.push({ uid: 90001, kind: 'tech', cat: 'ai', tier: 3, name: '科技卡',
     tech: 20, def: 0, trade: 6, cost: 19, owner: cn.id, techApplied: 20, special: null });
   const cnTechBefore = g.tech.CN;
-  us.hand = [{ kind: 'ops', type: 'spy2' }];
-  const spyT = g.cardTargets('spy2').find(t => t.uid === 90001);
+  us.hand = [{ kind: 'ops', type: 'spy3' }];
+  const spyT = g.cardTargets('spy3').find(t => t.uid === 90001);
   if (!spyT) throw new Error('間諜應有合法目標');
   if (!g.doPlayCard(0, spyT).ok) throw new Error('間諜施放失敗');
-  const c1 = g.regions.shanghai.cards.find(c => c.uid === 90001);
+  const c1 = g.regions.sydney.cards.find(c => c.uid === 90001);
   if (!c1) throw new Error('間諜不應拆卡,卡片應仍在場');
   if (c1.debuff?.type !== 'tech' || c1.debuff.val !== 20 || c1.techApplied !== 0)
     throw new Error('間諜 debuff 應削減科技力 20:' + JSON.stringify(c1.debuff));
@@ -253,9 +258,9 @@ for (const seats of seatSets) {
   // ---- 竊取:每回合把收益從對手轉給施法者(守恆) ----
   g.regions.hsinchu.cards.push({ uid: 90002, kind: 'tech', cat: 'ai', tier: 3, name: '金流卡',
     tech: 0, def: 0, trade: 9, cost: 19, owner: cn.id, techApplied: 0, special: null });
-  us.ap = 3; us.hand = [{ kind: 'ops', type: 'steal2' }];
+  us.ap = 3; us.hand = [{ kind: 'ops', type: 'steal3' }];
   const usInc0 = sum(g.incomeOf(us)), cnInc0 = sum(g.incomeOf(cn));
-  const stT = g.cardTargets('steal2').find(t => t.uid === 90002);
+  const stT = g.cardTargets('steal3').find(t => t.uid === 90002);
   if (!stT) throw new Error('竊取應有合法目標');
   if (!g.doPlayCard(0, stT).ok) throw new Error('竊取施放失敗');
   const c2 = g.regions.hsinchu.cards.find(c => c.uid === 90002);
@@ -264,21 +269,21 @@ for (const seats of seatSets) {
   if (!(usInc1 > usInc0) || !(cnInc1 < cnInc0)) throw new Error('竊取應使施法者收入增加、對手減少');
   if (usInc1 - usInc0 !== cnInc0 - cnInc1) throw new Error('竊取的收益應守恆');
 
-  // ---- 假新聞:折舊陷阱,對手同類改建該卡時,部分折舊資源轉移給施法者 ----
-  g.regions.shenzhen.cards.push({ uid: 90003, kind: 'tech', cat: 'ai', tier: 2, name: '陷阱卡',
+  // ---- 假新聞:折舊陷阱,對手同類改建該卡時,部分折舊資源轉移給施法者(目標置於射程 2 內的 vancouver)----
+  g.regions.vancouver.cards.push({ uid: 90003, kind: 'tech', cat: 'ai', tier: 2, name: '陷阱卡',
     tech: 10, def: 0, trade: 3, cost: 12, owner: cn.id, techApplied: 10, special: null });
-  g.turnIdx = us.id; us.ap = 3; us.hand = [{ kind: 'ops', type: 'fake1' }];
-  const fkT = g.cardTargets('fake1').find(t => t.uid === 90003);
+  g.turnIdx = us.id; us.ap = 3; us.hand = [{ kind: 'ops', type: 'fake2' }];
+  const fkT = g.cardTargets('fake2').find(t => t.uid === 90003);
   if (!fkT) throw new Error('假新聞應有合法目標');
   if (!g.doPlayCard(0, fkT).ok) throw new Error('假新聞施放失敗');
-  const c3 = g.regions.shenzhen.cards.find(c => c.uid === 90003);
+  const c3 = g.regions.vancouver.cards.find(c => c.uid === 90003);
   if (c3?.debuff?.type !== 'leak' || c3.debuff.by !== us.id) throw new Error('假新聞應植入 leak debuff');
   const expectTransfer = c3.debuff.val; // min(floor(12×0.5)=6, potency4×opsDeprecLeak)
   if (expectTransfer <= 0) throw new Error('折舊轉移額應 > 0');
-  // 牆國移到深圳同類(AI)改建該卡:部分折舊資源由 cn 轉移給施法者 jensen
-  g.turnIdx = cn.id; cn.ap = 3; cn.pos = 'shenzhen';
+  // 牆國移到 vancouver 同類(AI)改建該卡:部分折舊資源由 cn 轉移給施法者 jensen
+  g.turnIdx = cn.id; cn.ap = 3; cn.pos = 'vancouver';
   cn.res = { money: 999, power: 999, oil: 999 };
-  g.regions.shenzhen.level = 3; g.regions.shenzhen.builtRound = -10;
+  g.regions.vancouver.level = 3; g.regions.vancouver.builtRound = -10;
   cn.hand = [{ uid: 90004, kind: 'tech', cat: 'ai', tier: 3, name: '升級卡', tech: 20, def: 0, trade: 4, cost: 19 }];
   const usResBefore = RES_KEYS.reduce((s, k) => s + us.res[k], 0);
   if (!g.doPlayTech(0).ok) throw new Error('牆國同類改建失敗');
@@ -379,8 +384,12 @@ for (const seats of seatSets) {
 {
   const g = new Game([{ charId: 'musk' }, { charId: 'jensen' }, { charId: 'jack' },
     { charId: 'ren' }, { charId: 'tsmc' }, { charId: 'toyota' }]); // 6 人 scale=1,比例精準
-  if (g.deck.some(c => c.kind === 'tech' && c.tier > 3)) throw new Error('公牌出現 4/5 階卡');
-  if (g.tier4Deck.some(c => c.tier !== 4) || g.tier5Deck.some(c => c.tier !== 5)) throw new Error('高階疊混入錯誤階級');
+  if (g.deck.some(c => lvl(c) > 3)) throw new Error('公牌出現 Lv.4/5 卡');
+  if (g.tier4Deck.some(c => lvl(c) !== 4) || g.tier5Deck.some(c => lvl(c) !== 5)) throw new Error('高階疊混入錯誤級數');
+  // Lv.4/5 灰色作戰卡應與科技卡同住高階牌庫(數量約科技卡 50%)
+  const ops4 = g.tier4Deck.filter(c => c.kind === 'ops').length, tech4 = g.tier4Deck.filter(c => c.kind === 'tech').length;
+  const ops5 = g.tier5Deck.filter(c => c.kind === 'ops').length, tech5 = g.tier5Deck.filter(c => c.kind === 'tech').length;
+  if (!(ops4 > 0 && ops4 <= tech4) || !(ops5 > 0 && ops5 <= tech5)) throw new Error('高階灰卡數量異常');
   // 公牌總量(牌庫 + 已抽到各家手牌)的 1/2/3 階比例應為 4:3:2;高階卡不在公牌
   const tc = { 1: 0, 2: 0, 3: 0 };
   const all = [...g.deck, ...g.players.flatMap(p => p.hand)];
@@ -395,14 +404,21 @@ for (const seats of seatSets) {
 // 每回合自動抽一張卡(算力 perk 抽兩張) + 行動點每回合重置
 {
   const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
-  // jensen(算力 perk):開局手牌 = startHand + 自動抽 2
-  if (g.players[0].hand.length !== RULES.startHand + 2) throw new Error('算力 perk 開局未多抽一張');
-  // ren(無此 perk):輪到他時自動抽 1,行動點重置為 3
+  // 開局玩家依擲骰順序;其開局手牌 = startHand + 自動抽卡(算力 perk 抽 2,其餘抽 1)
+  const opener = g.cur();
+  if (opener.hand.length !== RULES.startHand + g.autoDrawCount(opener))
+    throw new Error('開局自動抽卡張數與 perk 不符');
+  // 推進到下一位玩家:輪到他時自動抽卡(依 perk)、行動點重置為當輪上限(可能受事件 apDelta 影響)
   g.cur().ap = 0; g.endTurn();
-  const ren = g.cur();
-  // 行動點每回合重置為當輪上限(可能受事件 apDelta 影響,故與 apPerTurn() 比對)
-  if (ren.ap !== g.apPerTurn()) throw new Error(`行動點未每回合重置(${ren.ap} ≠ ${g.apPerTurn()})`);
-  if (ren.hand.length !== RULES.startHand + 1) throw new Error('一般角色每回合未自動抽一張');
+  const next = g.cur();
+  if (next.ap !== g.apPerTurn()) throw new Error(`行動點未每回合重置(${next.ap} ≠ ${g.apPerTurn()})`);
+  if (next.hand.length !== RULES.startHand + g.autoDrawCount(next))
+    throw new Error('每回合未自動抽卡(依 perk)');
+  // 明確驗證算力 perk = 每回合抽 2、一般角色 = 抽 1
+  const jensen = g.players.find(p => p.char.id === 'jensen');
+  const ren = g.players.find(p => p.char.id === 'ren');
+  if (g.autoDrawCount(jensen) !== 2 || g.autoDrawCount(ren) !== 1)
+    throw new Error('算力 perk 應每回合抽 2、一般角色抽 1');
   console.log('✅ 行動點每回合重置 + 每回合自動抽一張(算力 perk 抽兩張) 通過');
 }
 
@@ -416,7 +432,7 @@ for (const seats of seatSets) {
   p.hand = [...t3s];
   if (!g.doUpgradeCard([0, 1], 4).ok) throw new Error('加總 6 換 4 階失敗');
   if (g.tier4Deck.length !== t4pool - 1) throw new Error('4 階卡庫未減少');
-  if (p.hand.length !== 1 || p.hand[0].tier !== 4) throw new Error('未換得 4 階卡');
+  if (p.hand.length !== 1 || lvl(p.hand[0]) !== 4) throw new Error('未換得 Lv.4 卡');
   // 加總非 6 應失敗
   const oneT3 = pool(g).find(c => c.kind === 'tech' && c.tier === 3);
   p.hand.push(oneT3);
@@ -427,7 +443,7 @@ for (const seats of seatSets) {
   p.hand = [fourA, fourB];
   if (!g.doUpgradeCard([0, 1], 5).ok) throw new Error('2 張 4 階換 5 階失敗');
   if (g.tier5Deck.length !== t5pool - 1) throw new Error('5 階卡庫未減少');
-  if (p.hand.length !== 1 || p.hand[0].tier !== 5) throw new Error('未換得 5 階卡');
+  if (p.hand.length !== 1 || lvl(p.hand[0]) !== 5) throw new Error('未換得 Lv.5 卡');
   if (g.doUpgradeCard([], 5).ok) throw new Error('空手不應能換 5 階');
   console.log('✅ 捨牌升階(加總6→4階;2張4階→5階) 通過');
 }
@@ -448,10 +464,54 @@ for (const seats of seatSets) {
   console.log('✅ 作戰卡航線距離加成(每多1格+50%)+ 牆國範圍+1 通過');
 }
 
+// 灰卡城市等級上限(Lv.L 只打城市等級 ≤L)+ 攻擊力限制(同級只打得動低防護的卡)
+{
+  const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
+  const us = g.players.find(q => q.faction === 'US'); // jensen 在 sv
+  const cn = g.players.find(q => q.faction === 'CN');
+  g.turnIdx = us.id; us.ap = 3; us.res = { money: 99, power: 99, oil: 99 };
+  const mk = (uid, rid, def) => g.regions[rid].cards.push({
+    uid, kind: 'tech', cat: 'ai', tier: 1, name: `c${uid}`, tech: 10, def, trade: 1,
+    cost: 7, owner: cn.id, techApplied: 10, special: null });
+  // hsinchu 與 sydney 距 sv 皆 2 格(均在射程內,經陸/海路),以城市等級區分能否出手
+  g.regions.hsinchu.level = 2; mk(80001, 'hsinchu', 0);   // 2 格、Lv.2、低防護
+  g.regions.sydney.level = 4; mk(80002, 'sydney', 0);     // 2 格、Lv.4、低防護
+  // Lv.2 灰卡:打得到 Lv.2 城市的卡,但打不到 Lv.4 城市的卡
+  const t2 = g.cardTargets('spy2').map(t => t.uid);
+  if (!t2.includes(80001)) throw new Error('Lv.2 灰卡應能打 Lv.2 城市的卡');
+  if (t2.includes(80002)) throw new Error('Lv.2 灰卡不應能打 Lv.4 城市的卡');
+  // Lv.5 灰卡:城市等級上限放寬到 5,兩張都打得到
+  mk(80003, 'sydney', 20); // 同在 Lv.4 城市但高防護(20)
+  const t5 = g.cardTargets('spy5').map(t => t.uid);
+  if (!t5.includes(80001) || !t5.includes(80002)) throw new Error('Lv.5 灰卡應能打 Lv.2 與 Lv.4 城市的低防護卡');
+  if (t5.includes(80003)) throw new Error('高防護(20)卡應擋下 atk11 的 Lv.5 灰卡(只能對付低防護)');
+  console.log('✅ 灰卡城市等級上限 + 同級只打得動低防護的卡 通過');
+}
+
+// 合併升階不分科技卡/灰色作戰卡:灰卡可當升階燃料(依 level 計入加總)
+{
+  const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
+  const p = g.cur(); p.ap = 3;
+  const t3 = pool(g).find(c => c.kind === 'tech' && c.tier === 3);
+  const t4pool = g.tier4Deck.length;
+  // 1 張 3 階科技卡(3) + 1 張 Lv.3 灰卡(3)= 加總 6 → 換 4 階
+  p.hand = [t3, { uid: 81001, kind: 'ops', type: 'spy3' }];
+  if (!g.canFormTierSum(p, RULES.tier4DiscardSum)) throw new Error('科技卡+灰卡應可湊出升階加總');
+  if (!g.doUpgradeCard([0, 1], 4).ok) throw new Error('科技卡+灰卡混合升階(換4階)失敗');
+  if (g.tier4Deck.length !== t4pool - 1 || lvl(p.hand[0]) !== 4) throw new Error('混合升階未換得 Lv.4 卡');
+  // 2 張 Lv.4 灰卡 → 換 5 階
+  p.ap = 3;
+  const t5pool = g.tier5Deck.length;
+  p.hand = [{ uid: 81002, kind: 'ops', type: 'spy4' }, { uid: 81003, kind: 'ops', type: 'fake4' }];
+  if (!g.doUpgradeCard([0, 1], 5).ok) throw new Error('2 張 Lv.4 灰卡升階(換5階)失敗');
+  if (g.tier5Deck.length !== t5pool - 1 || lvl(p.hand[0]) !== 5) throw new Error('灰卡升階未換得 Lv.5 卡');
+  console.log('✅ 合併升階不分科技/灰卡(灰卡可當燃料) 通過');
+}
+
 // 飛機只能跨 planeRange 格;超過無法直達
 {
   const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
-  const p = g.cur(); // jensen 在矽谷
+  const p = g.players.find(q => q.char.id === 'jensen'); g.turnIdx = p.id; // jensen 在矽谷 sv
   p.res.oil = 99; p.ap = 3;
   const dist = g.distancesFrom(p.pos);
   let testedNear = false, testedFar = false;
@@ -468,7 +528,7 @@ for (const seats of seatSets) {
 // 鐵路/航運(含越洋海運)限相鄰便宜移動;飛機專用航線只能搭機橫跨
 {
   const g = new Game([{ charId: 'jensen' }, { charId: 'ren' }, { charId: 'tsmc' }]);
-  const p = g.cur(); // jensen 在矽谷 sv
+  const p = g.players.find(q => q.char.id === 'jensen'); g.turnIdx = p.id; // jensen 在矽谷 sv
   p.res.oil = 99; p.ap = 3;
   // sv→seattle 鐵路相鄰:便宜移動(1🛢️,非飛機)
   if (!g.adj.sv.includes('seattle')) throw new Error('sv-seattle 應為鐵路相鄰');
