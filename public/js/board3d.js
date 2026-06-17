@@ -1685,67 +1685,72 @@ export class Board3D {
             : 0.1;
       const curve = new THREE.QuadraticBezierCurve3(pa, mid, pb);
 
-      // 粗管狀路線:THREE.Line 寬度大多平台被忽略,改用 TubeGeometry 才看得出粗細
+      // 粗管狀路線:THREE.Line 寬度大多平台被忽略,改用 TubeGeometry 才看得出粗細。
+      // 鐵路=黑白相間區塊、海運=圓點(點虛線),貼圖沿管長重複(見 routeTexture);飛機=純色實線弧。
       const radius = type === 'plane' ? 0.055 : 0.078;
       const tubularSeg = Math.max(10, Math.round(curve.getLength() * 5));
-      const tube = new THREE.Mesh(
-        new THREE.TubeGeometry(curve, tubularSeg, radius, 6, false),
-        new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: Math.min(0.9, style.opacity + 0.4) }));
+      const tex = routeTexture(type, curve.getLength());
+      const mat = tex
+        ? new THREE.MeshBasicMaterial({ map: tex, transparent: true,
+            opacity: type === 'ship' ? 0.95 : 1.0, alphaTest: type === 'ship' ? 0.35 : 0, depthWrite: false })
+        : new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: Math.min(0.9, style.opacity + 0.4) });
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, tubularSeg, radius, 6, false), mat);
       this.scene.add(tube);
-      // 火車保留虛線質感:粗管上再疊一條亮虛線
-      if (type === 'train') {
-        const dl = new THREE.Line(
-          new THREE.BufferGeometry().setFromPoints(curve.getPoints(28)),
-          new THREE.LineDashedMaterial({ color: 0xfff0d0, transparent: true, opacity: 0.6, dashSize: 0.3, gapSize: 0.22 }));
-        dl.computeLineDistances(); this.scene.add(dl);
-      }
 
       this._addVehicle(type, curve, dist);
     }
   }
 
-  // 淡化門戶連線:每端城市旁畫一條「越過邊界後漸淡」的線條(顏色沿線融入海色 → 像通往邊界外的城市),
-  // 線上標出通往的城市名。歐洲↔中東分居地圖左右兩緣,故歐洲端往右淡出、中東端往左淡出(世界環繞);
-  // 其餘長程(歐/中東 ↔ 環太平洋實城)則朝真實夥伴方向淡出。
+  // 邊界門戶連線:邊界城市往「另一邊夥伴城市的真實方向」伸出一段路線 —— 起點粗細與一般路線相同
+  // (同型號的鐵路黑白/海運點虛/空運實線),沿箭頭方向逐漸淡出(逐頂點 alpha 1→0),末端放箭頭與目的地名牌。
+  // 方向一律朝向夥伴城市的實際座標(不再強制水平 ±x);歐洲↔中東雖分居左右兩緣,亦指向對方真實位置。
   _addGatewayLink(aId, bId, pa, pb, type) {
     this._gatewayCount = this._gatewayCount || {};
     const style = TRAFFIC_STYLE[type];
     const icon = type === 'plane' ? '✈️' : type === 'ship' ? '🚢' : '🚆';
     const css = '#' + style.color.toString(16).padStart(6, '0');
     const nameOf = id => (REGIONS.find(r => r.id === id) || {}).name || id;
-    const fade = (this.scene.background && this.scene.background.isColor)
-      ? this.scene.background.clone() : new THREE.Color(0x1a2742);
+    const RAD = type === 'plane' ? 0.055 : 0.078; // 與一般路線相同粗細
 
     const stub = (cityId, otherId, from, to, destName) => {
-      // 同一城市的多條長程門戶往同方向,名牌依序往上抬避免互相覆蓋
+      // 同一城市的多條門戶往同方向,名牌依序往上抬避免互相覆蓋
       const lift = (this._gatewayCount[cityId] = (this._gatewayCount[cityId] || 0) + 1) - 1;
-      // 方向:歐洲↔中東 → 越過邊界(歐 +x、中東 -x);其餘 → 朝真實夥伴方向
-      let dir;
+      // 方向:朝夥伴城市的真實座標(水平投影),指向正確方位而非固定水平
+      const dir = to.clone().sub(from); dir.y = 0;
+      if (dir.lengthSq() < 1e-6) dir.set(1, 0, 0); else dir.normalize();
+      // 環繞型(歐↔中東跨整張地圖)拉長一點,凸顯「衝出邊界遠行」
       const wrap = (GW_EUROPE.has(cityId) && GW_MIDEAST.has(otherId)) || (GW_MIDEAST.has(cityId) && GW_EUROPE.has(otherId));
-      if (wrap) dir = new THREE.Vector3(GW_EUROPE.has(cityId) ? 1 : -1, 0, 0);
-      else { dir = to.clone().sub(from); dir.y = 0; dir.normalize(); }
-      const len = wrap ? 4.0 : 2.4; // 環繞門戶拉長一點,明顯「衝出邊界」
+      const len = wrap ? 3.4 : 2.6;
+      const y = type === 'plane' ? 0.6 : 0.14;
+      const start = from.clone().addScaledVector(dir, 0.42).setY(y);
+      const tip = from.clone().addScaledVector(dir, len).setY(y);
 
-      // 漸淡線:由城市端(亮)沿線把顏色 lerp 到海色(暗)→ 末端融進海面像消失在邊界外
-      const SEG = 20, pts = [], cols = [];
-      const c0 = new THREE.Color(style.color);
-      for (let i = 0; i <= SEG; i++) {
-        const f = i / SEG;
-        pts.push(from.clone().addScaledVector(dir, 0.4 + (len - 0.4) * f).setY(0.13));
-        const c = c0.clone().lerp(fade, f * f); cols.push(c.r, c.g, c.b);
+      // 與一般路線同款的粗管,套同型號貼圖;逐頂點 alpha 由起點(1)淡出到末端(0)
+      const curve = new THREE.LineCurve3(start, tip);
+      const tubularSeg = Math.max(12, Math.round(len * 6));
+      const geo = new THREE.TubeGeometry(curve, tubularSeg, RAD, 6, false);
+      const ringN = tubularSeg, perRing = 7; // radialSegments(6)+1
+      const vcount = geo.attributes.position.count;
+      const colors = new Float32Array(vcount * 4);
+      const tex = routeTexture(type, len);
+      const base = tex ? new THREE.Color(0xffffff) : new THREE.Color(style.color); // 有貼圖則白底讓貼圖原色顯示
+      for (let v = 0; v < vcount; v++) {
+        const f = Math.floor(v / perRing) / ringN;     // 0(起點)→1(末端)
+        colors[v * 4] = base.r; colors[v * 4 + 1] = base.g; colors[v * 4 + 2] = base.b;
+        colors[v * 4 + 3] = Math.max(0, 1 - f * f);    // 往箭頭方向淡出
       }
-      const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-      this.scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.92 })));
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 4));
+      const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false });
+      if (tex) mat.map = tex;
+      this.scene.add(new THREE.Mesh(geo, mat));
 
-      // 路線上的目的地名牌(騎在線中段)+ 線末端的交通圖示
-      const labelP = from.clone().addScaledVector(dir, 0.4 + (len - 0.4) * 0.5);
+      // 路線中段的目的地名牌 + 末端朝行進方向的箭頭(躺平指向夥伴)
+      const labelP = from.clone().addScaledVector(dir, 0.42 + (len - 0.42) * 0.5);
       const tag = makeNameTag(`${icon} ${destName}`, css, 0.46);
       tag.position.set(labelP.x, 0.62 + lift * 0.64, labelP.z); this.scene.add(tag);
-      const tip = from.clone().addScaledVector(dir, len);
-      const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.3, 8),
-        new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: 0.45 }));
-      arrow.position.set(tip.x, 0.13, tip.z); arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.34, 8),
+        new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: 0.5 }));
+      arrow.position.copy(tip); arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
       this.scene.add(arrow);
     };
     stub(aId, bId, pa, pb, nameOf(bId));
