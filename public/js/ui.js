@@ -154,6 +154,7 @@ function onOther(m) {
   if (m.t === 'info') toast(m.msg);
   else if (m.t === 'saves') showSavesList(m.list);
   else if (m.t === 'needRejoin') resetToConnect(m.msg || '房間已結束,請重新加入');
+  else if (m.t === 'kicked') { net.kill(); resetToConnect(m.msg || '你已被剔除房間'); }
 }
 
 // ---------------- 個人 PIN(設定一次,換角色沿用) ----------------
@@ -210,14 +211,31 @@ function renderLobby(m) {
     qrEl.innerHTML = qr.createImgTag(5, 8);
   }
 
-  // 成員列表
+  const randomChars = !!lobby.config?.randomChars;
+  // 成員列表(含準備狀態 + 投票剔除按鈕)
+  const kv = lobby.kickVotes || {};
+  const kickNeed = Math.floor((lobby.clients.length - 1) / 2) + 1;
   $('#lobbyClients').innerHTML = lobby.clients.map(c => {
     const ch = c.charId ? CHARACTERS.find(x => x.id === c.charId) : null;
-    return `<div class="seat">
-      <span class="seat-no">${c.isHost ? '👑' : c.mode === 'spectator' ? '👁️' : '🎮'}</span>
+    const isMe = c.id === m.youId;
+    const icon = c.isHost ? '👑' : c.mode === 'spectator' ? '👁️' : '🎮';
+    const charText = ch ? `${ch.name}【${FACTIONS[ch.faction].name}】`
+      : c.mode === 'spectator' ? '觀戰中'
+      : randomChars ? '🎲 待隨機分配' : '── 未選角色 ──';
+    const readyBadge = c.mode === 'player'
+      ? (c.ready ? '<span class="ready-tag yes">✅ 已準備</span>' : '<span class="ready-tag no">⏳ 未準備</span>')
+      : '';
+    let kickBtn = '';
+    if (!isMe && !c.isHost) {
+      const voters = kv[c.id] || [];
+      const iVoted = voters.includes(m.youId);
+      kickBtn = `<button class="kick-btn ${iVoted ? 'voted' : ''}" data-kick="${c.id}" title="投票剔除此玩家(過半同意即移出)">🗳️ ${voters.length}/${kickNeed}</button>`;
+    }
+    return `<div class="seat${isMe ? ' me' : ''}${c.connected === false ? ' offline' : ''}">
+      <span class="seat-no">${icon}</span>
       <span class="seat-name-ro">${c.name}</span>
-      <span class="seat-char" style="color:${ch ? FACTIONS[ch.faction].css : '#667'}">
-        ${ch ? `${ch.name}【${FACTIONS[ch.faction].name}】` : c.mode === 'spectator' ? '觀戰中' : '── 未選角色 ──'}</span>
+      <span class="seat-char" style="color:${ch ? FACTIONS[ch.faction].css : '#667'}">${charText}</span>
+      ${readyBadge}${kickBtn}
     </div>`;
   }).join('');
 
@@ -236,13 +254,28 @@ function renderLobby(m) {
   const mustTW = expected >= 3 && !lobby.takenChars.includes('tsmc') &&
     playerClients.length >= expected &&
     unselected.length === 1 && unselected[0].id === m.youId;
+  // 陣營人數平衡:每陣營(米=含日、牆=含韓)選角上限 = 扣除台灣後折半(偶數→1:1)
+  const sideCap = sideCapFor(expected);
+  const sc = { US: 0, CN: 0 };
+  for (const c of lobby.clients) {
+    if (c.mode !== 'player' || !c.charId) continue;
+    const cc = CHARACTERS.find(x => x.id === c.charId);
+    if (!cc || cc.faction === 'TW') continue;
+    sc[FACTIONS[cc.faction].side]++;
+  }
+  const meClient = lobby.clients.find(c => c.id === m.youId);
+  const meReady = !!meClient && meClient.ready;
+  // 角色清單可瀏覽但不可挑選:隨機分配模式、或我已按準備好
+  const viewOnly = randomChars || meReady;
   // 角色卡 HTML(單張)
   const cardHtml = c => {
     const lockedJPKR = (c.faction === 'JP' || c.faction === 'KR') && !allowJPKR;
-    const lockedTW = mustTW && c.id !== 'tsmc';
-    const taken = lobby.takenChars.includes(c.id);
+    const lockedTW = (mustTW && c.id !== 'tsmc') || (c.faction === 'TW' && expected < 3);
     const isMine = myCharId === c.id;
-    return `<div class="char-card ${taken && !isMine ? 'taken' : ''} ${lockedJPKR || lockedTW ? 'locked' : ''} ${isMine ? 'mine' : ''}"
+    const sideFull = c.faction !== 'TW' && !isMine && sc[FACTIONS[c.faction].side] >= sideCap;
+    const taken = lobby.takenChars.includes(c.id);
+    const locked = lockedJPKR || lockedTW || sideFull;
+    return `<div class="char-card ${taken && !isMine ? 'taken' : ''} ${locked ? 'locked' : ''} ${isMine ? 'mine' : ''}"
       data-char="${c.id}" style="--fc:${FACTIONS[c.faction].css}">
       <div class="char-head">
         <img class="char-avatar" src="${charAvatar(c)}" alt="${c.name}" data-detail="${c.id}"
@@ -256,25 +289,35 @@ function renderLobby(m) {
       <div class="char-perk">✨ ${c.perkText}</div>
       <div class="char-detail-hint" data-detail="${c.id}">🔍 查看立繪 / 生平 / 能力特長</div>
       ${lockedJPKR ? `<div class="lock-tip">遊戲人數 ${RULES.jpkrMinPlayers}+ 開放</div>` : ''}
-      ${lockedTW && !lockedJPKR ? '<div class="lock-tip">最後一位須選台灣</div>' : ''}
+      ${c.faction === 'TW' && expected < 3 ? '<div class="lock-tip">雙人局不開放</div>' : ''}
+      ${lockedTW && c.faction !== 'TW' && !lockedJPKR ? '<div class="lock-tip">最後一位須選台灣</div>' : ''}
+      ${sideFull && !lockedJPKR ? `<div class="lock-tip">陣營已滿 ${sideCap} 人</div>` : ''}
       ${taken && !isMine ? '<div class="lock-tip">已被鎖定(可輸入 PIN 認領)</div>' : ''}
       ${isMine ? '<div class="lock-tip mine-tip">✔ 你的角色</div>' : ''}
     </div>`;
   };
-  // 依陣營/國籍分組顯示
+  // 依陣營/國籍分組顯示(隨機分配模式 / 已準備時清單仍顯示,只是不可挑選)
   const FACTION_ORDER = ['US', 'CN', 'TW', 'JP', 'KR'];
   const FACTION_DESC = { US: '矽谷霸權', CN: '神州科技', TW: '護國神山', JP: '匠人精神', KR: '財閥帝國' };
-  $('#charPool').innerHTML = FACTION_ORDER.map(fid => {
+  const banner = randomChars
+    ? '<div class="pool-banner">🎲 房主已開啟「角色隨機分配」:可瀏覽角色,但不可挑選 — 按左側「✅ 我準備好了」即可,開始時系統依平衡分配。</div>'
+    : meReady
+      ? '<div class="pool-banner">🔒 你已準備好:點角色無法更換,請先按「⏳ 取消準備」。未選角色者開始時將由系統隨機分配。</div>'
+      : '';
+  $('#charPool').classList.toggle('view-only', viewOnly);
+  $('#charPool').innerHTML = banner + FACTION_ORDER.map(fid => {
     const list = CHARACTERS.filter(c => c.faction === fid);
     if (!list.length) return '';
     const fac = FACTIONS[fid];
     const jpkrLocked = (fid === 'JP' || fid === 'KR') && !allowJPKR;
+    const side = fid === 'TW' ? null : FACTIONS[fid].side;
+    const capInfo = side ? `・${side === 'US' ? '親美' : '親中'} ${sc[side]}/${sideCap}` : '';
     return `<section class="char-group" style="--fc:${fac.css}">
       <div class="char-group-head">
         <img class="fac-flag" src="${factionFlag(fid)}" alt="" onerror="this.style.display='none'">
         <span class="cg-name">${fac.name}</span>
         <span class="cg-desc">${FACTION_DESC[fid] || ''}</span>
-        <span class="cg-count">${list.length} 位${jpkrLocked ? `・需 ${RULES.jpkrMinPlayers}+ 人` : ''}</span>
+        <span class="cg-count">${list.length} 位${jpkrLocked ? `・需 ${RULES.jpkrMinPlayers}+ 人` : capInfo}</span>
       </div>
       <div class="char-group-grid">${list.map(cardHtml).join('')}</div>
     </section>`;
@@ -282,38 +325,64 @@ function renderLobby(m) {
 
   $('#hostModeBox').style.display = m.isHost ? '' : 'none';
   $('#startBtn').style.display = m.isHost ? '' : 'none';
-  const meClient = lobby.clients.find(c => c.id === m.youId);
   if (document.activeElement !== $('#hostSpectate'))
     $('#hostSpectate').checked = !!meClient && meClient.mode === 'spectator';
+  if (document.activeElement !== $('#randomChars'))
+    $('#randomChars').checked = randomChars;
+  $('#randomChars').disabled = !m.isHost;
+  // 準備按鈕(參與者皆可;隨機分配模式為主要操作)
+  const amPlayer = !!meClient && meClient.mode === 'player';
+  const readyBtn = $('#readyBtn');
+  readyBtn.style.display = amPlayer ? '' : 'none';
+  if (amPlayer) {
+    readyBtn.textContent = meClient.ready ? '⏳ 取消準備' : '✅ 我準備好了';
+    readyBtn.classList.toggle('is-ready', !!meClient.ready);
+  }
   updateModeVisibility();
   const seated = lobby.clients.filter(c => c.mode === 'player' && c.charId);
-  $('#lobbyStatus').textContent = mustTW
-    ? '🏔️ 你是最後一位未選角的玩家,必須選擇台灣(護國神山)!'
-    : `${seated.length} 位玩家已選角(2 人=米牆對決免台灣,3 人以上需米/牆/台各一)`;
+  const readyCount = playerClients.filter(c => c.ready).length;
+  $('#lobbyStatus').textContent = randomChars
+    ? `🎲 隨機分配:可瀏覽不可挑選|已準備 ${readyCount}/${playerClients.length}(預計 ${expected} 人,缺額 AI;未選角者開局隨機分配)`
+    : mustTW
+      ? '🏔️ 你是最後一位未選角的玩家,必須選擇台灣(護國神山)!'
+      : `已選角 ${seated.length}・已準備 ${readyCount}/${playerClients.length}・每陣營上限 ${sideCap}(親美 ${sc.US}・親中 ${sc.CN}${(expected - (expected >= 3 ? 1 : 0)) % 2 === 0 ? ',目標 1:1' : ''})`;
 }
 
 function updateModeVisibility() {
   const optOut = $('#hostSpectate').checked;
-  // 房主不參與時:只能用多人連線(上帝/單人模式需要房主自己操角)
-  if (optOut) $('#gameMode').value = 'multi';
-  $('#gameMode').disabled = optOut;
+  const randomChars = $('#randomChars').checked;
+  // 房主不參與 / 角色隨機分配時:只能用多人連線(上帝/單人模式需房主自己操角/選角)
+  if (optOut || randomChars) $('#gameMode').value = 'multi';
+  $('#gameMode').disabled = optOut || randomChars;
   const mode = $('#gameMode').value;
   const n = parseInt($('#expectedCount').value, 10);
-  $('#modeHint').textContent = optOut
-    ? '🙅 你只主持/觀戰 — 其他玩家對戰;若無人選角,按開始即為全 AI 觀賞局'
-    : ({
-        multi: n === 2 ? '⚔️ 2 人=米牆對決(無台灣規則)' : `共 ${n} 位玩家連線對戰(人數不足由 AI 頂替)`,
-        god: `你一人輪流操控全部 ${n} 個角色`,
-      }[mode] || '');
+  $('#modeHint').textContent = randomChars
+    ? '🎲 角色隨機分配:全部已準備的玩家按開始時隨機發角色,缺額由 AI 頂替'
+    : optOut
+      ? '🙅 你只主持/觀戰 — 其他玩家對戰;若無人選角,按開始即為全 AI 觀賞局'
+      : ({
+          multi: n === 2 ? '⚔️ 2 人=米牆對決(無台灣規則)' : `共 ${n} 位玩家連線對戰(人數不足由 AI 頂替)`,
+          god: `你一人輪流操控全部 ${n} 個角色`,
+        }[mode] || '');
 }
 
 function catOf(c) {
   return { '交通': 'power', '汽車': 'power', '硬體': 'hardware', '手機': 'hardware', '晶片': 'hardware', '資訊': 'info', 'AI': 'ai', '娛樂': 'fun' }[c.industry];
 }
 
+// 每個陣營(米=含日、牆=含韓)的選角上限:扣除台灣 1 席後折半(與伺服器 sideCapFor 一致)
+function sideCapFor(expected) {
+  const twSeat = expected >= 3 ? 1 : 0;
+  return Math.max(1, Math.ceil((expected - twSeat) / 2));
+}
+
 // 選擇/認領角色(大廳卡片與角色詳情共用)
 function selectChar(charId) {
   if (!last?.lobby || last.lobby.started) return;
+  if (last.lobby.config?.randomChars) { toast('🎲 角色隨機分配模式:請改用「準備好」按鈕'); return; }
+  if (last.lobby.clients.find(c => c.id === last.youId)?.ready) {
+    toast('你已準備好,請先按「⏳ 取消準備」才能選擇/更換角色'); return;
+  }
   const ch = CHARACTERS.find(c => c.id === charId);
   if (!ch) return;
   const taken = last.lobby.takenChars.includes(charId) && myCharId !== charId;
@@ -402,10 +471,19 @@ function openCharDetail(charId, opts = {}) {
   const actions = $('#cdActions');
   actions.innerHTML = '';
   if (opts.fromLobby && last && !last.lobby?.started) {
+    const meC = last.lobby.clients.find(c => c.id === last.youId);
     const taken = last.lobby.takenChars.includes(charId) && myCharId !== charId;
     const isMine = myCharId === charId;
-    if (isMine) {
-      actions.innerHTML = '<div class="cd-mine">✔ 這是你目前的角色</div>';
+    if (last.lobby.config?.randomChars) {
+      actions.innerHTML = '<div class="cd-mine">🎲 隨機分配模式:不可挑選</div>';
+    } else if (meC && meC.ready) {
+      actions.innerHTML = '<div class="cd-mine">🔒 已準備好,需先「取消準備」才能更換</div>';
+    } else if (isMine) {
+      const btn = document.createElement('button');
+      btn.className = 'btn big';
+      btn.textContent = '↩️ 取消選擇此角色';
+      btn.onclick = () => { $('#charDetailOverlay').style.display = 'none'; net.send({ t: 'selectChar', charId }); };
+      actions.appendChild(btn);
     } else {
       const btn = document.createElement('button');
       btn.className = 'btn big';
@@ -440,13 +518,30 @@ function setupLobbyEvents() {
     const detailEl = e.target.closest('[data-detail]');
     if (detailEl) { openCharDetail(detailEl.dataset.detail, { fromLobby: true }); return; }
     const card = e.target.closest('.char-card');
-    if (!card || card.classList.contains('locked')) return;
+    if (!card) return;
+    const me = last?.lobby?.clients.find(c => c.id === last.youId);
+    if (last?.lobby?.config?.randomChars) { toast('🎲 隨機分配模式:可瀏覽角色,開始時由系統發牌'); return; }
+    if (me && me.ready) { toast('你已準備好,請先按「⏳ 取消準備」才能更換角色'); return; }
+    // 點自己已選的角色 → 取消選擇
+    if (card.dataset.char === myCharId) { net.send({ t: 'selectChar', charId: myCharId }); return; }
+    if (card.classList.contains('locked')) return;
     selectChar(card.dataset.char);
   });
   $('#gameMode').addEventListener('change', updateModeVisibility);
   $('#hostSpectate').addEventListener('change', e => {
     net.send({ t: 'setMode', mode: e.target.checked ? 'spectator' : 'player' });
     updateModeVisibility(); // 立即反映(等不及伺服器回傳)
+  });
+  $('#randomChars').addEventListener('change', e =>
+    net.send({ t: 'setRoomConfig', randomChars: e.target.checked }));
+  $('#readyBtn').addEventListener('click', () => {
+    const me = last?.lobby?.clients.find(c => c.id === last.youId);
+    net.send({ t: 'setReady', ready: !(me && me.ready) });
+  });
+  $('#lobbyClients').addEventListener('click', e => {
+    const kickEl = e.target.closest('[data-kick]');
+    if (!kickEl) return;
+    net.send({ t: 'voteKick', targetId: Number(kickEl.dataset.kick) });
   });
   $('#gameName').addEventListener('change', () =>
     net.send({ t: 'setRoomConfig', gameName: $('#gameName').value }));
@@ -1121,6 +1216,14 @@ const DICE_FACES = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 function showDiceFx(f) {
   const face = v => DICE_FACES[v] || `🎲${v}`;
   const d = f.dice || [3, 3, 3];
+  // 優先用棋盤上的 3D 擲骰動畫(骰子在地圖上方翻滾落定);無 board 時退回 2D 覆蓋層
+  if (board && typeof board.fxDice === 'function') {
+    board.fxDice(f);
+    audio.sfx('move');
+    clearTimeout(showDiceFx._t);
+    showDiceFx._t = setTimeout(() => audio.sfx('upgrade'), 1300);
+    return;
+  }
   const ov = $('#diceOverlay');
   if (!ov) { // 無覆蓋層時退回 toast
     toast(`🎲 米${face(d[0])} ⚔️ 牆${face(d[1])} → ${f.usFirst ? '米' : '牆'}陣營先攻`);

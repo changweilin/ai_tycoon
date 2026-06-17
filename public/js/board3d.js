@@ -126,11 +126,12 @@ const LANDMASSES = [
   // 西岸太平洋沿線南下、南方收窄到墨西哥/巴拿馬、東岸(波士頓/紐約)再北折回加拿大。
   // 座標依真實經緯度重排,海岸線一併重繪包住整個城市群(已程式驗證 point-in-polygon)。
   { name: 'northAmerica', coast: '#2bd6ff', biome: 'temperate', pts: [
-    [5.4, -12.6], [7.0, -11.0],                                  // 阿拉斯加半島(西北尖端,朝白令海峽)
+    [1.8, -14.4], [3.8, -12.8], [6.0, -11.2],                    // 阿拉斯加半島(寬而長,尖端朝白令海峽逼近楚克奇)
     [7.8, -10.4], [8.2, -8.0], [8.2, -1.0], [9.2, 3.6], [10.6, 6.2], // 太平洋西岸南下
     [12.6, 9.8], [15.0, 12.2], [17.4, 12.2], [18.6, 9.0], [18.4, 3.6], // 墨西哥/巴拿馬南緣
     [19.4, -0.4], [21.4, -3.2], [21.8, -5.6],                    // 東岸大西洋(紐約/波士頓)
-    [20.2, -7.8], [16.8, -8.2], [12.0, -9.2], [9.2, -10.2], [7.4, -11.4], // 加拿大北緣回阿拉斯加
+    [20.2, -7.8], [16.8, -8.2], [12.0, -9.2], [9.2, -10.4],      // 加拿大北緣
+    [6.6, -11.6], [4.0, -13.0], [1.2, -14.8],                    // 阿拉斯加半島北翼升回尖端
   ] },
   // 歐洲大陸(地圖最右緣;歐亞大陸的「右半」):歐陸本體 paris/amsterdam/berlin 由西向東,
   // 北岸(北海/波羅的海)起伏、南岸收窄;東緣(berlin)即右邊界,往東的交通越界淡出(不畫邊界外陸地)。
@@ -148,16 +149,19 @@ const LANDMASSES = [
   //   半島之間以海灣內凹分隔(孟加拉灣、阿拉伯海、波斯灣/紅海);telaviv 在最左邊界,西緣往歐洲方向越界淡出。
   //   高原/高山/草原/沙漠等地形由 _buildLandmarks 依現實相對位置鋪在此塊上。
   { name: 'eurasia', coast: '#ff7b9c', biome: 'temperate', pts: [
-    [-5.2, -13.0], [-6.4, -11.8], [-6.6, -10.6],                  // 楚克奇半島(東北尖端,朝白令海峽)
+    [-1.8, -14.2], [-3.8, -12.6], [-5.6, -11.2], [-6.8, -10.4],   // 楚克奇半島(寬而長,尖端朝白令海峽逼近阿拉斯加)
     [-7.4, -9.0], [-8.8, -7.4], [-8.6, -5.0], [-7.8, -3.0], [-8.2, -1.0], // 東岸:渤海灣內凹→長江口外凸(shanghai)
     [-9.2, 1.4], [-10.4, 3.2], [-10.8, 4.4],                      // 華南海岸南下(shenzhen/guangzhou)
     [-11.8, 5.4], [-12.4, 6.4], [-13.0, 7.6], [-13.4, 8.8], [-14.2, 8.4], [-14.8, 7.4], // 印度支那半島(尖端朝南)
     [-15.6, 7.8], [-16.2, 8.4],                                   // 孟加拉灣內凹
     [-16.8, 9.6], [-17.1, 11.0], [-18.0, 10.6], [-18.9, 9.0], [-19.3, 7.6], // 印度次大陸三角(南尖)
-    [-19.8, 6.4], [-20.6, 6.6],                                   // 阿拉伯海內凹
-    [-21.6, 7.0], [-22.8, 7.2], [-24.2, 6.8], [-25.6, 5.8], [-26.6, 4.2], [-27.0, 2.2], // 阿拉伯半島(西南,紅海側收窄)
+    [-19.9, 6.8],                                                 // 印度↔阿拉伯之間的陸橋(阿拉伯海往南開口)
+    [-20.8, 7.8], [-21.4, 9.2], [-22.4, 10.0],                    // 阿拉伯半島東緣往南突出(dubai 所在)
+    [-23.8, 9.8], [-25.2, 8.8],                                   // 阿拉伯半島南尖(riyadh 一帶)
+    [-26.6, 7.0], [-27.4, 4.8], [-27.8, 2.2],                     // 阿拉伯半島西緣(telaviv/紅海側)往北收
     [-27.6, -0.8], [-27.6, -3.8], [-26.2, -6.2], [-23.6, -8.0], [-20.0, -9.4], // 中亞/西伯利亞內陸西北緣
-    [-16.0, -10.6], [-12.0, -11.4], [-8.6, -11.8], [-6.2, -12.2], // 北緣回楚克奇半島
+    [-16.0, -10.6], [-12.0, -11.6], [-8.4, -12.4],               // 北緣
+    [-5.4, -13.4], [-3.0, -14.2], [-1.2, -14.8],                 // 楚克奇半島北翼升回尖端
   ] },
   // 朝鮮半島(seoul/busan)
   { name: 'korea', coast: '#ffd02e', biome: 'cold', pts: [
@@ -1081,6 +1085,32 @@ function makeNameTag(text, css = '#00f0ff', h = 0.55) {
   return spr;
 }
 
+// ---------- 3D 骰子(開場擲骰回合序動畫用)----------
+// 標準骰面點數排列(3×3 格,[x,y] 0~1);相對兩面點數和為 7。
+const DIE_PIPS = {
+  1: [[.5, .5]], 2: [[.28, .28], [.72, .72]], 3: [[.28, .28], [.5, .5], [.72, .72]],
+  4: [[.28, .28], [.72, .28], [.28, .72], [.72, .72]],
+  5: [[.28, .28], [.72, .28], [.5, .5], [.28, .72], [.72, .72]],
+  6: [[.28, .28], [.72, .28], [.28, .5], [.72, .5], [.28, .72], [.72, .72]],
+};
+function makeDieFaceTexture(n, bg = '#f4f4f4') {
+  const S = 128, c = document.createElement('canvas'); c.width = c.height = S;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = bg; _roundRect(ctx, 5, 5, S - 10, S - 10, 22); ctx.fill();
+  ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(18,28,42,0.55)'; ctx.stroke();
+  ctx.fillStyle = '#15202e';
+  for (const [px, py] of (DIE_PIPS[n] || [])) { ctx.beginPath(); ctx.arc(px * S, py * S, S * 0.082, 0, Math.PI * 2); ctx.fill(); }
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  return tex;
+}
+// 一顆骰子:頂面(+y)=擲出的點數,其餘面依「相對和 7」填滿,看起來像真骰子。
+function makeDie(val, bg, size = 1) {
+  const others = [1, 2, 3, 4, 5, 6].filter(v => v !== val && v !== 7 - val);
+  const faceVals = [others[0], 7 - others[0], val, 7 - val, others[1], 7 - others[1]]; // px,nx,py,ny,pz,nz
+  const mats = faceVals.map(v => new THREE.MeshBasicMaterial({ map: makeDieFaceTexture(v, bg) }));
+  return new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mats);
+}
+
 // 表情貼圖快取(供棋子標記用;fx 用的 makeEmojiSprite 不快取,因 disposeFx 會釋放 map)
 const _emojiTexCache = new Map();
 function emojiTexture(ch) {
@@ -1145,28 +1175,31 @@ function makeSpeechSprite(name, line, css = '#00f0ff') {
   return spr;
 }
 
-// ---------- 天氣型錄 ----------
+// ---------- 天氣型錄(5 型;晴天/多雲=好天氣,強風/雷雨/暴風雪=壞天氣)----------
 // 每種天氣是一組會被平滑插值的參數;rain/snow/cloud=粒子強度,wind=風力,wave=浪高,
-// light/amb=光照,flash=閃電頻率,funnel=漏斗(颱風/龍捲)強度,funnelGround=是否觸地,fog/bg=氛圍
+// light/amb=光照,flash=閃電頻率,funnel=漏斗強度(本版皆 0,保留欄位供插值),fog/bg=氛圍。
+// good:true=好天氣 / false=壞天氣 —— _pickWeather 先擲「好壞各半」再依季節挑具體天氣。
 const WEATHER = {
-  clear:    { name: '晴天',   icon: '☀️', rain: 0,    snow: 0,   cloud: 0.10, wind: 0.15, wave: 0.30, light: 1.3,  amb: 1.5,  flash: 0,   funnel: 0,   funnelGround: 0,    fogNear: 46, fogFar: 100, bg: 0x1c2b48 },
-  waves:    { name: '海浪',   icon: '🌊', rain: 0,    snow: 0,   cloud: 0.28, wind: 0.55, wave: 1.0,  light: 1.1,  amb: 1.35, flash: 0,   funnel: 0,   funnelGround: 0,    fogNear: 40, fogFar: 95,  bg: 0x18243c },
-  monsoon:  { name: '季風',   icon: '🌬️', rain: 0.45, snow: 0,   cloud: 0.6,  wind: 0.95, wave: 0.7,  light: 0.95, amb: 1.15, flash: 0,   funnel: 0,   funnelGround: 0,    fogNear: 34, fogFar: 88,  bg: 0x060810 },
-  plumrain: { name: '梅雨',   icon: '🌧️', rain: 0.4,  snow: 0,   cloud: 0.85, wind: 0.25, wave: 0.35, light: 0.7,  amb: 1.05, flash: 0,   funnel: 0,   funnelGround: 0,    fogNear: 24, fogFar: 70,  bg: 0x0a0c14 },
-  snow:     { name: '下雪',   icon: '❄️', rain: 0,    snow: 0.85,cloud: 0.55, wind: 0.35, wave: 0.2,  light: 1.05, amb: 1.7,  flash: 0,   funnel: 0,   funnelGround: 0,    fogNear: 28, fogFar: 80,  bg: 0x223150 },
-  thunder:  { name: '雷雨',   icon: '⛈️', rain: 0.9,  snow: 0,   cloud: 0.95, wind: 0.6,  wave: 0.65, light: 0.55, amb: 0.8,  flash: 1,   funnel: 0,   funnelGround: 0,    fogNear: 22, fogFar: 66,  bg: 0x070810 },
-  typhoon:  { name: '颱風',   icon: '🌀', rain: 1.0,  snow: 0,   cloud: 1.0,  wind: 1.0,  wave: 1.0,  light: 0.55, amb: 0.85, flash: 0.6, funnel: 0.7, funnelGround: 0.12, fogNear: 18, fogFar: 60,  bg: 0x05060d },
-  tornado:  { name: '龍捲風', icon: '🌪️', rain: 0.35, snow: 0,   cloud: 0.7,  wind: 1.0,  wave: 0.6,  light: 0.8,  amb: 1.0,  flash: 0.2, funnel: 1.0, funnelGround: 1.0,  fogNear: 28, fogFar: 78,  bg: 0x080a12 },
+  clear:    { name: '晴天',   icon: '☀️', good: true,  rain: 0,    snow: 0,    cloud: 0.10, wind: 0.15, wave: 0.30, light: 1.30, amb: 1.50, flash: 0, funnel: 0, funnelGround: 0, fogNear: 46, fogFar: 100, bg: 0x1c2b48 },
+  cloudy:   { name: '多雲',   icon: '⛅', good: true,  rain: 0,    snow: 0,    cloud: 0.80, wind: 0.35, wave: 0.45, light: 1.02, amb: 1.32, flash: 0, funnel: 0, funnelGround: 0, fogNear: 40, fogFar: 92,  bg: 0x223047 },
+  wind:     { name: '強風',   icon: '💨', good: false, rain: 0,    snow: 0,    cloud: 0.50, wind: 1.00, wave: 0.95, light: 1.05, amb: 1.20, flash: 0, funnel: 0, funnelGround: 0, fogNear: 34, fogFar: 84,  bg: 0x18233a },
+  thunder:  { name: '雷雨',   icon: '⛈️', good: false, rain: 0.90, snow: 0,    cloud: 0.95, wind: 0.60, wave: 0.65, light: 0.55, amb: 0.80, flash: 1, funnel: 0, funnelGround: 0, fogNear: 22, fogFar: 66,  bg: 0x070810 },
+  blizzard: { name: '暴風雪', icon: '🌨️', good: false, rain: 0,    snow: 1.00, cloud: 0.88, wind: 0.90, wave: 0.30, light: 0.72, amb: 1.10, flash: 0, funnel: 0, funnelGround: 0, fogNear: 16, fogFar: 52,  bg: 0x223150 },
 };
-const WEATHER_WEIGHTS = { clear: 32, waves: 14, monsoon: 10, plumrain: 9, snow: 8, thunder: 9, typhoon: 9, tornado: 9 };
-// 四季(回合季別 Q1→Q4):各自一組「與季節相符」的天氣加權池 + 招牌落物粒子(petal 櫻花 / leaf 落葉)
+// 四季(回合季別 Q1→Q4):好/壞各一組季節加權池(好壞各半由 _pickWeather 決定,季節只影響「是哪種好/壞」)
+// + 招牌落物粒子(petal 櫻花 / leaf 落葉)。夏季無暴風雪、冬季少雷雨。
 const SEASONS = {
-  1: { name: '春', icon: '🌸', weights: { clear: 26, monsoon: 16, waves: 12, plumrain: 8, thunder: 4 }, fall: 'petal' },
-  2: { name: '夏', icon: '☀️', weights: { clear: 24, typhoon: 16, thunder: 14, waves: 14, monsoon: 6 }, fall: null },
-  3: { name: '秋', icon: '🍂', weights: { clear: 26, monsoon: 12, plumrain: 10, waves: 12, tornado: 4 }, fall: 'leaf' },
-  4: { name: '冬', icon: '❄️', weights: { snow: 26, clear: 18, waves: 10, thunder: 6 }, fall: null },
+  1: { name: '春', icon: '🌸', fall: 'petal', good: { clear: 3, cloudy: 2 }, bad: { wind: 4, thunder: 2,   blizzard: 0.4 } },
+  2: { name: '夏', icon: '☀️', fall: null,    good: { clear: 4, cloudy: 1 }, bad: { thunder: 4, wind: 2,   blizzard: 0 } },
+  3: { name: '秋', icon: '🍂', fall: 'leaf',  good: { clear: 3, cloudy: 2 }, bad: { wind: 4, thunder: 1.5, blizzard: 0.6 } },
+  4: { name: '冬', icon: '❄️', fall: null,    good: { clear: 2, cloudy: 3 }, bad: { blizzard: 4, wind: 3,  thunder: 0.4 } },
 };
 const SEASON_FALL_COLOR = { petal: 0xffc8e0, leaf: 0xffa53d };
+// 特殊事件卡強制天氣(其餘事件卡不干涉,天氣維持好壞各半的隨機);id 對應 data.js EVENT_CARDS。
+const WX_EVENT_FORCE = {
+  aiwinter: 'blizzard', aiboom: 'clear', recovery: 'clear', shale: 'clear',
+  war: 'thunder', lehman: 'thunder', blackout: 'thunder', covid: 'cloudy', suez: 'wind',
+};
 const WX_FIELDS = ['rain', 'snow', 'cloud', 'wind', 'wave', 'light', 'amb', 'flash', 'funnel', 'funnelGround', 'fogNear', 'fogFar'];
 const WX_BLEND_DUR = 4.0; // 天氣切換的過渡秒數
 
@@ -1450,8 +1483,8 @@ export class Board3D {
     mountainRange([[-21.5, -3.5], [-23.0, -2.2], [-24.5, -1.2]], { hMin: 0.8, hMax: 1.4, density: 2.0 });
     // 青藏高原(喜馬拉雅以北)+ 伊朗高原(阿拉伯與印度之間)
     plateaus([[-17.5, 3.8], [-19.0, 4.4], [-18.0, 2.6], [-20.5, 3.0], [-22.0, 2.2], [-23.0, 1.4]]);
-    // 阿拉伯沙漠(telaviv/riyadh/dubai 所在的西南半島)
-    dunes(-24.0, 5.2, 26, 3.2); dunes(-22.5, 5.6, 20, 2.8);
+    // 阿拉伯沙漠(telaviv/riyadh/dubai 所在的西南半島,已隨城市往南下移)
+    dunes(-24.0, 7.5, 26, 3.2); dunes(-22.5, 8.6, 20, 2.8); dunes(-26.0, 5.4, 18, 2.6);
     // 戈壁 / 塔克拉瑪干沙漠(牆國北方內陸)
     dunes(-16.5, -5.5, 24, 3.6); dunes(-14.0, -7.5, 16, 3.0);
     // 中亞大草原(往歐洲方向的西北乾草原)
@@ -1571,9 +1604,10 @@ export class Board3D {
         this.scene.add(chipRing);
       }
 
-      // 城名抬到旗幟頂端之上(旗桿頂 ≲3,字牌底邊在 ~3.4),建造科技卡升起的公司旗不再被地名遮住
-      const label = makeLabelSprite(r.name, r.tag, '#' + facCol.getHexString());
-      label.position.set(r.x, 4.25, r.z);
+      // 所有城名牌大小統一(字體 px 固定、h 一致 → 字級一致;板寬隨字數自動貼合但比例相同),
+      // 再縮小 20%(h 1.0 → 0.8)並壓低到更貼近城市棋盤(y 2.5 → 1.9);depthTest:false 永遠可讀。
+      const label = makeLabelSprite(r.name, r.tag, '#' + facCol.getHexString(), { h: 0.8 });
+      label.position.set(r.x, 1.9, r.z);
       this.scene.add(label);
 
       const ring = new THREE.Mesh(
@@ -1666,44 +1700,69 @@ export class Board3D {
       const r = REGIONS.find(x => x.id === id);
       return new THREE.Vector3(r.x, 0.08, r.z);
     };
-    // 歐洲 / 中東·印度在這張環太平洋地圖上分居左右兩緣,彼此(或與遠側大陸)的長程連線
-    // 不直接橫跨整張地圖,改以「淡化門戶」:漸淡線條越過邊界 + 路線上標出通往的城市名。
-    const GATEWAY_DIST = 9; // 世界座標距離超過此值且牽涉歐洲/中東 → 走門戶圖示而非實線
+    // 只有「跨左右邊界」配對(歐洲↔中東,分居地圖兩緣)才走「淡化門戶/世界環繞」渲染;
+    // 其餘長程(含歐洲↔美洲、中東/印度↔太平洋)一律直接畫實線弧,不淡出。
+    const isWrapPair = (a, b) =>
+      (GW_EUROPE.has(a) && GW_MIDEAST.has(b)) || (GW_MIDEAST.has(a) && GW_EUROPE.has(b));
 
+    const shipDots = []; // 海運改鋪「青色圓珠點虛線」(明顯有別於鐵路黑白實管),全部彙整成一個 InstancedMesh
+    const _p = new THREE.Vector3();
     for (const [a, b] of EDGES) {
       const type = EDGE_TYPES[`${a}|${b}`] || EDGE_TYPES[`${b}|${a}`] || 'ship';
       const style = TRAFFIC_STYLE[type];
       const pa = posOf(a), pb = posOf(b);
       const dist = pa.distanceTo(pb);
 
-      const involvesFarRim = GW_EUROPE.has(a) || GW_EUROPE.has(b) || GW_MIDEAST.has(a) || GW_MIDEAST.has(b);
-      if (involvesFarRim && dist > GATEWAY_DIST) { this._addGatewayLink(a, b, pa, pb, type); continue; }
+      if (isWrapPair(a, b)) { this._addGatewayLink(a, b, pa, pb, type); continue; }
 
       const mid = pa.clone().add(pb).multiplyScalar(0.5);
       mid.y = type === 'plane' ? 1.3 + dist * 0.15
             : type === 'train' ? 0.16
             : 0.1;
       const curve = new THREE.QuadraticBezierCurve3(pa, mid, pb);
+      const len = curve.getLength();
 
-      // 粗管狀路線:THREE.Line 寬度大多平台被忽略,改用 TubeGeometry 才看得出粗細。
-      // 鐵路=黑白相間區塊、海運=圓點(點虛線),貼圖沿管長重複(見 routeTexture);飛機=純色實線弧。
-      const radius = type === 'plane' ? 0.055 : 0.078;
-      const tubularSeg = Math.max(10, Math.round(curve.getLength() * 5));
-      const tex = routeTexture(type, curve.getLength());
-      const mat = tex
-        ? new THREE.MeshBasicMaterial({ map: tex, transparent: true,
-            opacity: type === 'ship' ? 0.95 : 1.0, alphaTest: type === 'ship' ? 0.35 : 0, depthWrite: false })
-        : new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: Math.min(0.9, style.opacity + 0.4) });
-      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, tubularSeg, radius, 6, false), mat);
-      this.scene.add(tube);
+      if (type === 'ship') {
+        // 海運=點虛線:沿航線等距鋪青色圓珠(3D 珠子任何視角都讀得出「點」,不會像鐵路的實心管)
+        const n = Math.max(2, Math.round(len / 0.5));
+        for (let i = 0; i <= n; i++) { curve.getPointAt(i / n, _p); shipDots.push(_p.x, _p.y + 0.05, _p.z); }
+      } else {
+        // 粗管狀路線(THREE.Line 寬度多平台被忽略,用 TubeGeometry 才看得出粗細):
+        // 鐵路=黑白相間區塊貼圖、飛機=純色實線弧。
+        const radius = type === 'plane' ? 0.055 : 0.078;
+        const tubularSeg = Math.max(10, Math.round(len * 5));
+        const tex = type === 'train' ? routeTexture('train', len) : null;
+        const mat = tex
+          ? new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 1.0, depthWrite: false })
+          : new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: Math.min(0.9, style.opacity + 0.4) });
+        this.scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, tubularSeg, radius, 6, false), mat));
+      }
 
       this._addVehicle(type, curve, dist);
     }
+
+    // 海運圓珠(點虛線):單一 InstancedMesh 省 draw call
+    if (shipDots.length) {
+      const beadN = shipDots.length / 3;
+      const beads = new THREE.InstancedMesh(
+        new THREE.SphereGeometry(0.085, 8, 6),
+        emissiveMat(NEON_CYAN, 0.9, { transparent: true, opacity: 0.92 }), beadN);
+      const dummy = new THREE.Object3D();
+      for (let i = 0; i < beadN; i++) {
+        dummy.position.set(shipDots[i * 3], shipDots[i * 3 + 1], shipDots[i * 3 + 2]);
+        dummy.updateMatrix(); beads.setMatrixAt(i, dummy.matrix);
+      }
+      beads.instanceMatrix.needsUpdate = true; beads.frustumCulled = false;
+      this.scene.add(beads);
+    }
   }
 
-  // 邊界門戶連線:邊界城市往「另一邊夥伴城市的真實方向」伸出一段路線 —— 起點粗細與一般路線相同
+  // 邊界門戶連線:邊界城市往夥伴城市方向伸出一段路線 —— 起點粗細與一般路線相同
   // (同型號的鐵路黑白/海運點虛/空運實線),沿箭頭方向逐漸淡出(逐頂點 alpha 1→0),末端放箭頭與目的地名牌。
-  // 方向一律朝向夥伴城市的實際座標(不再強制水平 ±x);歐洲↔中東雖分居左右兩緣,亦指向對方真實位置。
+  // 方向:歐洲↔中東這類「跨左右邊界」配對 → 模擬世界環繞(左邊界穿透到右邊界,反之亦然):
+  //   往自己這側的近邊界衝出(歐洲城往右、中東城往左),並以「環繞影像」(夥伴 x ± WRAP_W)決定
+  //   南北傾角 → 指向夥伴的真實緯度(非水平)。兩端 stub 方向相反、跨海峽縫接,讀成「繞過邊界相連」。
+  //   其餘長程門戶(非跨邊界,如 amsterdam↔sv)維持朝夥伴實際座標。
   _addGatewayLink(aId, bId, pa, pb, type) {
     this._gatewayCount = this._gatewayCount || {};
     const style = TRAFFIC_STYLE[type];
@@ -1711,16 +1770,19 @@ export class Board3D {
     const css = '#' + style.color.toString(16).padStart(6, '0');
     const nameOf = id => (REGIONS.find(r => r.id === id) || {}).name || id;
     const RAD = type === 'plane' ? 0.055 : 0.078; // 與一般路線相同粗細
+    const WRAP_W = 64; // 模擬左右邊界穿透的環繞週期(把夥伴鏡射到近邊界外,決定 stub 的對角方向)
 
     const stub = (cityId, otherId, from, to, destName) => {
       // 同一城市的多條門戶往同方向,名牌依序往上抬避免互相覆蓋
       const lift = (this._gatewayCount[cityId] = (this._gatewayCount[cityId] || 0) + 1) - 1;
-      // 方向:朝夥伴城市的真實座標(水平投影),指向正確方位而非固定水平
-      const dir = to.clone().sub(from); dir.y = 0;
-      if (dir.lengthSq() < 1e-6) dir.set(1, 0, 0); else dir.normalize();
-      // 環繞型(歐↔中東跨整張地圖)拉長一點,凸顯「衝出邊界遠行」
+      // 跨左右邊界配對(歐↔中東)→ 環繞:朝近邊界衝出 + 用環繞影像帶出南北傾角;否則朝夥伴實際座標
       const wrap = (GW_EUROPE.has(cityId) && GW_MIDEAST.has(otherId)) || (GW_MIDEAST.has(cityId) && GW_EUROPE.has(otherId));
-      const len = wrap ? 3.4 : 2.6;
+      const target = wrap
+        ? new THREE.Vector3(to.x + (GW_EUROPE.has(cityId) ? WRAP_W : -WRAP_W), 0, to.z) // 歐洲城往右邊界、中東城往左邊界穿出
+        : to.clone();
+      const dir = target.sub(from); dir.y = 0;
+      if (dir.lengthSq() < 1e-6) dir.set(GW_EUROPE.has(cityId) ? 1 : -1, 0, 0); else dir.normalize();
+      const len = wrap ? 3.4 : 2.6; // 環繞門戶拉長一點,凸顯「衝出邊界遠行」
       const y = type === 'plane' ? 0.6 : 0.14;
       const start = from.clone().addScaledVector(dir, 0.42).setY(y);
       const tip = from.clone().addScaledVector(dir, len).setY(y);
@@ -1732,7 +1794,7 @@ export class Board3D {
       const ringN = tubularSeg, perRing = 7; // radialSegments(6)+1
       const vcount = geo.attributes.position.count;
       const colors = new Float32Array(vcount * 4);
-      const tex = routeTexture(type, len);
+      const tex = type === 'train' ? routeTexture('train', len) : null; // 鐵路門戶=黑白貼圖;海運/空運=純色淡出(不做成鐵路樣)
       const base = tex ? new THREE.Color(0xffffff) : new THREE.Color(style.color); // 有貼圖則白底讓貼圖原色顯示
       for (let v = 0; v < vcount; v++) {
         const f = Math.floor(v / perRing) / ringN;     // 0(起點)→1(末端)
@@ -1781,27 +1843,60 @@ export class Board3D {
         tailWing.position.z = -0.24; g.add(tailWing);
         return [{ mesh: g, gap: 0 }];
       },
+      // 貨輪(Quaternius 低面數 matte 風;前進方向 = +z):長船身 + 楔形船艏 + 兩排堆疊貨櫃 + 艉艛駕駛塔 + 煙囪。
+      // 註:repo 內無 Quaternius 交通工具 .glb,故以程式生成的低面數 matte 模型呈現;欲換真模型可在
+      //     window.MODEL_MANIFEST_EXTRA 登記後於此載入(沿用 loadGltf/matteify 升級槽)。
       ship: () => {
         const g = new THREE.Group();
-        const hull = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 0.52), emissiveMat(0x224466, 0.35));
-        g.add(hull);
-        const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.08), emissiveMat(0xcfe8ff, 0.6));
-        bridge.position.set(0, 0.1, -0.19); g.add(bridge);
-        const boxColors = [NEON_CYAN, NEON_PINK, NEON_AMBER];
-        for (let i = 0; i < 3; i++) {
-          const c = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.06, 0.1), emissiveMat(boxColors[i], 0.8));
-          c.position.set(0, 0.075, 0.14 - i * 0.12); g.add(c);
+        const hull = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.09, 0.56), emissiveMat(0x2b3b52, 0.2));
+        hull.position.y = 0.05; g.add(hull);
+        const bow = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.18, 4), emissiveMat(0x33455f, 0.2));
+        bow.rotation.set(Math.PI / 2, Math.PI / 4, 0); bow.position.set(0, 0.05, 0.37); g.add(bow); // 船艏在 +z
+        const deck = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.02, 0.54), emissiveMat(0x3c5170, 0.25));
+        deck.position.y = 0.1; g.add(deck);
+        const cols = [NEON_CYAN, NEON_AMBER, NEON_PINK, 0x4cd07a];
+        let ci = 0;
+        for (let row = 0; row < 2; row++) for (let zc = 0; zc < 3; zc++) for (let lay = 0; lay < 2; lay++) {
+          const box = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.045, 0.12), emissiveMat(cols[(ci++) % cols.length], 0.6));
+          box.position.set(row ? 0.038 : -0.038, 0.135 + lay * 0.05, 0.17 - zc * 0.13); g.add(box);
         }
+        const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 0.09), emissiveMat(0xd6e6ff, 0.5));
+        bridge.position.set(0, 0.16, -0.21); g.add(bridge);
+        const funnel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.028, 0.1, 8), emissiveMat(0xff5e5e, 0.7));
+        funnel.position.set(0, 0.26, -0.23); g.add(funnel);
         return [{ mesh: g, gap: 0 }];
       },
+      // 火車(Quaternius 低面數 matte 風;前進方向 = +z):火車頭(車身+駕駛艙+煙囪+緩衝器+車輪)+ 2 節彩色車廂。
       train: () => {
         const parts = [];
-        const gapT = 0.3 / Math.max(curve.getLength(), 0.001); // 車廂間距(t 參數)
-        for (let i = 0; i < 3; i++) {
-          const car = new THREE.Mesh(
-            new THREE.BoxGeometry(0.13, 0.11, 0.26),
-            emissiveMat(i === 0 ? NEON_AMBER : 0x2a3a55, i === 0 ? 0.9 : 0.45));
-          parts.push({ mesh: car, gap: i * gapT });
+        const gapT = 0.36 / Math.max(curve.getLength(), 0.001); // 車廂間距(t 參數)
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x141d29, metalness: 0.2, roughness: 0.8, flatShading: true });
+        const addWheels = (grp, halfZ) => {
+          for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+            const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.02, 8), wheelMat);
+            wh.rotation.z = Math.PI / 2; wh.position.set(sx * 0.072, 0.028, sz * halfZ); grp.add(wh);
+          }
+        };
+        const loco = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, 0.28), emissiveMat(NEON_AMBER, 0.7));
+        body.position.y = 0.085; loco.add(body);
+        const cab = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.08, 0.1), emissiveMat(0x33455f, 0.4));
+        cab.position.set(0, 0.16, -0.08); loco.add(cab);                       // 駕駛艙在後 (-z)
+        const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.026, 0.06, 8), emissiveMat(0x222a38, 0.2));
+        chimney.position.set(0, 0.17, 0.1); loco.add(chimney);                 // 煙囪在前 (+z)
+        const buffer = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.05, 0.03), emissiveMat(0x556070, 0.3));
+        buffer.position.set(0, 0.05, 0.15); loco.add(buffer);
+        addWheels(loco, 0.09);
+        parts.push({ mesh: loco, gap: 0 });
+        const carCols = [0x2e9fff, 0xff5e5e];
+        for (let i = 0; i < 2; i++) {
+          const car = new THREE.Group();
+          const cbody = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.1, 0.24), emissiveMat(carCols[i], 0.5));
+          cbody.position.y = 0.085; car.add(cbody);
+          const roof = new THREE.Mesh(new THREE.BoxGeometry(0.135, 0.02, 0.24), emissiveMat(0x1a2230, 0.2));
+          roof.position.y = 0.14; car.add(roof);
+          addWheels(car, 0.08);
+          parts.push({ mesh: car, gap: (i + 1) * gapT });
         }
         return parts;
       },
@@ -1902,7 +1997,7 @@ export class Board3D {
   // ---------- 地形:山林 / 平原 / 小島(決定性散布,InstancedMesh 省 draw call)----------
   // 氣候帶:z 負=北寒、z 正=南熱;中東阿拉伯半島與澳洲內陸=沙漠
   _biomeOf(x, z) {
-    if (x < -19.5 && z >= 1.0 && z <= 7.0) return 'desert';          // 阿拉伯半島(telaviv/riyadh/dubai)
+    if (x < -19.5 && z >= 3.0 && z <= 10.5) return 'desert';         // 阿拉伯半島(telaviv/riyadh/dubai,往南突出)
     if (x < -21 && z > -7 && z < 1.0) return 'desert';               // 中亞乾燥帶
     if (x >= -19 && x < -13 && z >= -7 && z <= -3) return 'desert';  // 戈壁/塔克拉瑪干(牆國北方內陸)
     if (x > -6 && x < 1.2 && z > 8.5) return 'desert';               // 澳洲內陸
@@ -2114,6 +2209,7 @@ export class Board3D {
     this._funnelPhase = 0;
 
     // 天氣狀態(初始晴天,_pickWeather 會排程第一次切換)
+    this._wxForced = null;   // 非 null 時 = 事件卡強制的天氣 key,暫停隨機切換
     this.wxToKey = 'clear';
     this.wxTo = WEATHER.clear;
     this.wxFrom = { ...WEATHER.clear };
@@ -2152,9 +2248,12 @@ export class Board3D {
   }
 
   _pickWeather() {
-    const pool = (SEASONS[this.seasonKey] && SEASONS[this.seasonKey].weights) || WEATHER_WEIGHTS;
+    if (this._wxForced) return; // 事件卡強制天氣期間不隨機改變
+    const se = SEASONS[this.seasonKey] || SEASONS[1];
+    // 好壞機率各半:先擲一次決定好天氣 / 壞天氣,再依季節加權挑出具體天氣
+    const pool = Math.random() < 0.5 ? se.good : se.bad;
     let key;
-    do { key = weightedPick(pool); } while (key === this.wxToKey && Math.random() < 0.6);
+    do { key = weightedPick(pool); } while (key === this.wxToKey && Math.random() < 0.5);
     this.setWeather(key, false);
   }
 
@@ -2177,7 +2276,7 @@ export class Board3D {
   _updateWeather(dt) {
     const t = this._elapsed || 0;
     if (this.wxBlend < 1) this.wxBlend = Math.min(1, this.wxBlend + dt / WX_BLEND_DUR);
-    else { this.wxHold -= dt; if (this.wxHold <= 0) this._pickWeather(); }
+    else { this.wxHold -= dt; if (this.wxHold <= 0 && !this._wxForced) this._pickWeather(); }
     const k = smooth(this.wxBlend), L = this.wxLive;
     for (const f of WX_FIELDS) L[f] = lerp(this.wxFrom[f], this.wxTo[f], k);
 
@@ -2314,6 +2413,14 @@ export class Board3D {
   sync(state) {
     // 季節天氣:依回合季別(Q1春/Q2夏/Q3秋/Q4冬)切換當季氣候池
     this._applySeason(state.round);
+
+    // 特殊事件卡可「強制天氣」(蓋過好壞各半的隨機);事件結束後恢復隨機
+    const forced = state.event && WX_EVENT_FORCE[state.event.id];
+    if (forced) {
+      if (this._wxForced !== forced) { this._wxForced = forced; this.setWeather(forced, false); }
+    } else if (this._wxForced) {
+      this._wxForced = null; this._pickWeather();
+    }
 
     // 三疊牌庫:卡背堆疊高度約略反映各自剩餘牌量(max 取歷史最大,容量隨升階回庫成長)
     for (const st of this.deckStacks || []) {
@@ -2490,6 +2597,57 @@ export class Board3D {
       spr.material.opacity = pop * fade;
       const s = 0.82 + pop * 0.18;
       spr.scale.set(base.x * s, base.y * s, 1);
+    });
+  }
+
+  // 開場擲骰決回合序:在棋盤上方丟出 3D 骰子翻滾落定(米=藍、牆=紅、平手裁決=琥珀),
+  // 定格後頂面顯示點數,並浮出「先攻陣營 + 行動順序」名牌。資料 f:{ dice:[d0,d1,d2], usFirst, order:[{name}] }
+  fxDice(f) {
+    const d = (f && f.dice && f.dice.length >= 2) ? f.dice : [3, 3, 3];
+    const tie = d[0] === d[1];
+    const g = new THREE.Group();
+    const RESTY = 5.6, Z = -2, SIZE = 1.05;
+    const specs = [
+      { val: d[0], bg: '#bfe0ff', x: -1.8, y: RESTY },
+      { val: d[1], bg: '#ffc2c2', x: 1.8, y: RESTY },
+    ];
+    if (tie) specs.push({ val: d[2], bg: '#ffe6a8', x: 0, y: RESTY + 2.0 });
+    const dice = specs.map((s, idx) => {
+      const die = makeDie(s.val, s.bg, SIZE);
+      die.position.set(s.x, s.y + 4.5, Z); g.add(die);
+      return {
+        mesh: die, restY: s.y, x: s.x,
+        sx: 6 + Math.random() * 6, sy: 5 + Math.random() * 6, sz: 4 + Math.random() * 5, // 翻滾角速度
+        q0: null,
+        qTarget: new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.42, 0.5 - idx * 0.35, 0)), // 朝鏡頭微傾,頂面=點數
+      };
+    });
+    const resultText = `米 ${d[0]} ⚔️ 牆 ${d[1]}${tie ? `(平手·裁決 ${d[2]})` : ''} → ${f.usFirst ? '🟦 米' : '🟥 牆'}陣營先攻`;
+    const orderText = '行動順序　' + (((f.order || []).map(o => o.name).join('　→　')) || '—');
+    const label = makeLabelSprite(resultText, orderText, f.usFirst ? '#2e9fff' : '#ff3b3b', { h: 1.25 });
+    label.position.set(0, RESTY - 1.7, Z); label.material.opacity = 0; // 落在骰子正下方當字幕,清楚可讀
+    g.add(label);
+
+    const SPIN = 1.15, SETTLE = 0.5, LIFE = 4.8, settledAt = SPIN + SETTLE;
+    this._registerFx(g, LIFE, (age) => {
+      const el = age * LIFE;
+      for (const dd of dice) {
+        if (el < SPIN) {                                   // 翻滾 + 落下
+          dd.mesh.rotation.set(dd.sx * el, dd.sy * el, dd.sz * el);
+          const k = smooth(Math.min(1, el / SPIN));
+          dd.mesh.position.set(dd.x, dd.restY + 4.5 * (1 - k) + Math.sin(el * 18) * 0.5 * (1 - k), Z);
+        } else {                                           // 落定:四元數 slerp 到頂面朝上、微傾朝鏡頭
+          if (!dd.q0) dd.q0 = dd.mesh.quaternion.clone();
+          const k = Math.min(1, (el - SPIN) / SETTLE);
+          dd.mesh.quaternion.slerpQuaternions(dd.q0, dd.qTarget, smooth(k));
+          dd.mesh.position.y = dd.restY + (1 - smooth(k)) * 0.5;
+        }
+      }
+      if (el > settledAt) {                                // 名牌:落定後淡入、結束前淡出
+        const fin = Math.min(1, (el - settledAt) / 0.4);
+        const out = el > LIFE - 0.7 ? Math.max(0, (LIFE - el) / 0.7) : 1;
+        label.material.opacity = fin * out;
+      }
     });
   }
 

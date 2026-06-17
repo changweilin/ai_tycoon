@@ -34,10 +34,14 @@ export class Net {
     };
     this.ws.onclose = () => {
       this.connected = false;
+      if (this._dead) return; // 已被剔除/主動關閉:不再重連
       this.onError('與伺服器斷線,重連中…');
       setTimeout(() => this._connect(), 2000);
     };
   }
+
+  // 永久關閉(被剔除房間時呼叫):停止自動重連
+  kill() { this._dead = true; this._queue = []; try { this.ws.close(); } catch { /* 忽略 */ } }
 
   // 立即送出(不排隊;reattach 必須早於後續行動)
   sendNow(msg) { if (this.connected) this.ws.send(JSON.stringify(msg)); }

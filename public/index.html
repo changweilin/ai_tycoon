@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>賽博貿易戰 2049 — 環太平洋科技冷戰</title>
+<link rel="icon" href="images/game_logo.png" type="image/png">
 <link rel="stylesheet" href="css/style.css">
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script type="importmap">
@@ -50,8 +51,9 @@
       <div class="pin-display">房間 PIN:<b id="roomPin">----</b></div>
       <div id="qrBox" class="qr-box"></div>
       <div id="joinUrls"></div>
-      <h3>已連線</h3>
+      <h3>已連線 / 準備狀態</h3>
       <div id="lobbyClients"></div>
+      <button id="readyBtn" class="btn ready-btn" style="display:none">✅ 我準備好了</button>
       <div id="lobbyStatus" class="lobby-status"></div>
       <div class="host-mode">
         <label>遊戲名稱
@@ -69,6 +71,9 @@
       <div id="hostModeBox" class="host-mode" style="display:none">
         <label class="host-optout">
           <input type="checkbox" id="hostSpectate"> 🙅 我不參與遊戲(只主持 / 觀戰)
+        </label>
+        <label class="host-optout">
+          <input type="checkbox" id="randomChars"> 🎲 角色隨機分配(玩家只按「準備好」)
         </label>
         <label>遊戲模式
           <select id="gameMode">

@@ -376,7 +376,7 @@ export const factionFlag  = fac => `images/flags/flag_${(typeof fac === 'string'
 export const REGIONS = [
   // 米國(12 城)— 西岸太平洋沿線(seattle/portland/sv/la 同經度帶)、洛磯/南方內陸、東岸(chicago/atlanta/nyc/boston)
   { id: 'seattle',  name: '西雅圖',   x: 9.1,  z: -8.0, tag: '雲端走廊', country: 'US', startLevel: 2 },
-  { id: 'portland', name: '波特蘭',   x: 9.3,  z: -6.0, tag: '開源綠都', country: 'US', startLevel: 2 },
+  { id: 'portland', name: '波特蘭',   x: 10.4, z: -6.0, tag: '開源綠都', country: 'US', startLevel: 2 },
   { id: 'sv',       name: '矽谷',     x: 9.1,  z: -0.3, tag: '科技聖地', country: 'US', startLevel: 2 },
   { id: 'la',       name: '洛杉磯',   x: 10.0, z: 2.6,  tag: '好萊塢', country: 'US', startLevel: 2 },
   { id: 'denver',   name: '丹佛',     x: 12.9, z: -1.8, tag: '洛磯算力', country: 'US', startLevel: 2 },
@@ -423,9 +423,10 @@ export const REGIONS = [
   { id: 'berlin',   name: '柏林',     x: 25.6, z: -10.6, tag: '工業4.0', country: null, startLevel: 2 },
   // 中立 — 中東/印度(歐亞大陸的「左半」最左緣;由西向東 telaviv→riyadh→dubai→孟買/班加羅爾;
   // telaviv 最西 = 左邊界城,往西的鐵/海/空運越過邊界淡出通往歐洲)。沙烏地取代以色列其一,與杜拜分居阿拉伯半島。
-  { id: 'telaviv',  name: '特拉維夫', x: -25.5, z: 2.6,  tag: '新創之國', country: null, startLevel: 2 },
-  { id: 'riyadh',   name: '利雅德',   x: -23.5, z: 4.6,  tag: '主權AI都', country: null, startLevel: 2 },
-  { id: 'dubai',    name: '杜拜',     x: -21.5, z: 5.0,  tag: '石油金庫', country: null, startLevel: 2 },
+  // 阿拉伯三城往南下移(阿拉伯半島整塊往南突出),與印度城(mumbai/bangalore)拉開、不再共線難辨。
+  { id: 'telaviv',  name: '特拉維夫', x: -25.8, z: 5.0,  tag: '新創之國', country: null, startLevel: 2 },
+  { id: 'riyadh',   name: '利雅德',   x: -24.0, z: 7.6,  tag: '主權AI都', country: null, startLevel: 2 },
+  { id: 'dubai',    name: '杜拜',     x: -21.8, z: 8.8,  tag: '石油金庫', country: null, startLevel: 2 },
   { id: 'mumbai',   name: '孟買',     x: -18.6, z: 7.2,  tag: '寶萊塢雲', country: null, startLevel: 2 },
   { id: 'bangalore',name: '班加羅爾', x: -17.2, z: 9.0,  tag: '印度矽谷', country: null, startLevel: 2 },
   // 中立 — 東南亞/大洋洲側
@@ -501,45 +502,70 @@ export const EVENT_CARDS = [
 //   plane 飛機 → 長程航線,唯有飛機能橫跨多座城市(須搭機 5🛢️)。EDGES 仍為完整連通圖(飛機 BFS 用)。
 const EDGE_LIST = [
   // ── 北美(鐵路為主,西岸太平洋海運少量)──
-  ['vancouver', 'seattle', 'train'], ['seattle', 'sv', 'train'], ['seattle', 'portland', 'train'],
-  ['portland', 'denver', 'train'], ['sv', 'la', 'train'], ['sv', 'denver', 'train'], ['sv', 'phoenix', 'train'],
+  // portland 內移一格(見 REGIONS 座標),讓 seattle→sv 西岸直線不再壓過它;sv→phoenix 改 la→phoenix(舊線貼著洛杉磯)
+  ['vancouver', 'seattle', 'train'], ['seattle', 'portland', 'train'], ['seattle', 'sv', 'train'],
+  ['portland', 'denver', 'train'], ['sv', 'la', 'train'], ['sv', 'denver', 'train'], ['la', 'phoenix', 'train'],
   ['phoenix', 'dallas', 'train'], ['phoenix', 'austin', 'train'], ['denver', 'chicago', 'train'],
   ['chicago', 'toronto', 'train'], ['toronto', 'montreal', 'train'], ['toronto', 'nyc', 'train'],
-  ['nyc', 'dallas', 'train'], ['nyc', 'boston', 'train'], ['nyc', 'atlanta', 'ship'], ['dallas', 'atlanta', 'train'],
-  ['austin', 'mexico', 'train'], ['mexico', 'panama', 'ship'],
+  ['nyc', 'dallas', 'train'], ['nyc', 'boston', 'train'], ['nyc', 'atlanta', 'train'], ['dallas', 'atlanta', 'train'],
+  // 中美地峽(墨西哥↔巴拿馬)全程陸地 → 改鐵路;巴拿馬運河樞紐的長程海運改走開放洋面(雪梨/阿姆斯特丹),
+  // 舊 panama-la / panama-atlanta 直線會橫切墨西哥與美國內陸,移除。
+  ['austin', 'mexico', 'train'], ['mexico', 'panama', 'train'],
+  ['panama', 'sydney', 'ship'], ['panama', 'amsterdam', 'ship'],
   // ── 歐洲(跨大西洋海運 + 近海/內陸)──
-  ['boston', 'london', 'ship'], ['montreal', 'london', 'ship'], ['london', 'paris', 'ship'],
-  ['london', 'amsterdam', 'ship'], ['amsterdam', 'berlin', 'train'], ['paris', 'amsterdam', 'train'], ['paris', 'berlin', 'train'],
-  // ── 越洋太平洋主航線(海運)+ 東亞沿海(海運)──
+  // 跨大西洋海運只留 montreal↔倫敦(boston-london 直線會貼著蒙特婁);london-amsterdam 直線幾乎全在歐陸/不列顛上,
+  // 倫敦改僅以 london-paris 海運接歐陸(阿姆斯特丹另由 paris/berlin 鐵路與 panama 海運連通)。
+  ['montreal', 'london', 'ship'], ['london', 'paris', 'ship'],
+  ['amsterdam', 'berlin', 'train'], ['paris', 'amsterdam', 'train'], ['paris', 'berlin', 'train'],
+  // ── 越洋太平洋主航線(海運)+ 東亞沿海──
+  // 同島/同岸的短程(東京↔大阪、首爾↔釜山、新竹↔台北、深圳↔廣州)全程陸地 → 改鐵路;
+  // 舊 tokyo-shanghai 直線會穿過大阪/台北外海貼城,移除(日↔中經首爾-天津連通)。
   ['seattle', 'tokyo', 'ship'], ['vancouver', 'seoul', 'ship'], ['la', 'hsinchu', 'ship'], ['la', 'sydney', 'ship'],
-  ['tokyo', 'osaka', 'ship'], ['tokyo', 'seoul', 'ship'], ['tokyo', 'shanghai', 'ship'],
-  ['osaka', 'busan', 'ship'], ['seoul', 'busan', 'ship'], ['seoul', 'tianjin', 'ship'],
-  ['hsinchu', 'shanghai', 'ship'], ['hsinchu', 'taipei', 'ship'], ['hsinchu', 'shenzhen', 'ship'],
-  ['shanghai', 'taipei', 'ship'], ['shenzhen', 'guangzhou', 'ship'],
+  ['tokyo', 'osaka', 'train'], ['tokyo', 'seoul', 'ship'],
+  ['osaka', 'busan', 'ship'], ['seoul', 'busan', 'train'], ['seoul', 'tianjin', 'ship'],
+  ['hsinchu', 'shanghai', 'ship'], ['hsinchu', 'taipei', 'train'], ['hsinchu', 'shenzhen', 'ship'],
+  ['shanghai', 'taipei', 'ship'], ['shenzhen', 'guangzhou', 'train'],
   // ── 牆國本土(鐵路)──
-  ['beijing', 'tianjin', 'train'], ['beijing', 'harbin', 'train'], ['beijing', 'hangzhou', 'train'], ['harbin', 'tianjin', 'train'],
-  ['hangzhou', 'xian', 'train'], ['hangzhou', 'nanjing', 'train'], ['xian', 'wuhan', 'train'], ['xian', 'chongqing', 'train'],
-  ['nanjing', 'shanghai', 'train'], ['nanjing', 'wuhan', 'train'], ['wuhan', 'chongqing', 'train'],
-  ['chongqing', 'chengdu', 'train'], ['chengdu', 'guangzhou', 'train'],
-  // ── 東南亞 / 南海 / 印度洋 / 中東(海運為主,半島走鐵路)──
-  ['shenzhen', 'hanoi', 'ship'], ['guangzhou', 'hanoi', 'ship'], ['hanoi', 'bangkok', 'train'],
-  ['bangkok', 'kualalumpur', 'train'], ['kualalumpur', 'singapore', 'train'], ['singapore', 'jakarta', 'ship'],
+  // beijing-hangzhou 直線穿過南京 → 改 beijing-nanjing;hangzhou-xian 穿過武漢 → 改 hangzhou-wuhan;
+  // chengdu-guangzhou 穿過重慶 → 改 chongqing-guangzhou;移除 nanjing-wuhan 平衡度數。
+  ['beijing', 'tianjin', 'train'], ['beijing', 'harbin', 'train'], ['beijing', 'nanjing', 'train'], ['harbin', 'tianjin', 'train'],
+  ['hangzhou', 'wuhan', 'train'], ['hangzhou', 'nanjing', 'train'], ['xian', 'wuhan', 'train'], ['xian', 'chongqing', 'train'],
+  ['nanjing', 'shanghai', 'train'], ['wuhan', 'chongqing', 'train'],
+  ['chongqing', 'chengdu', 'train'], ['chongqing', 'guangzhou', 'train'],
+  // ── 東南亞 / 南海 / 印度洋 / 中東(半島走鐵路、跨海走海運)──
+  // 深圳/廣州↔河內全程陸地(廣西陸橋)→ 鐵路;吉隆坡↔新加坡全程在海上(以島礁呈現)→ 海運。
+  ['shenzhen', 'hanoi', 'train'], ['guangzhou', 'hanoi', 'train'], ['hanoi', 'bangkok', 'train'],
+  ['bangkok', 'kualalumpur', 'train'], ['kualalumpur', 'singapore', 'ship'], ['singapore', 'jakarta', 'ship'],
   ['jakarta', 'manila', 'ship'], ['manila', 'singapore', 'ship'], ['bangkok', 'bangalore', 'ship'],
   ['bangalore', 'mumbai', 'train'], ['mumbai', 'dubai', 'ship'], ['dubai', 'riyadh', 'train'],
   ['riyadh', 'telaviv', 'train'], // 阿拉伯半島陸路(杜拜-利雅德-特拉維夫)
-  // ── 大洋洲 ──
-  ['singapore', 'sydney', 'ship'], ['sydney', 'melbourne', 'train'], ['jakarta', 'melbourne', 'ship'],
-  // 印度洋海運:孟買連東南亞門戶(印度↔星馬,補強印度的海運連結)
-  ['mumbai', 'singapore', 'ship'],
+  // ── 大洋洲 ──(舊 singapore-sydney 貼著雅加達、mumbai-singapore 貼著班加羅爾/吉隆坡,移除;改由 jakarta-melbourne 與 bangkok-bangalore 連通)
+  ['sydney', 'melbourne', 'train'], ['jakarta', 'melbourne', 'ship'],
   // ── 飛機專用長程航線(可橫跨城市;只有飛機能用)──
   ['sv', 'tokyo', 'plane'], ['sv', 'hsinchu', 'plane'], ['la', 'tokyo', 'plane'], ['sydney', 'austin', 'plane'],
   ['nyc', 'amsterdam', 'plane'], ['amsterdam', 'sv', 'plane'], ['amsterdam', 'seattle', 'plane'],
   ['bangalore', 'shanghai', 'plane'],
   ['paris', 'nyc', 'plane'], ['manila', 'tokyo', 'plane'],
+  // 中東/印度加開空運(區域航空樞紐;特拉維夫↔孟買、杜拜↔班加羅爾、杜拜↔新加坡)
+  ['telaviv', 'mumbai', 'plane'], ['dubai', 'bangalore', 'plane'], ['dubai', 'singapore', 'plane'],
+  // ── 「每座城市至少一條空運」補強航線(各區域機場樞紐互聯;原本無空運的城市各補一條)──
+  // 北美
+  ['vancouver', 'chicago', 'plane'], ['portland', 'atlanta', 'plane'], ['denver', 'boston', 'plane'],
+  ['phoenix', 'toronto', 'plane'], ['dallas', 'montreal', 'plane'], ['mexico', 'nyc', 'plane'], ['panama', 'london', 'plane'],
+  // 牆國 + 台灣
+  ['harbin', 'shenzhen', 'plane'], ['beijing', 'guangzhou', 'plane'], ['tianjin', 'chongqing', 'plane'],
+  ['xian', 'nanjing', 'plane'], ['hangzhou', 'chengdu', 'plane'], ['wuhan', 'taipei', 'plane'],
+  // 日本 / 韓國
+  ['seoul', 'osaka', 'plane'], ['busan', 'shanghai', 'plane'],
+  // 中東
+  ['riyadh', 'mumbai', 'plane'],
+  // 東南亞 / 大洋洲
+  ['hanoi', 'manila', 'plane'], ['bangkok', 'jakarta', 'plane'], ['kualalumpur', 'melbourne', 'plane'],
   // ── 歐洲↔中東 跨地圖邊界(歐居右緣、中東居左緣;鐵路/海運/空運各一,渲染為「淡化門戶」越界線)──
   ['berlin', 'telaviv', 'plane'],    // 空運:柏林↔特拉維夫直飛
   ['berlin', 'riyadh', 'train'],     // 鐵路:歐陸經土耳其/阿拉伯陸橋到利雅德
   ['amsterdam', 'telaviv', 'ship'],  // 海運:阿姆斯特丹↔特拉維夫(地中海航線)
+  ['dubai', 'paris', 'plane'],       // 空運:杜拜↔巴黎(波斯灣↔西歐,門戶越界)
 ];
 
 // 由單一真相 EDGE_LIST 導出:EDGES(完整連通圖,供飛機 BFS)+ EDGE_TYPES(交通工具,供相鄰/飛機判定)

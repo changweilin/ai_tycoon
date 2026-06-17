@@ -163,9 +163,10 @@ export class Game {
     this.eventDeck = shuffle(EVENT_CARDS.map(e => e.id));
     this.activeEvent = null;
 
-    // 台灣立場:人類玩家在第 1 季內秘密自選(P1-2);AI 或無台灣時隨機
+    // 台灣立場:人類玩家在第 1 季內秘密自選(P1-2);AI(或無人類台灣)則自動選「人數較少」的一方,
+    // 把台灣從亂數攪局者變成平衡者 —— 修正奇數人數局(如 4 人 2:1)被一面倒的問題。
     const twSeat = seats.find(s => CHARACTERS.find(c => c.id === s.charId)?.faction === 'TW');
-    this.twSupport = twSeat && !twSeat.isAI ? null : (Math.random() < 0.5 ? 'US' : 'CN');
+    this.twSupport = twSeat && !twSeat.isAI ? null : this._balanceSide();
     this.twChosen = !!this.twSupport;
     this.twRevealed = false;
     this.twPivoted = false;
@@ -219,6 +220,18 @@ export class Game {
   secretSideOf(p) {
     if (p.faction === 'TW') return this.twSupport;
     return FACTIONS[p.faction].side;
+  }
+  /** AI 台灣的立場:倒向「目前人數較少」的陣營以平衡雙方(平手則隨機) */
+  _balanceSide() {
+    let us = 0, cn = 0;
+    for (const p of this.players) {
+      if (p.faction === 'TW') continue;
+      const s = FACTIONS[p.faction].side;
+      if (s === 'US') us++; else if (s === 'CN') cn++;
+    }
+    if (us < cn) return 'US';
+    if (cn < us) return 'CN';
+    return Math.random() < 0.5 ? 'US' : 'CN';
   }
   lead() { return this.tech.US - this.tech.CN; }
   /** 點 → 年(領先 1 年 = 20 點) */

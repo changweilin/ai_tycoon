@@ -176,6 +176,7 @@ function clearAutosaves() {
 
 /** 廣播房間狀態(每個 client 拿到自己視角的 payload) */
 function broadcast(room) {
+  pruneKickVotes(room);
   const lobby = {
     pin: room.pin,
     started: room.started,
@@ -183,8 +184,10 @@ function broadcast(room) {
     config: room.config,
     clients: [...room.clients.entries()].map(([id, c]) => ({
       id, name: c.name, mode: c.mode, charId: c.charId, isHost: id === room.hostId,
+      ready: !!c.ready, connected: c.connected !== false,
     })),
     takenChars: [...room.chars.keys()],
+    kickVotes: kickVotesPayload(room),
   };
   const pub = room.started ? room.game.publicState() : null;
   for (const [id, c] of room.clients) {
@@ -201,6 +204,58 @@ function playerIdxOf(room, client) {
   if (!client.charId || !room.started) return -1;
   if (client.charId === '*') return room.game.turnIdx; // 上帝模式:永遠控制當前角色
   return room.game.players.findIndex(p => p.char.id === client.charId);
+}
+
+// ---------------- 陣營平衡 / 準備 / 投票剔除 ----------------
+/** 角色所屬陣營(米=US含日、牆=CN含韓、台灣=null) */
+function sideOfChar(charId) {
+  const ch = CHARACTERS.find(c => c.id === charId);
+  if (!ch) return null;
+  return ch.faction === 'TW' ? null : FACTIONS[ch.faction].side;
+}
+/** 大廳中各陣營已選角的玩家人數(可排除某一位 client) */
+function sideCounts(room, except = null) {
+  let US = 0, CN = 0;
+  for (const c of room.clients.values()) {
+    if (c.mode !== 'player' || !c.charId || c === except) continue;
+    const s = sideOfChar(c.charId);
+    if (s === 'US') US++; else if (s === 'CN') CN++;
+  }
+  return { US, CN };
+}
+/** 每個陣營的選角上限:扣除台灣 1 席後折半(偶數→親美/親中 1:1,奇數→相差 1) */
+function sideCapFor(expected) {
+  const twSeat = expected >= 3 ? 1 : 0;
+  return Math.max(1, Math.ceil((expected - twSeat) / 2));
+}
+
+function shuffleArr(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/** 清掉已離開玩家的剔除票(目標或投票者已不在房內) */
+function pruneKickVotes(room) {
+  if (!room.kickVotes) return;
+  for (const [target, voters] of room.kickVotes) {
+    if (!room.clients.has(target)) { room.kickVotes.delete(target); continue; }
+    for (const v of [...voters]) if (!room.clients.has(v)) voters.delete(v);
+    if (voters.size === 0) room.kickVotes.delete(target);
+  }
+}
+/** 投票剔除門檻:除目標外的在房人數過半 */
+function kickThreshold(room, targetId) {
+  const eligible = [...room.clients.keys()].filter(id => id !== targetId).length;
+  return Math.floor(eligible / 2) + 1;
+}
+/** 廣播用:{ 目標id: [投票者id…] } */
+function kickVotesPayload(room) {
+  const out = {};
+  if (room.kickVotes) for (const [t, voters] of room.kickVotes) if (voters.size) out[t] = [...voters];
+  return out;
 }
 
 /** 選角玩家已達預計人數時,把其餘未選角的(非房主)玩家自動轉為觀戰 */
@@ -289,8 +344,8 @@ wss.on('connection', ws => {
       const pin = genPin();
       room = {
         pin, hostId: clientId, started: false, game: null,
-        clients: new Map(), chars: new Map(),
-        config: { gameName: sanitizeName(m.gameName) , expectedCount: 4 },
+        clients: new Map(), chars: new Map(), kickVotes: new Map(),
+        config: { gameName: sanitizeName(m.gameName) , expectedCount: 4, randomChars: false },
       };
       client = { ws, name: m.name || `玩家${clientId}`, mode: 'player', charId: null, token: genToken(), connected: true };
       room.clients.set(clientId, client);
@@ -397,7 +452,52 @@ wss.on('connection', ws => {
         const n = parseInt(m.expectedCount, 10);
         if (n >= 2 && n <= RULES.maxPlayers) room.config.expectedCount = n;
       }
+      if (m.randomChars !== undefined) {
+        room.config.randomChars = !!m.randomChars;
+        if (room.config.randomChars) { // 開啟隨機分配:釋放所有已鎖定角色,改由「準備好」流程
+          room.chars.clear();
+          for (const c of room.clients.values()) c.charId = null;
+        }
+      }
       autoSpectate(room);
+      broadcast(room);
+      return;
+    }
+
+    // ----- 切換「準備好」狀態 -----
+    if (m.t === 'setReady') {
+      if (room.started) { err('遊戲已開始'); return; }
+      client.ready = !!m.ready;
+      broadcast(room);
+      return;
+    }
+
+    // ----- 投票剔除玩家(大廳內;過半同意即移出房間,房主免疫) -----
+    if (m.t === 'voteKick') {
+      if (room.started) { err('遊戲已開始,無法投票剔除'); return; }
+      const targetId = m.targetId;
+      if (!room.clients.has(targetId)) { err('找不到該玩家'); return; }
+      if (targetId === room.hostId) { err('無法投票剔除房主'); return; }
+      if (targetId === clientId) { err('不能投票剔除自己'); return; }
+      room.kickVotes = room.kickVotes || new Map();
+      let voters = room.kickVotes.get(targetId);
+      if (!voters) { voters = new Set(); room.kickVotes.set(targetId, voters); }
+      if (voters.has(clientId)) voters.delete(clientId); else voters.add(clientId);
+      pruneKickVotes(room);
+      voters = room.kickVotes.get(targetId);
+      if (voters && voters.size >= kickThreshold(room, targetId)) {
+        const kicked = room.clients.get(targetId);
+        if (kicked) {
+          if (kicked.charId) room.chars.delete(kicked.charId);
+          if (kicked.dcTimer) { clearTimeout(kicked.dcTimer); kicked.dcTimer = null; }
+          send(kicked.ws, { t: 'kicked', msg: '你已被多數玩家投票剔除房間' });
+          try { kicked.ws.close(); } catch { /* 忽略 */ }
+          room.clients.delete(targetId);
+          console.log(`👢 房間 ${room.pin}:玩家 ${kicked.name} 被投票剔除`);
+        }
+        room.kickVotes.delete(targetId);
+        pruneKickVotes(room);
+      }
       broadcast(room);
       return;
     }
@@ -436,6 +536,8 @@ wss.on('connection', ws => {
       room.started = false;
       room.game = null;
       room.aiChars = new Set();
+      room.kickVotes = new Map();
+      for (const c of room.clients.values()) c.ready = false; // 回大廳:重置準備狀態
       console.log(`⏹️ 房間 ${room.pin} 遊戲已由房主結束`);
       broadcast(room);
       return;
@@ -444,10 +546,26 @@ wss.on('connection', ws => {
     // ----- 選角色(設定 PIN 鎖定) -----
     if (m.t === 'selectChar') {
       if (client.mode === 'spectator') { err('觀戰者無法選擇角色'); return; }
+      if (room.config.randomChars && !room.started) {
+        err('房主已開啟「角色隨機分配」,請改用「準備好」按鈕'); return;
+      }
+      if (client.ready && !room.started) {
+        err('你已按「準備好」,請先取消準備才能選擇/更換角色'); return;
+      }
+      // 點擊自己已選的角色 → 取消選擇(釋放鎖定)
+      if (!room.started && m.charId === client.charId) {
+        room.chars.delete(client.charId);
+        client.charId = null;
+        broadcast(room);
+        return;
+      }
       const ch = CHARACTERS.find(c => c.id === m.charId);
       if (!ch) { err('無此角色'); return; }
       if ((ch.faction === 'JP' || ch.faction === 'KR') && room.config.expectedCount < RULES.jpkrMinPlayers) {
         err(`日本/韓國需要遊戲人數 ${RULES.jpkrMinPlayers} 以上(請房主調整人數選項)`); return;
+      }
+      if (!room.started && ch.faction === 'TW' && room.config.expectedCount < 3) {
+        err('雙人對決為米牆對決,不開放台灣'); return;
       }
       // 3 人以上:若只剩這位玩家未選角且台灣還沒人選,他只能選台灣
       if (!room.started && room.config.expectedCount >= 3 && ch.id !== 'tsmc' && !room.chars.has('tsmc')) {
@@ -456,6 +574,15 @@ wss.on('connection', ws => {
         if (playerClients.length >= room.config.expectedCount &&
             unselected.length === 1 && unselected[0] === client) {
           err('你是最後一位未選角的玩家,且台灣尚未有人選擇 — 必須選擇護國神山!'); return;
+        }
+      }
+      // 陣營人數平衡:某陣營達上限時不可再選該陣營(扣除台灣後折半;偶數→親美/親中 1:1)
+      if (!room.started && ch.faction !== 'TW' && m.charId !== client.charId) {
+        const side = FACTIONS[ch.faction].side;
+        const cap = sideCapFor(room.config.expectedCount);
+        const cur = sideCounts(room, client);
+        if ((side === 'US' ? cur.US : cur.CN) + 1 > cap) {
+          err(`${side === 'US' ? '親美' : '親中'}陣營已達 ${cap} 人上限,請選擇另一陣營以維持雙方平衡`); return;
         }
       }
       if (room.chars.has(m.charId)) {
@@ -506,52 +633,55 @@ wss.on('connection', ws => {
           : makeAISeat(id, aiNames));
         for (const id of lineup) if (id !== client.charId) room.aiChars.add(id);
       } else {
-        // 多人連線(2 人 = 米牆對決,免台灣);人數不足預計人數時以 AI 玩家頂替
-        const seated = [...room.clients.values()].filter(c => c.mode === 'player' && c.charId);
-        const factions = seated.map(c => CHARACTERS.find(x => x.id === c.charId).faction);
-        const errs = [];
-        // 房主不參戰且無人選角 → 直接開全 AI 觀賞局(取代舊的「AI 內戰」)
-        if (seated.length < 1 && client.mode !== 'spectator')
-          errs.push('至少需要 1 位玩家選好角色(或房主勾選「不參與」可直接開全 AI 觀賞局)');
-        if (seated.length > RULES.maxPlayers) errs.push(`最多 ${RULES.maxPlayers} 位玩家`);
-        const needAI = Math.max(0, total - seated.length);
-        if (needAI === 0) {
-          // 人數到齊:沿用原本的陣容檢查
-          if (seated.length === 2) {
-            // 雙人特殊規則:一米一牆,無台灣
-            if (!(factions.includes('US') && factions.includes('CN')))
-              errs.push('雙人對決必須一位米國、一位牆國');
-          } else {
-            if (!factions.includes('US')) errs.push('至少需要 1 位米國玩家');
-            if (!factions.includes('CN')) errs.push('至少需要 1 位牆國玩家');
-            if (!factions.includes('TW')) errs.push('至少需要 1 位台灣玩家');
-          }
-        } else if (total === 2 && factions.some(f => f !== 'US' && f !== 'CN')) {
-          errs.push('雙人對決必須選米國或牆國角色(AI 會頂替另一方)');
+        // 多人連線:全員「準備好」才能開始。已選角者用自己的角色;未選角者(含隨機分配模式、
+        // 或選擇交給系統)按平衡陣容隨機分配;缺額由 AI 頂替。
+        if (client.mode === 'player') client.ready = true; // 房主按下開始 = 視為已準備
+        let participants = [...room.clients.values()].filter(c => c.mode === 'player' && c.connected !== false);
+        const notReady = participants.filter(c => !c.ready);
+        if (participants.length > 0 && notReady.length) {
+          err(`還有 ${notReady.length} 位玩家尚未按「準備好」`); return;
         }
-        if ((factions.includes('JP') || factions.includes('KR')) && room.config.expectedCount < RULES.jpkrMinPlayers)
-          errs.push(`日本/韓國需要預計人數 ${RULES.jpkrMinPlayers} 以上`);
-        if (errs.length) { err(errs.join(';')); return; }
-        seats = seated.map(c => ({ charId: c.charId, playerName: c.name }));
-        if (needAI > 0) {
-          // buildLineup 自動補齊米/牆/台等陣容限制,缺額由 AI 頂替
-          const lineup = buildLineup(seated.map(c => c.charId), total);
-          for (const id of lineup) {
-            if (seats.some(s => s.charId === id)) continue;
-            const seat = makeAISeat(id, aiNames);
-            seats.push(seat);
-            room.aiChars.add(id);
+        // 參與人數超過預計人數 → 多出者轉觀戰(已選角者優先入座)
+        if (participants.length > total) {
+          participants.sort((a, b) => (b.charId ? 1 : 0) - (a.charId ? 1 : 0));
+          for (const c of participants.slice(total)) {
+            if (c.charId) { room.chars.delete(c.charId); c.charId = null; }
+            c.mode = 'spectator';
+            send(c.ws, { t: 'info', msg: `👁️ 參與人數超過 ${total} 人,你這局自動觀戰` });
           }
-          const aiList = seats.filter(s => s.isAI)
-            .map(s => `${s.playerName}(${CHARACTERS.find(c => c.id === s.charId).name})`).join('、');
-          aiFillNote = seated.length === 0
-            ? `🍿 房主不參與,全 AI 觀賞局開始!對戰角色:${aiList}`
-            : `🤖 連線人數不足(${seated.length}/${total}),由 ${seats.length - seated.length} 位 AI 玩家頂替:${aiList}`;
+          participants = participants.slice(0, total);
         }
+        const chosen = participants.filter(c => c.charId).map(c => c.charId);
+        // buildLineup 依平衡陣容(米/牆/台…)補滿;未被真人選走的角色用來隨機分配 / AI 頂替
+        const remaining = shuffleArr(buildLineup(chosen, total).filter(id => !chosen.includes(id)));
+        seats = [];
+        for (const c of participants) if (c.charId)
+          seats.push({ charId: c.charId, playerName: c.name });
+        const randomly = [];
+        for (const c of participants) if (!c.charId) {
+          const id = remaining.shift();
+          c.charId = id;
+          room.chars.set(id, { pin: '', ownerName: c.name });
+          seats.push({ charId: id, playerName: c.name });
+          randomly.push(c);
+        }
+        for (const id of remaining) { seats.push(makeAISeat(id, aiNames)); room.aiChars.add(id); }
+        for (const c of randomly) {
+          const cc = CHARACTERS.find(x => x.id === c.charId);
+          send(c.ws, { t: 'info', msg: `🎲 系統分配給你的角色:${cc.name}【${FACTIONS[cc.faction].name}】` });
+        }
+        const aiSeats = seats.filter(s => s.isAI);
+        const aiList = aiSeats.map(s => `${s.playerName}(${CHARACTERS.find(c => c.id === s.charId).name})`).join('、');
+        aiFillNote = participants.length === 0
+          ? `🍿 無人參與,全 AI 觀賞局開始!對戰角色:${aiList}`
+          : aiSeats.length
+            ? `🤖 ${participants.length} 位玩家參戰,缺額由 ${aiSeats.length} 位 AI 頂替:${aiList}`
+            : randomly.length ? `🎲 已為 ${randomly.length} 位未選角玩家隨機分配角色` : null;
       }
 
       room.game = new Game(seats);
       room.started = true;
+      room.kickVotes = new Map(); // 開局清空剔除票
       if (aiFillNote) {
         room.game.addLog(aiFillNote);
         for (const c of room.clients.values()) send(c.ws, { t: 'info', msg: aiFillNote });

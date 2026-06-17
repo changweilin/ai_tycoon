@@ -92,6 +92,29 @@ body {
 .seat-no { font-size: 1.1rem; }
 .seat-name-ro { min-width: 80px; }
 .seat-char { flex: 1; font-size: .88rem; }
+.seat.me { outline: 1px solid color-mix(in srgb, var(--cyan) 60%, transparent); }
+.seat.offline { opacity: .5; }
+.ready-tag { font-size: .76rem; padding: 2px 7px; border-radius: 10px; white-space: nowrap; }
+.ready-tag.yes { color: #2eff8f; background: rgba(46,255,143,.12); }
+.ready-tag.no { color: #ffae5e; background: rgba(255,174,94,.1); }
+.kick-btn {
+  font-size: .74rem; padding: 3px 8px; border-radius: 8px; cursor: pointer; white-space: nowrap;
+  background: rgba(255,59,59,.1); color: #ff6b6b; border: 1px solid rgba(255,59,59,.4);
+}
+.kick-btn:hover { background: rgba(255,59,59,.22); }
+.kick-btn.voted { background: rgba(255,59,59,.4); color: #fff; border-color: #ff3b3b; }
+.ready-btn { width: 100%; margin: 6px 0; }
+.ready-btn.is-ready { background: linear-gradient(135deg, #1f8f5a, #2eff8f); color: #04210f; }
+.pool-banner {
+  padding: 12px 14px; margin-bottom: 14px; line-height: 1.6; color: #ffe39a; font-size: .9rem;
+  border: 1px dashed color-mix(in srgb, #ffd02e 55%, transparent); border-radius: 10px;
+  background: rgba(255,208,46,.07);
+}
+/* 隨機分配 / 已準備:角色清單仍可瀏覽(點頭像看立繪),但整體淡化提示不可挑選 */
+.char-pool.view-only .char-group-grid { opacity: .62; }
+.char-pool.view-only .char-card { cursor: default; }
+.char-pool.view-only .char-card:hover { box-shadow: none; transform: none; }
+.char-pool.view-only .char-card.mine { opacity: 1; }
 
 .char-pool { display: flex; flex-direction: column; gap: 18px; }
 .char-group { border-left: 3px solid var(--fc); padding-left: 12px; }

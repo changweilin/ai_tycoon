@@ -11,10 +11,13 @@ await new Promise(res => server.stdout.on('data', d => { if (String(d).includes(
 function client(name) {
   const ws = new WebSocket(`ws://localhost:${PORT}`);
   const c = { ws, name, last: null, errors: [] };
+  c.infos = [];
   ws.on('message', raw => {
     const m = JSON.parse(raw);
     if (m.t === 'sync') c.last = m;
     if (m.t === 'error') c.errors.push(m.msg);
+    if (m.t === 'info') c.infos.push(m.msg);
+    if (m.t === 'kicked') c.kicked = m.msg;
   });
   c.send = m => ws.send(JSON.stringify(m));
   c.wait = () => new Promise(r => setTimeout(r, 150));
@@ -48,7 +51,15 @@ spec.send({ t: 'selectChar', charId: 'jensen', charPin: '9999' });
 await host.wait();
 if (!spec.errors.some(e => e.includes('觀戰'))) throw new Error('觀戰者選角應被拒絕');
 
+// 未全員準備好不能開始
 host.send({ t: 'startGame' });
+await host.wait();
+if (host.last.lobby.started) throw new Error('未全員準備好不應開始');
+if (!host.errors.some(e => e.includes('準備'))) throw new Error('應提示尚未準備');
+p2.send({ t: 'setReady', ready: true });
+p3.send({ t: 'setReady', ready: true });
+await host.wait();
+host.send({ t: 'startGame' }); // 房主按開始 = 自動準備
 await host.wait();
 if (!host.last.lobby.started) throw new Error('遊戲未開始: ' + host.errors.join(','));
 console.log('遊戲已開始,玩家:', host.last.state.players.map(p => p.name).join(' / '));
@@ -206,7 +217,10 @@ await oh.wait();
 if (oh.last.lobby.clients.find(c => c.name === '遲到C').mode !== 'spectator')
   throw new Error('選角額滿:未選角玩家應自動轉觀戰');
 
-// 不參與的房主仍可開始多人遊戲,由 A/B 米牆對決
+// 不參與的房主仍可開始多人遊戲,由 A/B 米牆對決(需全員準備好)
+pa.send({ t: 'setReady', ready: true });
+pb.send({ t: 'setReady', ready: true });
+await oh.wait();
 oh.send({ t: 'startGame', mode: 'multi' });
 await oh.wait();
 if (!oh.last.lobby.started) throw new Error('房主觀戰下多人遊戲未開始: ' + oh.errors.join(','));
@@ -253,6 +267,76 @@ t3.send({ t: 'selectChar', charId: 'tsmc', charPin: '3333' });
 await t3.wait();
 if (!t3.last.lobby.takenChars.includes('tsmc')) throw new Error('最後一位應可選台灣');
 console.log('✅ 最後一位必選台灣通過');
+
+// ---- 陣營人數平衡:某陣營達上限不可再選 ----
+const b1 = await client('b1');
+b1.send({ t: 'createRoom', name: '平衡房' });
+await b1.wait();
+const balPin = b1.last.lobby.pin;
+b1.send({ t: 'setRoomConfig', expectedCount: 4 }); // 扣台灣後 3 席 → 每陣營上限 2
+const b2 = await client('b2'); b2.send({ t: 'joinRoom', pin: balPin, name: '親美二', mode: 'player' });
+const b3 = await client('b3'); b3.send({ t: 'joinRoom', pin: balPin, name: '親美三', mode: 'player' });
+await b1.wait();
+b1.send({ t: 'selectChar', charId: 'jensen', charPin: '1111' }); // US 1
+b2.send({ t: 'selectChar', charId: 'zuck', charPin: '2222' });   // US 2(達上限)
+await b1.wait();
+b3.send({ t: 'selectChar', charId: 'musk', charPin: '3333' });   // US 3 → 應被拒
+await b3.wait();
+if (!b3.errors.some(e => e.includes('親美') && e.includes('上限'))) throw new Error('超過陣營上限應被拒');
+b3.send({ t: 'selectChar', charId: 'ren', charPin: '3333' });    // 改選 CN → 應可
+await b3.wait();
+if (!b3.last.lobby.takenChars.includes('ren')) throw new Error('改選另一陣營應成功');
+console.log('✅ 陣營人數平衡上限通過');
+
+// ---- 點自己的角色取消選擇 + 準備好後鎖定選擇 ----
+b3.send({ t: 'selectChar', charId: 'ren' }); // 再點一次自己的角色 → 取消
+await b3.wait();
+if (b3.last.lobby.takenChars.includes('ren')) throw new Error('再次點選自己的角色應取消選擇');
+b3.send({ t: 'setReady', ready: true });
+await b3.wait();
+b3.send({ t: 'selectChar', charId: 'jack', charPin: '3333' }); // 已準備 → 不可再選
+await b3.wait();
+if (!b3.errors.some(e => e.includes('準備'))) throw new Error('準備好後不應能選角');
+console.log('✅ 取消選擇 + 準備鎖定選擇通過');
+
+// ---- 角色隨機分配 + 準備好 ----
+const r1 = await client('r1');
+r1.send({ t: 'createRoom', name: '隨機房' });
+await r1.wait();
+const rPin = r1.last.lobby.pin;
+r1.send({ t: 'setRoomConfig', expectedCount: 3, randomChars: true });
+const r2 = await client('r2'); r2.send({ t: 'joinRoom', pin: rPin, name: '隨機二', mode: 'player' });
+await r1.wait();
+r2.send({ t: 'selectChar', charId: 'musk', charPin: '1234' }); // 隨機模式下選角應被拒
+await r2.wait();
+if (!r2.errors.some(e => e.includes('隨機'))) throw new Error('隨機模式下不應允許自選角色');
+r2.send({ t: 'setReady', ready: true });
+await r1.wait();
+if (!r1.last.lobby.clients.find(c => c.name === '隨機二').ready) throw new Error('準備狀態應同步');
+r1.send({ t: 'startGame', mode: 'multi' }); // 房主按開始 = 自動準備,缺額 AI 頂替
+await r1.wait();
+if (!r1.last.lobby.started) throw new Error('隨機分配應能開始: ' + r1.errors.join(','));
+if (!r1.last.state.players.some(p => !p.isAI)) throw new Error('應至少有真人玩家分到角色');
+if (!r2.infos.some(i => i.includes('分配給你的角色'))) throw new Error('玩家應收到抽到的角色通知');
+console.log('✅ 角色隨機分配 + 準備好通過');
+
+// ---- 投票剔除玩家(過半) ----
+const k1 = await client('k1');
+k1.send({ t: 'createRoom', name: '踢人房' });
+await k1.wait();
+const kPin = k1.last.lobby.pin;
+const k2 = await client('k2'); k2.send({ t: 'joinRoom', pin: kPin, name: '好人', mode: 'player' });
+const k3 = await client('k3'); k3.send({ t: 'joinRoom', pin: kPin, name: '搗蛋鬼', mode: 'player' });
+await k1.wait();
+const targetId = k1.last.lobby.clients.find(c => c.name === '搗蛋鬼').id;
+k1.send({ t: 'voteKick', targetId }); // 1/2 票
+await k1.wait();
+if (k1.last.lobby.clients.some(c => c.name === '搗蛋鬼') === false) throw new Error('單票不應剔除');
+k2.send({ t: 'voteKick', targetId }); // 2/2 票 → 剔除
+await k1.wait();
+if (!k3.kicked) throw new Error('被剔除者應收到 kicked 通知');
+if (k1.last.lobby.clients.some(c => c.name === '搗蛋鬼')) throw new Error('過半票後應被移出房間');
+console.log('✅ 投票剔除玩家通過');
 
 console.log('✅ 端對端煙霧測試全部通過');
 server.kill();
