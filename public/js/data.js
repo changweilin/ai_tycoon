@@ -440,6 +440,11 @@ export const REGIONS = [
   { id: 'melbourne',name: '墨爾本',   x: -5.0,  z: 12.4, tag: '南境花園', country: null, startLevel: 2 },
 ];
 
+// 全圖座標縮放係數:把城市彼此「拉開」(讓鐵道/航運在城市間看得更清楚),3D 端的海岸線/地形/
+// 航線一併以同係數縮放(見 board3d.js)。遊戲邏輯只用圖論(EDGES/相鄰),不看座標,故縮放不影響平衡。
+export const MAP_SCALE = 1.22;
+for (const r of REGIONS) { r.x *= MAP_SCALE; r.z *= MAP_SCALE; }
+
 // ---- 集體事件卡(每一輪開始前抽一張,效果持續該輪) ----
 // effect.type:resZero/resHalf(限制資源獲取)、catCost/opsCost(卡片花費增加)、
 //             apDelta(行動點增減)、techDelta(部署科技力增減)、incomeBonus(收入增加)
@@ -535,7 +540,7 @@ const EDGE_LIST = [
   // ── 東南亞 / 南海 / 印度洋 / 中東(半島走鐵路、跨海走海運)──
   // 深圳/廣州↔河內全程陸地(廣西陸橋)→ 鐵路;吉隆坡↔新加坡全程在海上(以島礁呈現)→ 海運。
   ['shenzhen', 'hanoi', 'train'], ['guangzhou', 'hanoi', 'train'], ['hanoi', 'bangkok', 'train'],
-  ['bangkok', 'kualalumpur', 'train'], ['kualalumpur', 'singapore', 'ship'], ['singapore', 'jakarta', 'ship'],
+  ['bangkok', 'kualalumpur', 'train'], ['kualalumpur', 'singapore', 'train'], ['singapore', 'jakarta', 'ship'],
   ['jakarta', 'manila', 'ship'], ['manila', 'singapore', 'ship'], ['bangkok', 'bangalore', 'ship'],
   ['bangalore', 'mumbai', 'train'], ['mumbai', 'dubai', 'ship'], ['dubai', 'riyadh', 'train'],
   ['riyadh', 'telaviv', 'train'], // 阿拉伯半島陸路(杜拜-利雅德-特拉維夫)
@@ -543,6 +548,7 @@ const EDGE_LIST = [
   ['sydney', 'melbourne', 'train'], ['jakarta', 'melbourne', 'ship'],
   // ── 飛機專用長程航線(可橫跨城市;只有飛機能用)──
   ['sv', 'tokyo', 'plane'], ['sv', 'hsinchu', 'plane'], ['la', 'tokyo', 'plane'], ['sydney', 'austin', 'plane'],
+  ['singapore', 'sydney', 'plane'], // 新加坡↔雪梨空運
   ['nyc', 'amsterdam', 'plane'], ['amsterdam', 'sv', 'plane'], ['amsterdam', 'seattle', 'plane'],
   ['bangalore', 'shanghai', 'plane'],
   ['paris', 'nyc', 'plane'], ['manila', 'tokyo', 'plane'],

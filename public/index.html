@@ -26,14 +26,25 @@
   <p class="subtitle">環太平洋科技冷戰 // 3~8 人陣營對抗桌遊</p>
   <div class="connect-box">
     <input id="myName" placeholder="你的名字" maxlength="12">
+    <label class="create-public">
+      <input type="checkbox" id="createPublic" checked>
+      🌐 公開房間(任何人可在列表直接加入;取消勾選=私人房,需 PIN 才能加入)
+    </label>
     <button id="createBtn" class="btn big">🏠 建立房間(房主)</button>
-    <div class="divider">─── 或加入別人的房間 ───</div>
-    <input id="joinPin" placeholder="房間 PIN(4 位數)" inputmode="numeric" maxlength="4">
+    <div class="divider">─── 加入現有房間 ───</div>
     <div class="join-mode">
       <label><input type="radio" name="joinMode" value="player" checked> 🎮 遊戲模式</label>
       <label><input type="radio" name="joinMode" value="spectator"> 👁️ 觀戰模式</label>
     </div>
-    <button id="joinBtn" class="btn big">🔌 加入房間</button>
+    <div id="roomList" class="room-list"></div>
+    <button id="refreshRoomsBtn" class="btn">🔄 重新整理房間列表</button>
+    <details class="pin-join">
+      <summary>用 PIN 直接加入</summary>
+      <div class="pin-join-row">
+        <input id="joinPin" placeholder="房間 PIN(4 位數)" inputmode="numeric" maxlength="4">
+        <button id="joinBtn" class="btn">🔌 加入</button>
+      </div>
+    </details>
     <div class="divider">─── 繼續上次的戰局 ───</div>
     <button id="loadBtn" class="btn big">📂 載入遊戲</button>
     <button id="clearSavesBtn" class="btn">🗑️ 清除暫存檔(自動存檔)</button>
@@ -66,6 +77,9 @@
             <option value="5">5</option><option value="6">6(開放日韓)</option>
             <option value="7">7(開放日韓)</option><option value="8">8(開放日韓)</option>
           </select>
+        </label>
+        <label class="host-optout">
+          <input type="checkbox" id="roomPublic"> 🌐 公開房間(顯示於列表可直接加入;取消=私人房需 PIN)
         </label>
       </div>
       <div id="hostModeBox" class="host-mode" style="display:none">
@@ -121,8 +135,12 @@
   </div>
   <div id="spectatorTag" class="hud spectator-tag" style="display:none">👁️ 觀戰模式</div>
 
-  <!-- 尋找當前位置:把鏡頭聚焦到「你」(觀戰時為當前玩家)所在的城市 -->
-  <button id="btnLocate" class="hud map-locate" title="尋找我的位置(聚焦當前城市)">📍</button>
+  <!-- 地圖工具列:尋找位置 / 切換視角 / 切換空運顯示(地圖右緣中央直排) -->
+  <div id="mapTools" class="hud map-tools">
+    <button id="btnLocate" class="map-tool" title="尋找我的位置(聚焦當前城市)">📍</button>
+    <button id="btnViewTilt" class="map-tool" title="切換視角:90° 正視 ↔ 45° 斜視">🎥</button>
+    <button id="btnPlaneViz" class="map-tool" title="切換空運顯示:完全 / 高透明度 / 漸進變換">✈️</button>
+  </div>
 
   <!-- 目前玩家面板 -->
   <div id="playerPanel" class="hud">

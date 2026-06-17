@@ -57,6 +57,31 @@ body {
 }
 .divider { text-align: center; color: #5a7a9a; font-size: .85rem; }
 .join-mode { display: flex; gap: 18px; justify-content: center; color: #bfe9ff; }
+.create-public {
+  display: flex; align-items: flex-start; gap: 8px; cursor: pointer;
+  color: #bfe9ff; font-size: .82rem; line-height: 1.35;
+}
+.create-public input { accent-color: var(--cyan, #00f0ff); width: 17px; height: 17px; margin-top: 1px; cursor: pointer; flex: none; }
+
+/* ---------- 房間列表 ---------- */
+.room-list { display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
+.room-empty { color: #6c87a6; font-size: .85rem; text-align: center; padding: 12px 6px; }
+.room-row {
+  background: #070d22; border: 1px solid var(--border); border-radius: 9px;
+  padding: 9px 12px; cursor: pointer; transition: all .14s; text-align: left;
+}
+.room-row:hover { border-color: var(--cyan, #00f0ff); box-shadow: 0 0 12px rgba(0,240,255,.35); transform: translateY(-1px); }
+.room-main { display: flex; align-items: center; gap: 8px; }
+.room-name { font-weight: bold; color: #eaffff; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.room-sub { color: #8fb0cc; font-size: .76rem; margin-top: 3px; }
+.room-tag { font-size: .72rem; padding: 1px 7px; border-radius: 10px; flex: none; }
+.room-tag.wait { color: #8effc0; border: 1px solid rgba(46,255,143,.5); }
+.room-tag.live { color: #ffd02e; border: 1px solid rgba(255,208,46,.5); }
+.pin-join { color: #8fb0cc; font-size: .85rem; }
+.pin-join summary { cursor: pointer; padding: 4px 0; }
+.pin-join-row { display: flex; gap: 8px; margin-top: 8px; }
+.pin-join-row input { flex: 1; }
+.pin-join-row .btn { flex: none; }
 
 /* ---------- 按鈕 ---------- */
 .btn {
@@ -184,15 +209,21 @@ body {
 /* 觀戰者沒有行動列/手牌 → 標籤放空著的底部置中欄,避開左上角(房主+觀戰會同時出現) */
 .spectator-tag { bottom: 16px; left: var(--col-left); right: var(--col-right); margin-inline: auto; width: fit-content; color: #ffd02e; }
 
-/* 尋找當前位置:地圖右緣中央的圓形按鈕 */
-.map-locate {
+/* 地圖工具列:地圖右緣中央的直排圓形按鈕(尋找位置 / 視角 / 空運顯示) */
+.map-tools {
   right: 12px; top: 50%; transform: translateY(-50%);
-  width: 46px; height: 46px; padding: 0; font-size: 1.45rem; line-height: 1;
+  padding: 8px; display: flex; flex-direction: column; gap: 10px; align-items: center;
+}
+.map-tool {
+  width: 46px; height: 46px; padding: 0; font-size: 1.4rem; line-height: 1;
   border-radius: 50%; cursor: pointer; color: #eaffff;
+  background: linear-gradient(135deg, rgba(0,240,255,.16), rgba(123,43,255,.16));
+  border: 1px solid var(--border); transition: all .15s;
   display: flex; align-items: center; justify-content: center; user-select: none;
 }
-.map-locate:hover { border-color: var(--cyan); box-shadow: 0 0 18px rgba(0,240,255,.5); }
-.map-locate:active { transform: translateY(-50%) scale(.92); }
+.map-tool:hover { border-color: var(--cyan); box-shadow: 0 0 18px rgba(0,240,255,.5); transform: translateY(-1px); }
+.map-tool:active { transform: scale(.92); }
+.map-tool.on { background: var(--cyan); color: #001; }
 
 #playerPanel { top: 110px; left: 12px; max-width: 320px; font-size: .92rem; line-height: 1.7; }
 #curName { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

@@ -69,6 +69,44 @@ function genPin() {
   return pin;
 }
 
+// 房間公開識別碼(與 PIN 分離):公開大廳列表用它指向房間,
+// 私人房不外洩 PIN,加入時才驗證玩家輸入的 PIN。
+function genRoomId() {
+  let id;
+  do { id = 'r' + Math.random().toString(36).slice(2, 9); } while (findRoomById(id));
+  return id;
+}
+function findRoomById(id) {
+  if (!id) return null;
+  for (const r of rooms.values()) if (r.id === id) return r;
+  return null;
+}
+function hostNameOf(room) {
+  const h = room.clients.get(room.hostId);
+  return h ? h.name : '—';
+}
+/** 連線畫面用:列出所有房間(公開房附 PIN 供直接加入;私人房只給 id,需輸入 PIN) */
+function roomListPayload() {
+  const out = [];
+  for (const room of rooms.values()) {
+    const isPublic = room.config?.isPublic !== false;
+    const players = [...room.clients.values()].filter(c => c.mode === 'player').length;
+    const spectators = [...room.clients.values()].filter(c => c.mode === 'spectator').length;
+    const e = {
+      id: room.id, isPublic, started: !!room.started,
+      name: room.config?.gameName || '未命名房間',
+      players, spectators,
+      expected: room.config?.expectedCount || 4,
+      host: hostNameOf(room),
+    };
+    if (isPublic) e.pin = room.pin; // 公開房才回傳 PIN 供一鍵加入
+    out.push(e);
+  }
+  // 未開始的、公開的排前面;其餘維持插入順序
+  out.sort((a, b) => (a.started - b.started) || (b.isPublic - a.isPublic));
+  return out;
+}
+
 // 連線 session token:斷線重連時用來認回原本的座位(保留房主/角色身分)
 function genToken() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -122,11 +160,12 @@ function restoreRoomFromAutosave(pin) {
   let data;
   try { data = JSON.parse(fs.readFileSync(full, 'utf8')); } catch { return null; }
   const room = {
-    pin, hostId: null, started: data.started && !!data.game, game: null,
+    pin, id: genRoomId(), hostId: null, started: data.started && !!data.game, game: null,
     clients: new Map(), chars: new Map(data.chars),
     config: data.config || { gameName: data.name, expectedCount: 4 },
     aiChars: new Set(data.aiChars || []),
   };
+  if (room.config.isPublic === undefined) room.config.isPublic = true;
   if (data.game) {
     try { room.game = Game.fromSave(data.game); } catch { return null; }
   }
@@ -343,15 +382,20 @@ wss.on('connection', ws => {
     if (m.t === 'createRoom') {
       const pin = genPin();
       room = {
-        pin, hostId: clientId, started: false, game: null,
+        pin, id: genRoomId(), hostId: clientId, started: false, game: null,
         clients: new Map(), chars: new Map(), kickVotes: new Map(),
-        config: { gameName: sanitizeName(m.gameName) , expectedCount: 4, randomChars: false },
+        config: { gameName: sanitizeName(m.gameName), expectedCount: 4, randomChars: false, isPublic: m.isPublic !== false },
       };
       client = { ws, name: m.name || `玩家${clientId}`, mode: 'player', charId: null, token: genToken(), connected: true };
       room.clients.set(clientId, client);
       rooms.set(pin, room);
       console.log(`🏠 房間 ${pin} 已建立`);
       broadcast(room);
+      return;
+    }
+    // ----- 列出所有房間(連線畫面用:公開房可一鍵加入,私人房需輸入 PIN) -----
+    if (m.t === 'listRooms') {
+      send(ws, { t: 'rooms', list: roomListPayload() });
       return;
     }
     // ----- 列出/載入存檔(可在尚未加入房間時使用) -----
@@ -370,11 +414,12 @@ wss.on('connection', ws => {
       if (room) { room.clients.delete(clientId); if (room.clients.size === 0) rooms.delete(room.pin); }
       const pin = genPin();
       room = {
-        pin, hostId: clientId, started: data.started && !!data.game, game: null,
+        pin, id: genRoomId(), hostId: clientId, started: data.started && !!data.game, game: null,
         clients: new Map(), chars: new Map(data.chars),
         config: data.config || { gameName: data.name, expectedCount: 4 },
         aiChars: new Set(data.aiChars || []),
       };
+      if (room.config.isPublic === undefined) room.config.isPublic = true;
       if (data.game) {
         try { room.game = Game.fromSave(data.game); }
         catch (e) { rooms.delete(pin); room = null; err('載入失敗:' + e.message); return; }
@@ -388,8 +433,13 @@ wss.on('connection', ws => {
       return;
     }
     if (m.t === 'joinRoom') {
-      const r = rooms.get(String(m.pin));
-      if (!r) { err('找不到此 PIN 的房間'); return; }
+      // 來源:房間列表點擊帶 roomId;直接輸入 PIN 則用 pin 當鍵
+      const r = m.roomId ? findRoomById(String(m.roomId)) : rooms.get(String(m.pin));
+      if (!r) { err('找不到此房間'); return; }
+      // 非公開房:必須提供正確 PIN 才能加入(直接用 PIN 當鍵時 pin 已等同驗證)
+      if (r.config?.isPublic === false && String(m.pin || '') !== r.pin) {
+        err('🔒 此為私人房間,PIN 碼錯誤'); return;
+      }
       room = r;
       client = { ws, name: m.name || `玩家${clientId}`, mode: m.mode === 'spectator' ? 'spectator' : 'player', charId: null, token: genToken(), connected: true };
       room.clients.set(clientId, client);
@@ -452,6 +502,7 @@ wss.on('connection', ws => {
         const n = parseInt(m.expectedCount, 10);
         if (n >= 2 && n <= RULES.maxPlayers) room.config.expectedCount = n;
       }
+      if (m.isPublic !== undefined) room.config.isPublic = !!m.isPublic;
       if (m.randomChars !== undefined) {
         room.config.randomChars = !!m.randomChars;
         if (room.config.randomChars) { // 開啟隨機分配:釋放所有已鎖定角色,改由「準備好」流程

@@ -91,22 +91,30 @@ function isMyTurn() {
 // ---------------- 進入點:連線畫面 ----------------
 function setupConnect() {
   const params = new URLSearchParams(location.search);
-  if (params.get('room')) $('#joinPin').value = params.get('room');
+  if (params.get('room')) {
+    $('#joinPin').value = params.get('room');
+    const dt = document.querySelector('.pin-join'); if (dt) dt.open = true;
+  }
   $('#myName').value = localStorage.getItem('ctw_name') || '';
 
   const saveName = () => localStorage.setItem('ctw_name', $('#myName').value.trim());
   $('#createBtn').onclick = () => {
     saveName();
     ensureNet();
-    net.send({ t: 'createRoom', name: $('#myName').value.trim() });
+    net.send({ t: 'createRoom', name: $('#myName').value.trim(), isPublic: $('#createPublic').checked });
   };
   $('#joinBtn').onclick = () => {
     const pin = $('#joinPin').value.trim();
     if (!pin) { toast('請輸入房間 PIN'); return; }
     saveName();
     ensureNet();
-    const mode = document.querySelector('input[name="joinMode"]:checked').value;
-    net.send({ t: 'joinRoom', pin, name: $('#myName').value.trim(), mode });
+    net.send({ t: 'joinRoom', pin, name: $('#myName').value.trim(), mode: joinModeValue() });
+  };
+  $('#refreshRoomsBtn').onclick = () => { ensureNet(); net.send({ t: 'listRooms' }); };
+  $('#roomList').onclick = e => {
+    const row = e.target.closest('[data-room]');
+    if (!row) return;
+    joinListedRoom(row.dataset.room, row.dataset.public === '1', row.dataset.name || '');
   };
   $('#loadBtn').onclick = () => {
     saveName();
@@ -119,6 +127,66 @@ function setupConnect() {
       [{ label: '清除暫存檔', value: true }, { label: '取消', value: null }],
       val => { if (val) { ensureNet(); net.send({ t: 'clearAutosaves' }); } });
   };
+
+  // 一進連線畫面就抓房間列表,並在停留期間定時刷新(進房後 #connect 隱藏即停止送出)
+  ensureNet();
+  net.send({ t: 'listRooms' });
+  setInterval(() => {
+    if (net && net.connected && $('#connect').style.display !== 'none') net.send({ t: 'listRooms' });
+  }, 4000);
+}
+
+function joinModeValue() {
+  return document.querySelector('input[name="joinMode"]:checked')?.value || 'player';
+}
+
+// 從房間列表加入:公開房一鍵加入;私人房先彈出 PIN 輸入框
+function joinListedRoom(roomId, isPublic, roomName) {
+  localStorage.setItem('ctw_name', $('#myName').value.trim());
+  ensureNet();
+  const myName = $('#myName').value.trim();
+  const mode = joinModeValue();
+  if (isPublic) {
+    net.send({ t: 'joinRoom', roomId, name: myName, mode });
+    return;
+  }
+  openModal(`🔒 加入私人房間「${roomName}」`,
+    `<p>此為私人房間,請輸入房主提供的 4 位數 PIN 才能加入。</p>
+     <input id="roomPinInput" class="pin-input" type="text" inputmode="numeric" maxlength="4" placeholder="房間 PIN">`,
+    [{ label: '加入', value: true }, { label: '取消', value: null }],
+    val => {
+      if (!val) return;
+      const pin = ($('#roomPinInput')?.value || '').trim();
+      if (!pin) { toast('請輸入 PIN'); return; }
+      net.send({ t: 'joinRoom', roomId, pin, name: myName, mode });
+    });
+}
+
+// HTML 轉義(房間/玩家名稱可能含特殊字元)
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// 繪製房間列表(連線畫面)
+function renderRoomList(list) {
+  const el = $('#roomList');
+  if (!el) return;
+  if (!list || !list.length) {
+    el.innerHTML = '<div class="room-empty">目前沒有開放中的房間 — 建立一個,或用 PIN 直接加入。</div>';
+    return;
+  }
+  el.innerHTML = list.map(r => {
+    const lock = r.isPublic ? '🌐 公開' : '🔒 私人';
+    const status = r.started ? '<span class="room-tag live">⚔️ 進行中</span>' : '<span class="room-tag wait">🕓 等待中</span>';
+    return `<div class="room-row" data-room="${r.id}" data-public="${r.isPublic ? 1 : 0}" data-name="${escapeHtml(r.name)}">
+      <div class="room-main">
+        <span class="room-name">${escapeHtml(r.name)}</span>
+        ${status}
+      </div>
+      <div class="room-sub">${lock}・👑 ${escapeHtml(r.host)}・🎮 ${r.players}/${r.expected}${r.spectators ? `・👁️ ${r.spectators}` : ''}</div>
+    </div>`;
+  }).join('');
 }
 
 function ensureNet() {
@@ -152,6 +220,7 @@ function resetToConnect(msg) {
 
 function onOther(m) {
   if (m.t === 'info') toast(m.msg);
+  else if (m.t === 'rooms') renderRoomList(m.list);
   else if (m.t === 'saves') showSavesList(m.list);
   else if (m.t === 'needRejoin') resetToConnect(m.msg || '房間已結束,請重新加入');
   else if (m.t === 'kicked') { net.kill(); resetToConnect(m.msg || '你已被剔除房間'); }
@@ -186,7 +255,10 @@ function onSync(m) {
     $('#lobby').style.display = 'none';
     $('#gameUI').style.display = 'block';
     audio.stopMusic();      // 進入戰局:停止大廳背景樂
-    if (!board) board = new Board3D($('#canvas3d'), onRegionClick, onPawnClick, onDeckClick);
+    if (!board) {
+      board = new Board3D($('#canvas3d'), onRegionClick, onPawnClick, onDeckClick);
+      $('#btnPlaneViz').classList.toggle('on', (board.planeViz || 0) !== 0); // 預設「漸進變換」→ 亮起
+    }
     refreshGame(m);
   }
 }
@@ -244,6 +316,8 @@ function renderLobby(m) {
   $('#expectedCount').value = String(lobby.config?.expectedCount || 4);
   $('#gameName').disabled = !m.isHost;
   $('#expectedCount').disabled = !m.isHost;
+  if (document.activeElement !== $('#roomPublic')) $('#roomPublic').checked = lobby.config?.isPublic !== false;
+  $('#roomPublic').disabled = !m.isHost;
 
   // 角色池:遊戲人數 6+ 同時開放日韓
   const expected = lobby.config?.expectedCount || 4;
@@ -556,6 +630,8 @@ function setupLobbyEvents() {
     net.send({ t: 'setRoomConfig', gameName: $('#gameName').value }));
   $('#expectedCount').addEventListener('change', () =>
     net.send({ t: 'setRoomConfig', expectedCount: $('#expectedCount').value }));
+  $('#roomPublic').addEventListener('change', e =>
+    net.send({ t: 'setRoomConfig', isPublic: e.target.checked }));
   $('#startBtn').addEventListener('click', () =>
     net.send({ t: 'startGame', mode: $('#gameMode').value }));
 }
@@ -1365,6 +1441,17 @@ function setupGameEvents() {
   $('#tradeReadyBtn').addEventListener('click', () => net.action('tradeReady'));
   $('#btnEnd').addEventListener('click', () => { setMode('idle'); net.action('endTurn'); });
   $('#btnLocate').addEventListener('click', locateMe);
+  $('#btnViewTilt').addEventListener('click', () => {
+    if (!board) return;
+    const label = board.toggleViewTilt();
+    $('#btnViewTilt').classList.toggle('on', board._viewTilt === 'top');
+    toast(label);
+  });
+  $('#btnPlaneViz').addEventListener('click', () => {
+    if (!board) return;
+    toast(`${board.cyclePlaneViz()}(也可按 V)`);
+    $('#btnPlaneViz').classList.toggle('on', (board.planeViz || 0) !== 0);
+  });
   $('#btnTwChoose').addEventListener('click', openTwChooseModal);
   $('#btnPivot').addEventListener('click', () => {
     openModal('🔄 秘密轉向(整局一次)',
