@@ -537,6 +537,9 @@ wss.on('connection', ws => {
       room.game = null;
       room.aiChars = new Set();
       room.kickVotes = new Map();
+      // 關閉「角色隨機分配」:否則回大廳後仍鎖在「待隨機分配/取消指定角色」狀態,無法重新選角。
+      // 上局隨機分配到的角色仍保留(client.charId),關閉後即顯示為已選、可自由更換。
+      room.config.randomChars = false;
       for (const c of room.clients.values()) c.ready = false; // 回大廳:重置準備狀態
       console.log(`⏹️ 房間 ${room.pin} 遊戲已由房主結束`);
       broadcast(room);

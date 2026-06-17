@@ -513,6 +513,15 @@ function setupLobbyEvents() {
     else if (e.key === 'ArrowRight') cdNavigate(1);
     else if (e.key === 'Escape') $('#charDetailOverlay').style.display = 'none';
   });
+  // 按 V 鍵循環「空運(飛機航線)」顯示模式:完全顯示 → 高透明度 → 漸隱交替 → 回到完全顯示
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'v' && e.key !== 'V') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = (e.target.tagName || '').toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+    if (!board) return;
+    toast(`${board.cyclePlaneViz()}(按 V 切換)`);
+  });
   $('#charPool').addEventListener('click', e => {
     // 點頭像/放大鏡 → 查看立繪/生平/能力(即使該角色已鎖定或不可選也能瀏覽)
     const detailEl = e.target.closest('[data-detail]');
@@ -974,14 +983,20 @@ function showDeckInfo(deckKey) {
 function showEventDeckInfo() {
   const s = last.state;
   const curId = s.event?.id || null;
-  const rows = EVENT_CARDS.map(e => `
-    <div class="ev-card${e.id === curId ? ' ev-active' : ''}">
+  const past = new Set(s.pastEvents || []); // 已發生過的事件 id
+  const pastCount = [...past].filter(id => id !== curId).length;
+  const rows = EVENT_CARDS.map(e => {
+    const cls = e.id === curId ? ' ev-active' : past.has(e.id) ? ' ev-past' : '';
+    return `
+    <div class="ev-card${cls}">
       <div class="ev-name">${e.icon} ${e.name}</div>
       <div class="ev-desc">${e.desc}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   openModal('🌏 集體事件牌庫',
     `<p class="modal-desc">每季開始前自動抽 1 張,效果持續整季;全 ${EVENT_CARDS.length} 張抽完會循環洗回。${
-      curId ? `本季為【${s.event.icon} ${s.event.name}】。` : ''}<br>以下為所有事件卡內容:</p>
+      curId ? `本季為【${s.event.icon} ${s.event.name}】。` : ''}${
+      pastCount ? `已發生 ${pastCount} 張(灰底標「已發生」)。` : ''}<br>以下為所有事件卡內容:</p>
      <div class="dk-list"><div class="dk-group" style="--cc:#2eff8f">${rows}</div></div>`,
     [{ label: '關閉', value: null }]);
 }

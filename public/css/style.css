@@ -357,6 +357,8 @@ body {
 .ev-card .ev-desc { color: #9fb6d2; font-size: .77rem; }
 .ev-card.ev-active { background: rgba(46,255,143,.12); box-shadow: inset 0 0 0 1px rgba(46,255,143,.55); }
 .ev-card.ev-active .ev-name::after { content: ' · 本季'; color: #2eff8f; font-size: .74rem; }
+.ev-card.ev-past { background: rgba(120,140,170,.13); opacity: .72; }
+.ev-card.ev-past .ev-name::after { content: ' · 已發生'; color: #8aa0bd; font-size: .72rem; font-weight: normal; }
 
 .result-box { text-align: center; }
 .result-box h1 { color: var(--pink); text-shadow: 0 0 16px var(--pink); margin-bottom: 14px; }

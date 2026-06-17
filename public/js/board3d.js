@@ -13,7 +13,9 @@ const NEON_AMBER = 0xffb000;
 // 玩家標記(頭頂頭像 / ID 名牌 / 指示箭頭)沿「相機 up 向量」抬升的距離。
 // 因 up ⟂ 螢幕水平軸,沿此方向偏移不改變投影後的螢幕 x → 標記永遠落在腳下光環正上方
 // (取代沿世界 +Y 抬升:後者在斜角相機下會與地面光環產生水平視差,看起來沒對齊)。
-const MARKER_UP = { avatar: 5.6, tag: 3.5, arrow: 6.7 };
+// 棋子頭頂標記(沿相機 up 抬升的距離):壓低到僅略高於城名牌(y≈1.9),不再高聳如塔。
+// 名牌(tag)貼近城名牌高度、頭像(avatar)疊其上、當前回合箭頭(arrow)再上一層,彼此不重疊。
+const MARKER_UP = { avatar: 3.2, tag: 2.1, arrow: 4.4 };
 const _camUp = new THREE.Vector3(), _lup = new THREE.Vector3(), _iq = new THREE.Quaternion();
 
 // 把可能偏暗/低飽和的顏色(如中立城的灰)提亮成在深色場景上清楚可讀的版本,保留色相
@@ -1227,6 +1229,8 @@ export class Board3D {
     this.traffic = [];
     this.flickers = [];
     this.fxItems = [];      // 進行中的短命特效
+    this.planeViz = 0;      // 空運顯示模式:0 完全顯示 / 1 高透明度 / 2 漸隱交替(按鍵循環)
+    this.planeRouteMats = [];
     this.clock = new THREE.Clock();
     this._init();
   }
@@ -1706,6 +1710,7 @@ export class Board3D {
       (GW_EUROPE.has(a) && GW_MIDEAST.has(b)) || (GW_MIDEAST.has(a) && GW_EUROPE.has(b));
 
     const shipDots = []; // 海運改鋪「青色圓珠點虛線」(明顯有別於鐵路黑白實管),全部彙整成一個 InstancedMesh
+    this.planeRouteMats = this.planeRouteMats || []; // 空運路線材質(供按鍵切換顯示模式;含門戶 stub)
     const _p = new THREE.Vector3();
     for (const [a, b] of EDGES) {
       const type = EDGE_TYPES[`${a}|${b}`] || EDGE_TYPES[`${b}|${a}`] || 'ship';
@@ -1732,10 +1737,12 @@ export class Board3D {
         const radius = type === 'plane' ? 0.055 : 0.078;
         const tubularSeg = Math.max(10, Math.round(len * 5));
         const tex = type === 'train' ? routeTexture('train', len) : null;
+        const baseOp = Math.min(0.9, style.opacity + 0.4);
         const mat = tex
           ? new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 1.0, depthWrite: false })
-          : new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: Math.min(0.9, style.opacity + 0.4) });
+          : new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: baseOp });
         this.scene.add(new THREE.Mesh(new THREE.TubeGeometry(curve, tubularSeg, radius, 6, false), mat));
+        if (type === 'plane') this.planeRouteMats.push({ mat, base: baseOp }); // 收集空運路線材質供顯示切換
       }
 
       this._addVehicle(type, curve, dist);
@@ -1780,14 +1787,19 @@ export class Board3D {
       const target = wrap
         ? new THREE.Vector3(to.x + (GW_EUROPE.has(cityId) ? WRAP_W : -WRAP_W), 0, to.z) // 歐洲城往右邊界、中東城往左邊界穿出
         : to.clone();
+      const goRight = GW_EUROPE.has(cityId); // 歐洲城往右邊界、中東城往左邊界穿出
       const dir = target.sub(from); dir.y = 0;
-      if (dir.lengthSq() < 1e-6) dir.set(GW_EUROPE.has(cityId) ? 1 : -1, 0, 0); else dir.normalize();
-      const len = wrap ? 3.4 : 2.6; // 環繞門戶拉長一點,凸顯「衝出邊界遠行」
+      if (dir.lengthSq() < 1e-6) dir.set(goRight ? 1 : -1, 0, 0); else dir.normalize();
+      // 肩頭一路拉到地圖左右邊界(BORDER_X=±30,在城市群與陸塊之外的外海),不停在城市群中間造成混淆;
+      // 長度由「到邊界 x 的距離 ÷ dir.x」算出 → tip 落在邊界線上(z 依夥伴緯度傾角)。非 wrap 退回固定長度。
+      const BORDER_X = 30;
+      const edgeX = goRight ? BORDER_X : -BORDER_X;
+      const len = (wrap && Math.abs(dir.x) > 0.2) ? (edgeX - from.x) / dir.x : (wrap ? 3.4 : 2.6);
       const y = type === 'plane' ? 0.6 : 0.14;
       const start = from.clone().addScaledVector(dir, 0.42).setY(y);
       const tip = from.clone().addScaledVector(dir, len).setY(y);
 
-      // 與一般路線同款的粗管,套同型號貼圖;逐頂點 alpha 由起點(1)淡出到末端(0)
+      // 與一般路線同款的粗管,套同型號貼圖;逐頂點 alpha 由起點(1)往末端淡出 —— 用三次方曲線讓肩頭「看得見地拉到邊界」才收尾
       const curve = new THREE.LineCurve3(start, tip);
       const tubularSeg = Math.max(12, Math.round(len * 6));
       const geo = new THREE.TubeGeometry(curve, tubularSeg, RAD, 6, false);
@@ -1799,21 +1811,23 @@ export class Board3D {
       for (let v = 0; v < vcount; v++) {
         const f = Math.floor(v / perRing) / ringN;     // 0(起點)→1(末端)
         colors[v * 4] = base.r; colors[v * 4 + 1] = base.g; colors[v * 4 + 2] = base.b;
-        colors[v * 4 + 3] = Math.max(0, 1 - f * f);    // 往箭頭方向淡出
+        colors[v * 4 + 3] = Math.max(0, 1 - f * f * f); // 往箭頭方向淡出(三次方 → 大半段仍清楚,逼近邊界才收掉)
       }
       geo.setAttribute('color', new THREE.BufferAttribute(colors, 4));
       const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false });
       if (tex) mat.map = tex;
       this.scene.add(new THREE.Mesh(geo, mat));
+      if (type === 'plane') this.planeRouteMats.push({ mat, base: 1 }); // 空運門戶併入空運顯示切換
 
-      // 路線中段的目的地名牌 + 末端朝行進方向的箭頭(躺平指向夥伴)
-      const labelP = from.clone().addScaledVector(dir, 0.42 + (len - 0.42) * 0.5);
-      const tag = makeNameTag(`${icon} ${destName}`, css, 0.46);
-      tag.position.set(labelP.x, 0.62 + lift * 0.64, labelP.z); this.scene.add(tag);
+      // 末端朝行進方向的箭頭(躺平指向邊界外);目的地名牌移到「箭頭指向處」(肩頭末端外側),
+      // 剛好被箭頭指著、落在邊界上 —— 不再停在城市群中間與其他城市混淆。
       const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.34, 8),
         new THREE.MeshBasicMaterial({ color: style.color, transparent: true, opacity: 0.5 }));
       arrow.position.copy(tip); arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
       this.scene.add(arrow);
+      const labelP = tip.clone().addScaledVector(dir, 0.6); // 箭頭尖端外側 → 名牌剛好被箭頭指著
+      const tag = makeNameTag(`${icon} ${destName}`, css, 0.46);
+      tag.position.set(labelP.x, 0.62 + lift * 0.64, labelP.z); this.scene.add(tag);
     };
     stub(aId, bId, pa, pb, nameOf(bId));
     stub(bId, aId, pb, pa, nameOf(aId));
@@ -2245,6 +2259,21 @@ export class Board3D {
     const ang = Math.random() * Math.PI * 2;
     this.wxWindDir = { x: Math.cos(ang), z: Math.sin(ang) };
     if (this.wxBadge) this.wxBadge.innerHTML = `${this._seasonBadge ? this._seasonBadge + ' · ' : ''}${WEATHER[key].icon} ${WEATHER[key].name}`;
+  }
+
+  // 切換空運路線顯示模式(按鍵循環):0 完全顯示 → 1 高透明度 → 2 漸隱交替 → 回到 0。回傳目前模式說明。
+  cyclePlaneViz() {
+    this.planeViz = ((this.planeViz || 0) + 1) % 3;
+    this._applyPlaneViz();
+    return ['✈️ 空運完全顯示', '✈️ 空運高透明度(淡化)', '✈️ 空運漸隱交替'][this.planeViz];
+  }
+
+  _applyPlaneViz() {
+    // 模式 2(漸隱交替)的透明度由 _animate 每幀設定,這裡只處理 0/1 的靜態值
+    for (const pr of this.planeRouteMats || []) {
+      if (this.planeViz === 0) pr.mat.opacity = pr.base;
+      else if (this.planeViz === 1) pr.mat.opacity = pr.base * 0.16;
+    }
   }
 
   _pickWeather() {
@@ -3020,6 +3049,12 @@ export class Board3D {
         f.cloth.rotation.y = Math.sin(t * 2.2 + ph) * 0.3;
         f.cloth.rotation.z = Math.sin(t * 3.1 + ph) * 0.06;
       }
+    }
+
+    // 空運顯示模式 2「漸隱交替」:每幀讓空運路線透明度在淡↔顯之間平滑來回
+    if (this.planeViz === 2 && this.planeRouteMats.length) {
+      const k = 0.1 + 0.9 * (0.5 + 0.5 * Math.sin(t * 1.1));
+      for (const pr of this.planeRouteMats) pr.mat.opacity = pr.base * k;
     }
 
     // 海浪 + 天氣

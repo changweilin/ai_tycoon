@@ -162,6 +162,7 @@ export class Game {
     // 集體事件卡牌庫
     this.eventDeck = shuffle(EVENT_CARDS.map(e => e.id));
     this.activeEvent = null;
+    this.pastEvents = []; // 已抽出(已發生)的事件 id,依抽出順序;供事件牌庫標注「已發生」
 
     // 台灣立場:人類玩家在第 1 季內秘密自選(P1-2);AI(或無人類台灣)則自動選「人數較少」的一方,
     // 把台灣從亂數攪局者變成平衡者 —— 修正奇數人數局(如 4 人 2:1)被一面倒的問題。
@@ -333,6 +334,7 @@ export class Game {
   drawEvent() {
     if (this.eventDeck.length === 0) this.eventDeck = shuffle(EVENT_CARDS.map(e => e.id));
     this.activeEvent = this.eventDeck.pop();
+    this.pastEvents.push(this.activeEvent); // 記錄已發生事件(供牌庫標注)
     const ev = EVENT_CARDS.find(e => e.id === this.activeEvent);
     this.addLog(`🌏 集體事件【${ev.icon} ${ev.name}】:${ev.desc}`);
     this.addFx('event', { event: { id: ev.id, name: ev.name, icon: ev.icon, desc: ev.desc } });
@@ -1307,6 +1309,8 @@ export class Game {
       tier5Count: this.tier5Deck.length,
       eventCount: this.eventDeck.length, // 集體事件牌庫剩餘(抽完會把全 24 張洗回)
       eventTotal: EVENT_CARDS.length,
+      pastEvents: [...new Set(this.pastEvents)], // 已發生過的事件 id(去重),供牌庫標注「已發生」
+
       phase: this.phase,
       tradeOffers: this.phase === 'trade' ? this.tradeOffers : [],
       tradeReady: this.phase === 'trade' ? [...this.tradeReady] : [],
@@ -1339,7 +1343,7 @@ export class Game {
       regions,
       deck: this.deck, discardPile: this.discardPile,
       tier4Deck: this.tier4Deck, tier5Deck: this.tier5Deck,
-      eventDeck: this.eventDeck, activeEvent: this.activeEvent,
+      eventDeck: this.eventDeck, activeEvent: this.activeEvent, pastEvents: this.pastEvents,
       tech: this.tech, startLead: this.startLead, round: this.round, turnIdx: this.turnIdx,
       maxRounds: this.maxRounds, turnOrderDice: this.turnOrderDice, turnOrderUsFirst: this.turnOrderUsFirst,
       twSupport: this.twSupport, twRevealed: this.twRevealed,
@@ -1370,7 +1374,7 @@ export class Game {
     g.hasTW = g.players.some(p => p.faction === 'TW');
     g.deck = d.deck; g.discardPile = d.discardPile;
     g.tier4Deck = d.tier4Deck || []; g.tier5Deck = d.tier5Deck || [];
-    g.eventDeck = d.eventDeck; g.activeEvent = d.activeEvent;
+    g.eventDeck = d.eventDeck; g.activeEvent = d.activeEvent; g.pastEvents = d.pastEvents || [];
     g.tech = d.tech; g.round = d.round; g.turnIdx = d.turnIdx;
     g.maxRounds = d.maxRounds ?? roundsForPlayers(d.players.length);
     g.turnOrderDice = d.turnOrderDice || [0, 0, 0];

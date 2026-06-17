@@ -561,6 +561,8 @@ const EDGE_LIST = [
   ['riyadh', 'mumbai', 'plane'],
   // 東南亞 / 大洋洲
   ['hanoi', 'manila', 'plane'], ['bangkok', 'jakarta', 'plane'], ['kualalumpur', 'melbourne', 'plane'],
+  // 曼谷加開往中東/台灣的航班(東協↔波斯灣、東協↔台灣空運樞紐)
+  ['bangkok', 'riyadh', 'plane'], ['bangkok', 'taipei', 'plane'],
   // ── 歐洲↔中東 跨地圖邊界(歐居右緣、中東居左緣;鐵路/海運/空運各一,渲染為「淡化門戶」越界線)──
   ['berlin', 'telaviv', 'plane'],    // 空運:柏林↔特拉維夫直飛
   ['berlin', 'riyadh', 'train'],     // 鐵路:歐陸經土耳其/阿拉伯陸橋到利雅德
