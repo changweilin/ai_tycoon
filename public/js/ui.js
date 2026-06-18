@@ -12,8 +12,13 @@ import { audio } from './audio.js';
 const $ = sel => document.querySelector(sel);
 
 // 單機模式(GitHub Pages / 無後端):用瀏覽器內 LocalNet 取代連線,鎖定加入房間,只開放單人對 AI / 上帝模式。
-// 由 solo-flag.js 設定 window.__SOLO__,或加網址參數 ?solo=1 觸發(供本機測試)。
-const SOLO = !!window.__SOLO__ || new URLSearchParams(location.search).has('solo');
+// 觸發來源(任一即可):
+//   1) solo-flag.js 的 window.__SOLO__(GitHub Pages workflow 會設為 true)
+//   2) 網址參數 ?solo=1(本機測試用)
+//   3) 主機名是 *.github.io(純靜態託管必為單機;旗標萬一沒設好也能保底)
+const SOLO = !!window.__SOLO__
+  || new URLSearchParams(location.search).has('solo')
+  || /\.github\.io$/i.test(location.hostname);
 
 let net = null;
 let board = null;

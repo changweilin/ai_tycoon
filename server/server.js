@@ -1,5 +1,6 @@
 // ============ LAN 遊戲伺服器:HTTP 靜態檔 + WebSocket 房間 ============
 import http from 'http';
+import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -32,7 +33,7 @@ const MIME = {
   '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav',
 };
 
-const httpServer = http.createServer((req, res) => {
+const requestHandler = (req, res) => {
   let urlPath = decodeURIComponent(req.url.split('?')[0]);
   if (urlPath === '/') urlPath = '/index.html';
   if (urlPath === '/config/rules.json') { // 前端開局時取得同一份參數設定
@@ -50,7 +51,19 @@ const httpServer = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream' });
     res.end(data);
   });
-});
+};
+
+// ---------------- HTTP / HTTPS 伺服器 ----------------
+// 手機要連線:許多情境(跨網段、想用安全連線)需要 HTTPS。若提供憑證就自動改走 HTTPS + WSS。
+// 憑證來源:環境變數 TLS_KEY / TLS_CERT,或 config/key.pem + config/cert.pem(用 `npm run gen-cert` 產生)。
+// net.js 會在 https 頁面自動把 WebSocket 改成 wss,因此前端零修改。沒有憑證時退回一般 HTTP(維持舊行為)。
+const TLS_KEY = process.env.TLS_KEY || path.join(__dirname, '..', 'config', 'key.pem');
+const TLS_CERT = process.env.TLS_CERT || path.join(__dirname, '..', 'config', 'cert.pem');
+const USE_HTTPS = fs.existsSync(TLS_KEY) && fs.existsSync(TLS_CERT);
+const PROTO = USE_HTTPS ? 'https' : 'http';
+const httpServer = USE_HTTPS
+  ? https.createServer({ key: fs.readFileSync(TLS_KEY), cert: fs.readFileSync(TLS_CERT) }, requestHandler)
+  : http.createServer(requestHandler);
 
 // ---------------- 房間管理 ----------------
 /**
@@ -117,7 +130,7 @@ function lanUrls() {
   const ifaces = os.networkInterfaces();
   for (const name in ifaces) {
     for (const i of ifaces[name]) {
-      if (i.family === 'IPv4' && !i.internal) urls.push(`http://${i.address}:${PORT}`);
+      if (i.family === 'IPv4' && !i.internal) urls.push(`${PROTO}://${i.address}:${PORT}`);
     }
   }
   return urls;
@@ -806,9 +819,21 @@ wss.on('connection', ws => {
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log('===========================================');
   console.log('  🌏 賽博貿易戰 2049 — 伺服器已啟動');
+  console.log(`  連線協定:${USE_HTTPS ? '🔒 HTTPS + WSS(安全連線,適合手機)' : 'HTTP(無加密)'}`);
   console.log('===========================================');
-  console.log(`  本機:  http://localhost:${PORT}`);
-  for (const u of lanUrls()) console.log(`  區網:  ${u}  ← 其他玩家用這個連線`);
+  console.log(`  本機:  ${PROTO}://localhost:${PORT}`);
+  for (const u of lanUrls()) console.log(`  區網:  ${u}  ← 其他玩家(含手機)用這個連線`);
   console.log('  (Tailscale 使用者可用 tailscale IP:' + PORT + ')');
+  if (USE_HTTPS) {
+    console.log('-------------------------------------------');
+    console.log('  ⚠️ 自簽憑證:手機首次開啟會出現安全警告,點「進階 / 仍要前往」即可。');
+    console.log('  想免警告(行動裝置最穩):改用 Tailscale Serve 取得受信任憑證 →');
+    console.log('     1) 後台開啟 MagicDNS + HTTPS Certificates');
+    console.log(`     2) tailscale serve --bg ${PORT}`);
+    console.log('     3) 手機開 https://<你的機器>.<tailnet>.ts.net');
+  } else {
+    console.log('-------------------------------------------');
+    console.log('  💡 要讓手機用 HTTPS 安全連線:先跑 `npm run gen-cert` 產生憑證再重啟。');
+  }
   console.log('===========================================');
 });

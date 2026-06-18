@@ -31,7 +31,11 @@ jobs:
         run: printf '%s\n' '// 由 GitHub Pages workflow 設定:鎖定加入房間,只開放單人對 AI / 上帝模式。' 'window.__SOLO__ = true;' > public/js/solo-flag.js
       - name: Disable Jekyll processing
         run: touch public/.nojekyll
+      # enablement: true 會把 Pages 來源設成「GitHub Actions」(build_type=workflow),
+      # 即使原本是「Deploy from a branch」也會切換,避免站台仍顯示 repo 根目錄的 README。
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: public

@@ -1,3 +1,6 @@
 node_modules/
 saves/
 .ai_working
+# 自簽 TLS 憑證(npm run gen-cert 產生;含私鑰,勿提交)
+config/key.pem
+config/cert.pem

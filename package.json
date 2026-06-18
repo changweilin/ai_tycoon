@@ -8,6 +8,7 @@
     "start": "node server/server.js",
     "dev": "node --watch server/server.js",
     "build:engine": "node scripts/build-engine.mjs",
+    "gen-cert": "node scripts/gen-cert.mjs",
     "test": "node test/sim.js && node test/e2e.js && node test/rooms.js && node test/reconnect.js",
     "simulate": "node test/simulator.js"
   },
