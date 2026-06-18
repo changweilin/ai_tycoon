@@ -575,3 +575,106 @@ body {
   .card { width: 104px; }
   #gameLogoHud { display: none; }
 }
+
+/* ============ 單機設定畫面(GitHub Pages 單機版)============ */
+.solo-box {
+  max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 22px;
+  box-shadow: 0 0 30px rgba(0, 240, 255, .15);
+}
+.solo-mode-tabs { display: flex; gap: 8px; }
+.solo-mode-tab {
+  flex: 1; background: rgba(0, 240, 255, .06); border: 1px solid var(--border); color: #bfe9ff;
+  padding: 12px; border-radius: 10px; cursor: pointer; font-family: inherit; font-size: .95rem; transition: all .15s;
+}
+.solo-mode-tab.on { background: var(--cyan); color: #001; font-weight: bold; box-shadow: 0 0 14px rgba(0, 240, 255, .4); }
+.solo-field { display: flex; align-items: center; gap: 10px; color: #bfe9ff; font-size: .9rem; }
+.solo-field select {
+  background: #060a1e; border: 1px solid var(--border); color: #fff;
+  padding: 8px 10px; border-radius: 8px; font-family: inherit; flex: 1;
+}
+.solo-sub { color: var(--cyan); font-size: .92rem; margin-bottom: 4px; }
+#soloCharPool { max-height: 50vh; overflow-y: auto; padding-right: 4px; -webkit-overflow-scrolling: touch; }
+.solo-actions { display: flex; gap: 8px; }
+.solo-actions .btn { flex: 1; }
+
+/* ============ 規則說明(頁籤式,手機優先)============ */
+.rules-box.rules-tabbed {
+  display: flex; flex-direction: column; padding: 0; overflow: hidden;
+  width: min(820px, 96vw); height: min(88vh, 920px); max-height: 92vh;
+}
+.rules-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px 8px; flex: none; }
+.rules-header h2 { margin: 0; }
+.rules-x {
+  background: rgba(0, 0, 0, .35); border: 1px solid var(--border); color: #eaffff;
+  width: 34px; height: 34px; border-radius: 8px; cursor: pointer; font-size: 1rem; line-height: 1; flex: none;
+}
+.rules-x:hover { box-shadow: 0 0 12px rgba(0, 240, 255, .5); }
+.rules-tabs {
+  display: flex; gap: 6px; padding: 0 14px 10px; overflow-x: auto; flex: none;
+  -webkit-overflow-scrolling: touch; scrollbar-width: thin;
+}
+.rules-tab {
+  flex: 0 0 auto; background: rgba(0, 240, 255, .06); border: 1px solid var(--border); color: #bfe9ff;
+  padding: 7px 13px; border-radius: 18px; cursor: pointer; font-family: inherit; font-size: .85rem; white-space: nowrap; transition: all .15s;
+}
+.rules-tab.on { background: var(--cyan); color: #001; font-weight: bold; box-shadow: 0 0 14px rgba(0, 240, 255, .5); }
+.rules-panels { flex: 1; overflow-y: auto; padding: 6px 18px 22px; -webkit-overflow-scrolling: touch; }
+
+/* 規則內容區塊 */
+.rule-block { margin-bottom: 12px; background: rgba(8, 16, 38, .5); border: 1px solid rgba(0, 240, 255, .14); border-radius: 10px; padding: 12px 14px; }
+.rule-block h4 { color: var(--cyan); font-size: .92rem; margin-bottom: 6px; }
+.rule-block p { font-size: .86rem; line-height: 1.8; color: #cfeaff; }
+
+.rule-table { width: 100%; border-collapse: collapse; font-size: .82rem; margin-bottom: 12px; }
+.rule-table th, .rule-table td { text-align: left; padding: 7px 8px; border-bottom: 1px solid rgba(0, 240, 255, .12); vertical-align: top; line-height: 1.55; }
+.rule-table th { color: var(--cyan); }
+.rt-cost { white-space: nowrap; color: #ffe08a; }
+
+/* 陣營加權 */
+.rule-faction { border-left: 3px solid var(--fc); padding: 10px 12px; margin-bottom: 10px; background: rgba(8, 16, 38, .45); border-radius: 0 10px 10px 0; }
+.rf-head { display: flex; align-items: center; gap: 8px; font-size: 1rem; color: #fff; }
+.rf-head b { color: var(--fc); }
+.rf-side { margin-left: auto; font-size: .74rem; color: #9ab; }
+.rf-start { font-size: .8rem; color: #ffe08a; margin: 5px 0 6px; }
+.rf-bonus { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.rf-bonus li { font-size: .84rem; line-height: 1.6; color: #cfeaff; padding-left: 16px; position: relative; }
+.rf-bonus li::before { content: '▸'; position: absolute; left: 0; color: var(--fc, var(--cyan)); }
+
+/* 角色加權 */
+.rule-charsec { margin-bottom: 14px; }
+.rule-char { border: 1px solid rgba(0, 240, 255, .15); border-left: 3px solid var(--fc); border-radius: 8px; margin: 6px 0; overflow: hidden; }
+.rule-char > summary { display: flex; align-items: center; gap: 10px; padding: 8px 10px; cursor: pointer; list-style: none; }
+.rule-char > summary::-webkit-details-marker { display: none; }
+.rule-char[open] > summary { background: rgba(0, 240, 255, .05); }
+.rl-ch-avatar { width: 40px; height: 40px; object-fit: contain; flex: none; }
+.rl-ch-name { font-weight: bold; color: #fff; display: flex; flex-direction: column; line-height: 1.25; }
+.rl-ch-name small { font-weight: normal; color: #8fb6d6; font-size: .7rem; }
+.rl-ch-cat { margin-left: auto; font-size: .76rem; color: var(--fc); white-space: nowrap; }
+.rl-ch-body { padding: 2px 12px 12px; }
+.rl-ch-perk { font-size: .82rem; color: #aee9ff; margin: 4px 0 8px; line-height: 1.6; }
+
+/* 卡片列表(科技卡 / 作戰卡)手風琴 */
+.rule-acc { border: 1px solid rgba(0, 240, 255, .18); border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
+.rule-acc > summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; background: rgba(0, 240, 255, .06); font-weight: bold; color: #eaffff; list-style: none; }
+.rule-acc > summary::-webkit-details-marker { display: none; }
+.rl-cat-ico { font-size: 1.1rem; }
+.rl-cat-trait { margin-left: auto; font-size: .73rem; color: #9ab; font-weight: normal; text-align: right; }
+.rl-cards { padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.rl-card { border: 1px solid rgba(0, 240, 255, .14); border-left: 3px solid var(--cc, rgba(0, 240, 255, .4)); border-radius: 8px; padding: 8px 10px; background: rgba(6, 10, 30, .6); }
+.rl-card-top { display: flex; align-items: baseline; gap: 8px; }
+.rl-tier { font-size: .72rem; color: #001; background: var(--cc, var(--cyan)); padding: 1px 8px; border-radius: 10px; font-weight: bold; flex: none; }
+.rl-name { font-weight: bold; color: #fff; flex: 1; }
+.rl-cost { font-size: .8rem; color: #ffe08a; white-space: nowrap; }
+.rl-stats { font-size: .8rem; color: #bfe9ff; margin-top: 3px; }
+.rl-special { font-size: .76rem; color: #ffd02e; margin-top: 3px; }
+.rl-desc { font-size: .74rem; color: #8aa9c9; font-style: italic; margin-top: 3px; line-height: 1.5; }
+
+/* 規則 / 單機:手機全螢幕 + 滑動瀏覽 */
+@media (max-width: 640px) {
+  #rulesOverlay { align-items: stretch; justify-content: stretch; }
+  .rules-box.rules-tabbed { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+  .solo-box { padding: 16px; }
+  #soloCharPool { max-height: none; }
+  .solo-actions { flex-direction: column; }
+}

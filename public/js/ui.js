@@ -1,14 +1,19 @@
 // ============ 前端 UI 與流程(連線版) ============
 import { FACTIONS, CHARACTERS, CHARACTER_LINES, TECH_CATEGORIES, TECH_CARDS,
   MAIN_TIER_COPIES, TIER4_COPIES, TIER5_COPIES, OPS_CARDS, OPS_DECK_COMPOSITION,
-  OPS_TIER4_COMPOSITION, OPS_TIER5_COMPOSITION, EVENT_CARDS,
+  OPS_TIER4_COMPOSITION, OPS_TIER5_COMPOSITION, EVENT_CARDS, CATEGORY_RATIO, splitCost,
   RULES, REGIONS, RES_KEYS, RESOURCES, STRENGTH_AXES, adjacencyOf,
   charAvatar, charPortrait, charLogo, factionFlag, applyRulesOverrides } from './data.js';
 import { Board3D } from './board3d.js';
 import { Net } from './net.js';
+import { LocalNet } from './localnet.js';
 import { audio } from './audio.js';
 
 const $ = sel => document.querySelector(sel);
+
+// 單機模式(GitHub Pages / 無後端):用瀏覽器內 LocalNet 取代連線,鎖定加入房間,只開放單人對 AI / 上帝模式。
+// 由 solo-flag.js 設定 window.__SOLO__,或加網址參數 ?solo=1 觸發(供本機測試)。
+const SOLO = !!window.__SOLO__ || new URLSearchParams(location.search).has('solo');
 
 let net = null;
 let board = null;
@@ -90,6 +95,7 @@ function isMyTurn() {
 
 // ---------------- 進入點:連線畫面 ----------------
 function setupConnect() {
+  if (SOLO) { setupSolo(); return; } // 單機版:跳過多人連線畫面,改用單機設定畫面
   const params = new URLSearchParams(location.search);
   if (params.get('room')) {
     $('#joinPin').value = params.get('room');
@@ -189,9 +195,117 @@ function renderRoomList(list) {
   }).join('');
 }
 
+// ---------------- 單機設定畫面(單人對 AI / 上帝模式)----------------
+let soloMode = 'ai';
+let soloChar = null;
+
+function setupSolo() {
+  $('#connect').style.display = 'none';
+  $('#lobby').style.display = 'none';
+  $('#gameUI').style.display = 'none';
+  $('#soloSetup').style.display = 'block';
+  soloChar = localStorage.getItem('ctw_solo_char') || null;
+  if (!CHARACTERS.some(c => c.id === soloChar)) soloChar = null;
+
+  for (const btn of document.querySelectorAll('.solo-mode-tab')) {
+    btn.onclick = () => {
+      soloMode = btn.dataset.smode;
+      document.querySelectorAll('.solo-mode-tab').forEach(b => b.classList.toggle('on', b === btn));
+      updateSoloHint();
+    };
+  }
+  $('#soloCount').onchange = () => { renderSoloChars(); updateSoloHint(); };
+  $('#soloCharPool').onclick = e => {
+    const detail = e.target.closest('[data-detail]');
+    if (detail) { openCharDetail(detail.dataset.detail, { solo: true }); return; }
+    const card = e.target.closest('.char-card');
+    if (!card || card.classList.contains('locked')) return;
+    pickSoloChar(card.dataset.char === soloChar ? null : card.dataset.char);
+  };
+  $('#soloStartBtn').onclick = () => {
+    const expected = parseInt($('#soloCount').value, 10);
+    if (soloMode === 'ai' && !soloChar) { toast('請先選擇你的角色'); return; }
+    ensureNet();
+    net.send({ t: 'startSolo', mode: soloMode, charId: soloChar, expectedCount: expected,
+      name: localStorage.getItem('ctw_name') || '你' });
+  };
+  $('#soloRulesBtn').onclick = () => $('#rulesOverlay').style.display = 'flex';
+  $('#soloLoadBtn').onclick = () => { ensureNet(); net.send({ t: 'listSaves' }); };
+
+  renderSoloChars();
+  updateSoloHint();
+}
+
+function updateSoloHint() {
+  const n = parseInt($('#soloCount').value, 10);
+  $('#soloCharWrap').style.display = soloMode === 'god' ? 'none' : '';
+  $('#soloModeHint').textContent = soloMode === 'god'
+    ? `👁️‍🗨️ 上帝模式:你一人輪流操控全部 ${n} 個角色(沒有 AI),適合試玩與學習規則。`
+    : `🤖 你操控 1 個角色,其餘 ${n - 1} 個由 AI 對戰。`;
+}
+
+function pickSoloChar(id) {
+  soloChar = id;
+  localStorage.setItem('ctw_solo_char', id || '');
+  renderSoloChars();
+}
+
+function renderSoloChars() {
+  const pool = $('#soloCharPool');
+  if (!pool) return;
+  const expected = parseInt($('#soloCount').value, 10);
+  const allowJPKR = expected >= RULES.jpkrMinPlayers;
+  const allowTW = expected >= 3;
+  // 人數變動使已選角色不合法(日韓需 6+、台灣需 3+)→ 自動取消
+  if (soloChar) {
+    const pc = CHARACTERS.find(c => c.id === soloChar);
+    if (pc && (((pc.faction === 'JP' || pc.faction === 'KR') && !allowJPKR) || (pc.faction === 'TW' && !allowTW)))
+      soloChar = null;
+  }
+  const FACTION_ORDER = ['US', 'CN', 'TW', 'JP', 'KR'];
+  const FACTION_DESC = { US: '矽谷霸權', CN: '神州科技', TW: '護國神山', JP: '匠人精神', KR: '財閥帝國' };
+  pool.innerHTML = FACTION_ORDER.map(fid => {
+    const list = CHARACTERS.filter(c => c.faction === fid);
+    if (!list.length) return '';
+    const fac = FACTIONS[fid];
+    const locked = ((fid === 'JP' || fid === 'KR') && !allowJPKR) || (fid === 'TW' && !allowTW);
+    const note = locked ? (fid === 'TW' ? '・需 3+ 人' : `・需 ${RULES.jpkrMinPlayers}+ 人`) : '';
+    return `<section class="char-group" style="--fc:${fac.css}">
+      <div class="char-group-head">
+        <img class="fac-flag" src="${factionFlag(fid)}" alt="" onerror="this.style.display='none'">
+        <span class="cg-name">${fac.name}</span>
+        <span class="cg-desc">${FACTION_DESC[fid]}</span>
+        <span class="cg-count">${list.length} 位${note}</span>
+      </div>
+      <div class="char-group-grid">${list.map(c => soloCharCard(c, locked)).join('')}</div>
+    </section>`;
+  }).join('');
+}
+
+function soloCharCard(c, locked) {
+  const mine = soloChar === c.id;
+  return `<div class="char-card ${locked ? 'locked' : ''} ${mine ? 'mine' : ''}"
+    data-char="${c.id}" style="--fc:${FACTIONS[c.faction].css}">
+    <div class="char-head">
+      <img class="char-avatar" src="${charAvatar(c)}" alt="${c.name}" data-detail="${c.id}"
+           title="點擊查看立繪 / 生平 / 能力特長" onerror="this.style.display='none'">
+      <div class="char-head-text">
+        <div class="char-name">${c.name}</div>
+        <div class="char-real">${c.real}</div>
+      </div>
+    </div>
+    <div class="char-ind">🏭 ${c.industry}|${c.industryDesc}(${TECH_CATEGORIES[catOf(c)].name})</div>
+    <div class="char-perk">✨ ${c.perkText}</div>
+    <div class="char-detail-hint" data-detail="${c.id}">🔍 查看立繪 / 生平 / 能力特長</div>
+    ${mine ? '<div class="lock-tip mine-tip">✔ 你的角色</div>' : ''}
+  </div>`;
+}
+
 function ensureNet() {
   if (net) return;
-  net = new Net(onSync, msg => toast(msg), onOther, onReconnect);
+  net = SOLO
+    ? new LocalNet(onSync, msg => toast(msg), onOther)            // 單機:瀏覽器內本地伺服器
+    : new Net(onSync, msg => toast(msg), onOther, onReconnect);   // 連線:WebSocket
 }
 
 // 斷線重連:用 token 認回原座位;token 失效時伺服器改用 charId/名稱重新入座。
@@ -241,18 +355,27 @@ function onSync(m) {
   if (!m.lobby.started) {
     $('#connect').style.display = 'none';
     $('#gameUI').style.display = 'none';
-    $('#lobby').style.display = 'block';
     $('#resultOverlay').style.display = 'none';
     $('#eventFx').classList.remove('show');
     resultShown = false;
     lastFxId = null;        // 回到大廳:下一局重新基準,新局開場事件會播放
     lastLogLen = null;      // 行動訊息饋送也重置基準(下一局不重播歷史)
     lastTurnIdx = null; lastPhase = null; // 回合 / 階段提示音也重置基準
-    audio.playMusic('lobby'); // 大廳 / 等待開局背景樂
-    renderLobby(m);
+    if (SOLO) {
+      // 單機版:回到單機設定畫面(結束遊戲後),不顯示多人大廳
+      $('#lobby').style.display = 'none';
+      $('#soloSetup').style.display = 'block';
+      audio.stopMusic();
+      renderSoloChars();
+    } else {
+      $('#lobby').style.display = 'block';
+      audio.playMusic('lobby'); // 大廳 / 等待開局背景樂
+      renderLobby(m);
+    }
   } else {
     $('#connect').style.display = 'none';
     $('#lobby').style.display = 'none';
+    $('#soloSetup').style.display = 'none'; // 單機設定畫面(若有)在開局後收起
     $('#gameUI').style.display = 'block';
     audio.stopMusic();      // 進入戰局:停止大廳背景樂
     if (!board) {
@@ -565,6 +688,23 @@ function openCharDetail(charId, opts = {}) {
       btn.onclick = () => { $('#charDetailOverlay').style.display = 'none'; selectChar(charId); };
       actions.appendChild(btn);
     }
+  } else if (opts.solo && SOLO) {
+    // 單機設定畫面開啟:提供「選擇此角色」捷徑(依目前人數驗證日韓/台灣可選性)
+    const expected = parseInt($('#soloCount').value, 10);
+    const allowJPKR = expected >= RULES.jpkrMinPlayers;
+    const allowTW = expected >= 3;
+    const locked = ((ch.faction === 'JP' || ch.faction === 'KR') && !allowJPKR) || (ch.faction === 'TW' && !allowTW);
+    const isMine = soloChar === charId;
+    const btn = document.createElement('button');
+    btn.className = 'btn big';
+    if (locked) {
+      btn.disabled = true;
+      btn.textContent = ch.faction === 'TW' ? '台灣需 3 人以上' : `日韓需 ${RULES.jpkrMinPlayers} 人以上`;
+    } else {
+      btn.textContent = isMine ? '↩️ 取消選擇此角色' : '✅ 選擇此角色';
+      btn.onclick = () => { $('#charDetailOverlay').style.display = 'none'; pickSoloChar(isMine ? null : charId); };
+    }
+    actions.appendChild(btn);
   }
   $('#charDetailOverlay').style.display = 'flex';
 }
@@ -1517,12 +1657,179 @@ function setupGameEvents() {
   $('#resultClose').addEventListener('click', () => $('#resultOverlay').style.display = 'none');
 }
 
+// ---------------- 規則說明(頁籤式,依資料動態產生)----------------
+function buildRulesTabs() {
+  const panels = $('#rulesPanels');
+  if (!panels) return;
+  panels.innerHTML = [
+    ['basic', ruleBasicHtml()], ['turn', ruleTurnHtml()], ['faction', ruleFactionHtml()],
+    ['char', ruleCharHtml()], ['tech', ruleTechHtml()], ['ops', ruleOpsHtml()],
+  ].map(([k, html]) => `<section class="rules-panel" data-rpanel="${k}">${html}</section>`).join('');
+  showRuleTab('basic');
+  $('#rulesTabs').onclick = e => {
+    const t = e.target.closest('.rules-tab');
+    if (t) showRuleTab(t.dataset.rtab);
+  };
+  // 角色頁點頭像看立繪詳情(避免同時觸發 <details> 開合)
+  panels.addEventListener('click', e => {
+    const d = e.target.closest('[data-detail]');
+    if (d) { e.preventDefault(); openCharDetail(d.dataset.detail); }
+  });
+}
+function showRuleTab(key) {
+  for (const t of document.querySelectorAll('.rules-tab')) t.classList.toggle('on', t.dataset.rtab === key);
+  for (const p of document.querySelectorAll('.rules-panel')) p.style.display = p.dataset.rpanel === key ? '' : 'none';
+  $('#rulesPanels').scrollTop = 0;
+}
+
+function ruleBasicHtml() {
+  const years = Math.round(RULES.maxRounds / RULES.seasonsPerYear);
+  return `
+  <div class="rule-block"><h4>🎯 目標</h4>
+    <p>以「科技力(點數)」決勝,領先 1 年 = <b>${RULES.pointsPerYear} 點</b>。<b>米國</b>把對牆國的領先拉開到 ${RULES.usWinLead} 年即提前獲勝;<b>牆國</b>追平米國即提前獲勝。</p></div>
+  <div class="rule-block"><h4>🏁 終局判定(打滿 ${years} 年 / ${RULES.maxRounds} 季)</h4>
+    <p>米國領先 ≥5 年 → 米陣營勝(日本同享);牆國反超 ≥5 年 → 牆陣營勝(韓國同享);差距 &lt;5 年 → 冷戰僵局,韓國獨勝。日韓分享勝利需自身場上 ≥${RULES.spoilerWinCards} 張科技卡。多人同贏時總資源最多者奪冠。</p></div>
+  <div class="rule-block"><h4>🔬 科技力歸屬</h4>
+    <p>每位玩家的部署計入「本國」科技力,影響自身收益(每 ${RULES.techIncomeDivisor} 點 +1,上限 +${RULES.techBonusCap})。日本計入米國、韓國計入牆國、台灣依秘密立場計入。</p></div>
+  <div class="rule-block"><h4>💰 三種資源</h4>
+    <p>💰金錢 / ⚡電力 / 🛢️石油。卡片依類型偏重不同資源;固定收益與放棄權利收益都和陣營科技力正相關;科技卡建造後每回合也會產出資源(約 1/3 卡片例外)。</p></div>
+  <div class="rule-block"><h4>🏙️ 城市等級</h4>
+    <p>每城等級 Lv.1~${RULES.cityMaxLevel},<b>城市等級 ≥ 科技卡階級才能建造</b>。花 1AP+⚡(等級×${RULES.cityUpgradePower})升級,升級後所有人共用。</p></div>
+  <div class="rule-block"><h4>🌏 集體事件</h4>
+    <p>每季開始抽 1 張事件卡(共 ${EVENT_CARDS.length} 張),效果持續整輪:限制某種資源收入、增減卡費或行動點/科技力等。</p></div>
+  <div class="rule-block"><h4>🏔️ 台灣(造王者)</h4>
+    <p>第 1 季內秘密選邊,押對即與該方同贏;未表態前可「轉向」一次(神山儲備折半);「表態」公開立場並注入神山儲備(該方門檻 +5 年)。2 人局為米牆對決,無台灣規則。</p></div>`;
+}
+
+function ruleTurnHtml() {
+  const rows = [
+    ['🃏 自動抽卡', '0 AP', '每回合開始自動抽 1 張(算力 perk 抽 2 張),不再手動抽卡'],
+    ['🚶 移動(相鄰)', `1 AP + 🛢️${RULES.moveOilCost}`, '鐵路/航運到相鄰城市(日本石油費用減半)'],
+    ['✈️ 移動(飛機)', `1 AP + 🛢️${RULES.planeOilCost}`, `沿航線最多跨 ${RULES.planeRange} 格,超過須分段飛`],
+    ['🔬 部署科技卡', '1 AP + 卡費', '城市等級 ≥ 卡片階級;一城每人一張、上限 4 張;建造後 4 季冷卻'],
+    ['💣 打作戰卡', '1 AP + 卡費', `對 ${RULES.opsRange} 格內敵方科技卡(牆國 +${RULES.cnOpsRangeBonus} 格)`],
+    ['⬆️ 升級城市', `1 AP + ⚡(等級×${RULES.cityUpgradePower})`, '升級後所有人共用(韓國電力費用減半)'],
+    ['⏫ 捨牌升階', `${RULES.cardUpgradeAp} AP`, `階級加總 ${RULES.tier4DiscardSum} → 1 張 4 階;${RULES.tier5DiscardCount} 張 4 階 → 1 張 5 階`],
+    ['💱 金錢兌換', '0 AP', `每回合一次:${RULES.exchangeRate}💰 換 1🛢️或 1⚡(上限 ${RULES.exchangeMax},不可反向)`],
+  ];
+  const forfeits = [
+    ['♻️ 放棄科技 → ⚡', '放棄本回合打出科技卡,換電力'],
+    ['♻️ 放棄作戰 → 💰', '放棄本回合打出作戰卡,換金錢'],
+    ['♻️ 放棄行動 → 🛢️', '放棄移動,換石油'],
+  ];
+  return `<div class="rule-block"><p>每回合 <b>${RULES.apPerTurn} 行動點(AP)</b>,可自由分配;回合開始獲得固定收入並自動抽卡。</p></div>
+    <table class="rule-table"><thead><tr><th>行動</th><th>成本</th><th>說明</th></tr></thead>
+    <tbody>${rows.map(r => `<tr><td>${r[0]}</td><td class="rt-cost">${r[1]}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table>
+    <div class="rule-block"><h4>♻️ 放棄權利換資源(不耗 AP,每回合各一次)</h4>
+      <p>收益 = ${RULES.forfeitBase} + 陣營科技力紅利(每 ${RULES.techIncomeDivisor} 點 +1,上限 +${RULES.techBonusCap})。</p>
+      <ul class="rf-bonus">${forfeits.map(f => `<li><b>${f[0]}</b> — ${f[1]}</li>`).join('')}</ul></div>
+    <div class="rule-block"><h4>🤝 交易環節</h4>
+      <p>每輪所有人行動後進入交易環節:可任意比值互換資源,每人最多提案 ${RULES.tradeMaxOffers} 次、成交 ${RULES.tradeMaxDeals} 次(接受別人提案也算成交),全員結束後進入下一季。</p></div>`;
+}
+
+function ruleFactionHtml() {
+  const intro = `<div class="rule-block"><p>計分以陣營為單位:<b>米陣營</b>(含日本)、<b>牆陣營</b>(含韓國)、<b>台灣</b>押對方同享、僵局時韓國可獨勝。各陣營機制如下。</p></div>`;
+  const F = {
+    US: ['初始科技力最高(約 10 年),因此每回合資源收益更高', '4 階以上科技卡額外 +10 點科技力'],
+    CN: [`灰色作戰卡費用為他國的一半(×${RULES.cnOpsHalf})`, `作戰卡攻擊範圍 +${RULES.cnOpsRangeBonus} 格`],
+    TW: [`晶片稅:他人每次研發須付你 💰${RULES.chipLevy}`, '硬體類科技卡 +5 點科技力', '新竹晶片重鎮部署 +5 點', '造王者:第 1 季秘密選邊,可轉向一次與公開表態'],
+    JP: ['科技產出計入米國陣營', '油電混合:移動石油費用減半', '改善哲學:發展費用 -2、每回合收入 +2'],
+    KR: ['科技產出計入牆國陣營', '基建狂魔:升級城市電力費用減半', '財閥手腕:打出作戰卡費用 -2'],
+  };
+  const start = { US: `${RULES.techStart.US} 點`, CN: `${RULES.techStart.CN} 點(小局依人數上調)`, TW: '米牆中間值', JP: '米牆中間值', KR: '米牆中間值' };
+  const side = { US: '親美陣營', CN: '親中陣營', TW: '中立(秘密選邊)', JP: '親美(計入米國)', KR: '親中(計入牆國)' };
+  return intro + ['US', 'CN', 'TW', 'JP', 'KR'].map(fid => {
+    const fac = FACTIONS[fid];
+    return `<div class="rule-faction" style="--fc:${fac.css}">
+      <div class="rf-head"><img class="fac-flag" src="${factionFlag(fid)}" alt="" onerror="this.style.display='none'"><b>${fac.name}</b><span class="rf-side">${side[fid]}</span></div>
+      <div class="rf-start">初始科技力:${start[fid]}</div>
+      <ul class="rf-bonus">${F[fid].map(b => `<li>${b}</li>`).join('')}</ul>
+    </div>`;
+  }).join('');
+}
+
+function ruleCharHtml() {
+  const intro = `<div class="rule-block"><p>角色能力特長加權(${STRENGTH_AXES.map(a => a.icon + a.name).join(' / ')})為 1~5 級,影響起始傾向與台詞風格。<b>點角色列展開</b>查看特長長條與專屬 perk;點頭像看立繪與生平。</p></div>`;
+  return intro + ['US', 'CN', 'TW', 'JP', 'KR'].map(fid => {
+    const list = CHARACTERS.filter(c => c.faction === fid);
+    if (!list.length) return '';
+    const fac = FACTIONS[fid];
+    return `<div class="rule-charsec" style="--fc:${fac.css}">
+      <div class="rf-head"><img class="fac-flag" src="${factionFlag(fid)}" alt="" onerror="this.style.display='none'"><b>${fac.name}</b></div>
+      ${list.map(ruleCharRow).join('')}
+    </div>`;
+  }).join('');
+}
+function ruleCharRow(c) {
+  return `<details class="rule-char" style="--fc:${FACTIONS[c.faction].css}">
+    <summary>
+      <img class="rl-ch-avatar" src="${charAvatar(c)}" alt="" data-detail="${c.id}" onerror="this.style.display='none'">
+      <span class="rl-ch-name">${c.name}<small>${c.real}</small></span>
+      <span class="rl-ch-cat">${TECH_CATEGORIES[catOf(c)].icon} ${c.industry}</span>
+    </summary>
+    <div class="rl-ch-body">
+      <div class="rl-ch-perk">✨ ${c.perkText}</div>
+      <div class="cd-strengths">${strengthBars(c)}</div>
+    </div>
+  </details>`;
+}
+
+function ruleTechHtml() {
+  const intro = `<div class="rule-block"><p>科技卡分 <b>5 大類 × 5 階</b>,三項數值:🔬科技力(每 ${RULES.pointsPerYear} 點 = 1 年,影響勝負)/ 🛡️防護力(抵擋作戰卡)/ 💱交易力(每回合收入)。費用依類型偏重不同資源。<b>1~3 階</b>來自公共牌庫;<b>4/5 階 ✦</b> 為劃時代建設,只能靠捨牌升階取得。下方依「類型 → 階級」排列。</p></div>`;
+  return intro + Object.keys(TECH_CATEGORIES).map((catId, i) => {
+    const cat = TECH_CATEGORIES[catId];
+    const cards = TECH_CARDS[catId].map(c => ruleTechCardRow(catId, c)).join('');
+    return `<details class="rule-acc" ${i === 0 ? 'open' : ''} style="--cc:${cat.css}">
+      <summary><span class="rl-cat-ico">${cat.icon}</span> ${cat.name}<span class="rl-cat-trait">${cat.trait}</span></summary>
+      <div class="rl-cards">${cards}</div>
+    </details>`;
+  }).join('');
+}
+function ruleTechCardRow(catId, card) {
+  const ratio = card.ratio || CATEGORY_RATIO[catId] || { money: 1, power: 1, oil: 1 };
+  const cost = fmtRes(splitCost(card.cost, ratio));
+  const mark = card.tier >= 4 ? ' ✦' : '';
+  return `<div class="rl-card" style="--cc:${TECH_CATEGORIES[catId].css}">
+    <div class="rl-card-top"><span class="rl-tier">${card.tier} 階${mark}</span><span class="rl-name">${card.name}</span><span class="rl-cost">${cost}</span></div>
+    <div class="rl-stats">🔬 ${card.tech} ・ 🛡️ ${card.def} ・ 💱 ${card.trade}</div>
+    ${card.special ? `<div class="rl-special">✨ ${card.special.text}</div>` : ''}
+    <div class="rl-desc">${card.desc}</div>
+  </div>`;
+}
+
+function ruleOpsHtml() {
+  const intro = `<div class="rule-block"><p>灰色作戰卡分 <b>3 類 × 4 級(Lv.2~5)</b>,對 ${RULES.opsRange} 格航線內的敵方科技卡出手(牆國 +${RULES.cnOpsRangeBonus} 格;每多 1 格費用 +${RULES.opsDistSurcharge * 100}%)。<b>城市等級 ≤ 卡片等級</b> 且 <b>攻擊力 ≥ 目標防護力</b> 才打得動,附 debuff 不拆卡(數值隨 攻−防 放大;每張科技卡只能被鎖定一次)。Lv.2/3 在公共牌庫,Lv.4/5 需捨牌升階。下方依「類型 → 等級」排列。</p></div>`;
+  const CATS = [
+    { id: 'spy', name: '💣 間諜類', eff: '植入「減科技力」debuff,削減目標貢獻的科技力' },
+    { id: 'steal', name: '🕵️ 竊取類', eff: '植入「竊取收益」debuff,每回合把目標交易收益轉給你' },
+    { id: 'fake', name: '📰 假新聞類', eff: '植入「折舊陷阱」,對手同類改建該卡時把折舊資源分你' },
+  ];
+  return intro + CATS.map((c, i) => {
+    const cards = Object.values(OPS_CARDS).filter(o => o.cat === c.id)
+      .sort((a, b) => a.level - b.level).map(ruleOpsCardRow).join('');
+    return `<details class="rule-acc" ${i === 0 ? 'open' : ''}>
+      <summary>${c.name}<span class="rl-cat-trait">${c.eff}</span></summary>
+      <div class="rl-cards">${cards}</div>
+    </details>`;
+  }).join('');
+}
+function ruleOpsCardRow(card) {
+  const cost = fmtRes(splitCost(card.cost, card.ratio || { money: 1, power: 1, oil: 1 }));
+  const deck = card.level <= 3 ? '公共牌庫' : card.level === 4 ? '四階牌庫' : '五階牌庫';
+  return `<div class="rl-card">
+    <div class="rl-card-top"><span class="rl-tier">Lv.${card.level}</span><span class="rl-name">${card.icon} ${card.name}</span><span class="rl-cost">${cost}</span></div>
+    <div class="rl-stats">⚔️ 攻擊力 ${card.atk} ・ 🗂️ ${deck}</div>
+    <div class="rl-desc">${card.desc}</div>
+  </div>`;
+}
+
 // ---------------- 初始化 ----------------
 // 先抓伺服器的數值參數設定(config/rules.json)套用,確保前後端顯示一致
 try {
   const resp = await fetch('/config/rules.json');
   if (resp.ok) applyRulesOverrides(await resp.json());
 } catch { /* 拿不到就用內建預設值 */ }
+buildRulesTabs();   // 規則說明頁籤(依資料動態產生,連線版/單機版皆適用)
 setupConnect();
 setupLobbyEvents();
 setupGameEvents();

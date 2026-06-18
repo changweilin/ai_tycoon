@@ -1,0 +1,47 @@
+name: Deploy single-player web to GitHub Pages
+
+# 把 public/ 部署成 GitHub Pages 單機版:
+#  - 重新由 server/ 產生 public/engine/(瀏覽器直接 import 遊戲引擎,避免漂移)
+#  - 把 solo-flag.js 設為 true:鎖定加入房間,只開放單人對 AI / 上帝模式
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build game engine into public/engine
+        run: node scripts/build-engine.mjs
+      - name: Enable solo mode (lock room join)
+        run: printf '%s\n' '// 由 GitHub Pages workflow 設定:鎖定加入房間,只開放單人對 AI / 上帝模式。' 'window.__SOLO__ = true;' > public/js/solo-flag.js
+      - name: Disable Jekyll processing
+        run: touch public/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

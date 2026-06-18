@@ -24,6 +24,14 @@ npm run dev    # 本地開發(改檔自動重啟);正式跑 npm start
 
 完整規則見 [RULES.md](RULES.md)。
 
+## 單機版(GitHub Pages,無需伺服器)
+
+`public/` 可直接部署成純靜態的**單機版**:鎖定「加入房間」,只開放**單人對 AI** 與**上帝模式**,並附頁籤式規則說明(基礎/回合行動/陣營加權/角色加權/科技卡/灰色作戰卡,手機優先)。
+
+- 遊戲邏輯在瀏覽器內由 `public/js/localnet.js` 驅動真正的引擎(`public/engine/` 是 `server/{game,bot,strategy}.js` 的衍生複本,由 `npm run build:engine` 產生)。
+- 部署:推到 `main` 後,`.github/workflows/pages.yml` 會自動重建 `public/engine/`、把 `solo-flag.js` 設為 `true`,並發佈到 GitHub Pages(需在 repo Settings → Pages 將來源設為 GitHub Actions)。
+- 本機測試單機版:`npm start` 後開 `http://localhost:8520/?solo=1`(`?solo=1` 會強制單機模式,不必改旗標)。
+
 ## 測試
 
 ```powershell

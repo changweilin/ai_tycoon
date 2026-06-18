@@ -6,6 +6,8 @@
 <title>賽博貿易戰 2049 — 環太平洋科技冷戰</title>
 <link rel="icon" href="images/game_logo.png" type="image/png">
 <link rel="stylesheet" href="css/style.css">
+<!-- 單機模式旗標(GitHub Pages 部署時改寫為 true);classic script 會在 module 之前執行 -->
+<script src="js/solo-flag.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script type="importmap">
 {
@@ -48,6 +50,42 @@
     <div class="divider">─── 繼續上次的戰局 ───</div>
     <button id="loadBtn" class="btn big">📂 載入遊戲</button>
     <button id="clearSavesBtn" class="btn">🗑️ 清除暫存檔(自動存檔)</button>
+  </div>
+</div>
+
+<!-- ========= 單機設定畫面(GitHub Pages 單機版:只開放單人對 AI / 上帝模式)========= -->
+<div id="soloSetup" class="screen" style="display:none">
+  <img class="game-logo" src="images/game_logo.png" alt="賽博貿易戰 2049" onerror="this.style.display='none'">
+  <h1 class="title">賽博貿易戰 <span class="title-year">2049</span></h1>
+  <p class="subtitle">環太平洋科技冷戰 // 單機試玩版</p>
+
+  <div class="solo-box">
+    <div class="solo-mode-tabs">
+      <button class="solo-mode-tab on" data-smode="ai">🤖 單人對 AI</button>
+      <button class="solo-mode-tab" data-smode="god">👁️‍🗨️ 上帝模式</button>
+    </div>
+    <p id="soloModeHint" class="mode-hint"></p>
+
+    <label class="solo-field">遊戲人數
+      <select id="soloCount">
+        <option value="2">2(米牆對決)</option>
+        <option value="3">3</option><option value="4" selected>4</option>
+        <option value="5">5</option><option value="6">6(開放日韓)</option>
+        <option value="7">7(開放日韓)</option><option value="8">8(開放日韓)</option>
+      </select>
+    </label>
+
+    <div id="soloCharWrap">
+      <h3 class="solo-sub">選擇你的科技巨頭</h3>
+      <div id="soloCharPool" class="char-pool"></div>
+    </div>
+
+    <button id="soloStartBtn" class="btn big">🚀 開始遊戲</button>
+    <div class="divider">─── 其他 ───</div>
+    <div class="solo-actions">
+      <button id="soloRulesBtn" class="btn">📜 規則說明</button>
+      <button id="soloLoadBtn" class="btn">📂 載入存檔</button>
+    </div>
   </div>
 </div>
 
@@ -246,25 +284,22 @@
   </div>
 </div>
 
-<!-- ========= 規則 ========= -->
+<!-- ========= 規則說明(頁籤式,手機優先;面板內容由 ui.js 依資料動態產生)========= -->
 <div id="rulesOverlay" class="overlay" style="display:none">
-  <div class="modal-box rules-box">
-    <h2>📜 規則速查</h2>
-    <div class="rules-content">
-      <p><b>科技力(點數制):</b>領先 1 年 = 領先 20 點。初始科技力:🇺🇸米國 200、🇨🇳牆國 110、其他國家 150。每位玩家的部署計入「本國」科技力(影響自身收益,紅利上限 +3);日本另計入米國、韓國另計入牆國、台灣依秘密立場計入(未表態前進神山儲備)。</p>
-      <p><b>目標:</b>米國要把對牆國的科技力領先拉開到 10 年(200 點)即提前獲勝;牆國追平米國即提前獲勝。<b>打滿 3 年(12 季)後依終局領先判定:米國領先 ≥5 年 → 米陣營勝(日本同享);牆國反超 ≥5 年 → 牆陣營勝(韓國同享);差距 &lt;5 年 → 冷戰僵局,韓國獨勝。</b>日韓分享勝利/僵局獨勝都需要<b>自身場上至少 3 張科技卡</b>(不能躺贏)。台灣於<b>第 1 季內秘密自選</b>支持一方,押對即與該方同贏;未表態前可「轉向」一次(1AP,神山儲備折半);「表態」公開立場並注入神山儲備(該方門檻 +5 年)。多人獲勝時總資源最多者奪冠;無人收割冷戰時才由資源最多者獲得商業勝利。</p>
-      <p><b>三種資源:</b>💰金錢/⚡電力/🛢️石油。科技卡與作戰卡都要用三種資源支付:🚀動力類吃較多石油、📱硬體類吃較多金錢、🗄️資訊類吃較多電力、🧠AI類三者均衡、🎮娛樂類不一定。每回合固定獲得少量資源,<b>固定收益與放棄權利收益都和所屬陣營科技力正相關(每 10 年 +1)</b>;<b>科技卡建造後每回合也會產出資源</b>,通常建造時吃哪種資源就多產哪種,但約 1/3 的卡片例外。<b>每回合可用金錢兌換一次:2💰=1🛢️或 1⚡(最多 5,不可反向)。</b></p>
-      <p><b>城市等級:</b>每座城市有等級(Lv.1~5),<b>城市等級 ≥ 科技卡階級才能建造</b>。任何人花 1AP+⚡(目前等級 ×3)可把所在城市升 1 級,升級後所有人都能使用。</p>
-      <p><b>交易環節:</b>每一輪所有玩家行動結束後進入交易環節,<b>所有玩家可以以任意比值互相交換資源</b>(提案 → 對方接受/婉拒)。<b>每人最多提出 3 次交易、只能成交 1 次(接受別人的提案也算成交)</b>,全員按「結束交易」後進入下一季。</p>
-      <p><b>集體事件:</b>每一輪(季)開始前從 24 張事件卡抽一張(戰爭/疫情/金融海嘯/天災…),效果持續整輪:可能限制某種資源收入、提高/降低某類卡片花費、或增減行動點/科技力。</p>
-      <p><b>回合:</b>每回合 3 行動點(AP),<b>每回合開始自動抽 1 張卡(沒有手動抽卡;算力 perk 自動多抽 1 張)</b>。移動相鄰城市 1AP+🛢️1;✈️ <b>搭飛機可跨 3 格(航線)以內</b> 1AP+🛢️5(超過須分段飛)。部署科技卡/打作戰卡各 1AP+卡費;升級城市 1AP+⚡;<b>捨牌升階 1AP</b>。<b>放棄權利換資源(不耗 AP,每回合各一次):放棄打出科技卡 → ⚡;放棄打出作戰卡 → 💰;放棄行動(移動)→ 🛢️。收益 = 3 + 陣營科技力紅利。</b></p>
-      <p><b>科技卡(5 大類 × 5 階):</b>🔬科技力「點」(1~3 階約 4~25 點;<b>4/5 階是超越過去的劃時代建設,約 35~120 點</b>)/🛡️防護力(阻擋作戰卡)/💱交易力(每回合收入)。<b>公共牌庫(公牌)只放 1/2/3 階卡,張數比例 4:3:2;4 階與 5 階各自獨立一疊,只能靠「捨牌升階」換取:捨棄階級加總 = 6 的卡換 1 張 4 階卡、捨棄 2 張 4 階卡換 1 張 5 階卡。</b>一個角色在一座城市只能建一張科技卡;要換高階卡須拆除舊卡(只能升階),同類型替換時舊卡折舊抵免 50% 費用。每城上限 4 張。<b>一座城市建造科技卡後,要過一年(4 季)才可重新建造(所有人都受限)。</b><b>擅長領域費用 -20% 且科技力 +1</b>;新竹部署科技力 +1。<b>米國在牆國地盤、牆國在米國地盤發展科技花費 ×2,其他國家不在此限。</b></p>
-      <p><b>作戰卡(灰色 3 大類,只能對 2 格航線可及處施展、<b>每多 1 格航線費用 +50%</b>;牆國攻擊範圍 +1 格;每張科技卡只能被鎖定一次):</b>💣間諜類:攻擊力 ≥ 目標有效防護力即摧毀,對方損失其科技力。🕵️竊取類:竊取目標情報,下次發展同類型科技卡花費減少(目標階級越高減越多;不同卡減免的資源比例不同)。📰假新聞類:該城市 1~2 輪內發展科技花費 ×1.5/×2。牆國陣營作戰卡 -3。</p>
-      <p><b>模式:</b>2 人=米牆對決(無台灣規則)|多人連線(人數不足由 AI 頂替)|上帝模式(一人控全角色試玩)。<b>房主可勾選「不參與遊戲」只主持/觀戰;當選角玩家已達預計人數,其餘未選角的玩家自動轉為觀戰。</b>3 人以上若僅剩最後一位玩家未選角且台灣尚無人選,該玩家必須選擇台灣。</p>
-      <p><b>陣營優勢:</b>🇺🇸米國:初始科技力高(10 年 vs 5.5 年),因此每回合資源收益更高;4 階以上科技卡 +10 點科技力。🇨🇳牆國:灰色作戰卡費用是他國的一半,且攻擊範圍 +1 格。🇹🇼台灣:晶片代工壟斷 — 收晶片稅(每次他人研發 💰2)、硬體卡 +5 點科技力、新竹晶片重鎮 +5 點;造王者(秘密選邊/轉向/表態)。🇯🇵日本:油電混合 — 移動石油費用減半(科技計入米國)。🇰🇷韓國:基建狂魔 — 升級城市電力費用減半(科技計入牆國)。媒體 perk 角色打出假新聞後抽一張卡;算力 perk 角色(黃仁薰/梁文瘋)每回合自動多抽一張卡。</p>
-      <p><b>介面小技巧:</b>數值多以「初始(加權)」呈現,括號為加成後的值;<b>點擊收入的「加權」可看角色 / 陣營 / 集體事件等加權成分</b>,科技卡詳情也會列出加權明細。<b>點擊太平洋中央的三疊牌庫</b>(公共牌庫 / 四階 / 五階)可查看牌組組成與目前剩餘張數。</p>
+  <div class="modal-box rules-box rules-tabbed">
+    <div class="rules-header">
+      <h2>📜 規則說明</h2>
+      <button id="rulesClose" class="rules-x" title="關閉">✕</button>
     </div>
-    <button id="rulesClose" class="btn big">關閉</button>
+    <div id="rulesTabs" class="rules-tabs">
+      <button class="rules-tab on" data-rtab="basic">📘 基礎說明</button>
+      <button class="rules-tab" data-rtab="turn">🎯 回合行動</button>
+      <button class="rules-tab" data-rtab="faction">🏴 陣營加權</button>
+      <button class="rules-tab" data-rtab="char">👤 角色加權</button>
+      <button class="rules-tab" data-rtab="tech">🔬 科技卡列表</button>
+      <button class="rules-tab" data-rtab="ops">💣 灰色作戰卡</button>
+    </div>
+    <div id="rulesPanels" class="rules-panels"></div>
   </div>
 </div>
 
