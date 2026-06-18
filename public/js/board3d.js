@@ -143,9 +143,12 @@ const LANDMASSES = [
     [21.6, -9.4], [21.9, -8.4], [23.6, -8.0], [25.4, -8.2], [27.0, -8.8],
     [27.8, -10.2], [27.4, -11.8], [25.8, -12.8], [23.6, -12.8], [22.0, -12.0], [21.4, -10.6],
   ] },
-  // 英國島(london):隔英倫海峽(london↔paris/amsterdam 海運)獨立於歐陸西北外海的島嶼。
+  // 英國島(london):隔英倫海峽(london↔paris 海運)獨立於歐陸西北外海的島嶼。
+  // 緊湊的西北—東南長條島(london 偏東南),刻意收在北美東北外海以北、歐陸以西的空檔,
+  // 不越過北美北岸斜線、也不貼到歐陸西緣(避免撞到其他大陸)。
   { name: 'britain', coast: '#9c8cff', biome: 'temperate', pts: [
-    [18.6, -10.6], [19.0, -11.6], [20.0, -12.0], [20.8, -11.2], [21.0, -10.0], [20.4, -9.0], [19.4, -9.2], [18.7, -9.8],
+    [19.2, -10.6], [20.0, -9.85], [20.7, -10.6], [20.9, -11.2], [20.7, -12.2],
+    [20.0, -13.0], [19.2, -13.2], [18.6, -12.6], [18.7, -11.6],
   ] },
   // 歐亞大陸(地圖左側一整塊;歐亞大陸的「左半」,真實世界中與右半的歐洲是同一塊),依現實地形重繪輪廓:
   //   右(東)側 = 牆國 12 城面太平洋的海岸(渤海灣內凹、長江口外凸 shanghai),最北伸出「楚克奇半島」朝白令海峽;
@@ -157,10 +160,15 @@ const LANDMASSES = [
   //   西緣(中亞/黎凡特)較舊版往更西延伸,涵蓋黑海/裏海內陸湖盆。
   { name: 'eurasia', coast: '#ff7b9c', biome: 'temperate', pts: [
     [-3.4, -14.0], [-3.8, -12.6], [-5.6, -11.2], [-6.8, -10.4],   // 楚克奇半島(尖端往西退,讓出白令海峽暖流海域)
-    [-7.4, -9.0],                                                 // 東岸:渤海灣北
-    // 朝鮮半島:自東岸往東南鼓出的寬基半島(seoul/busan),與大陸一體;東緣與日本之間留對馬海峽
-    [-7.6, -8.6], [-6.6, -8.6], [-5.6, -7.4], [-5.2, -5.8], [-5.6, -4.4], [-6.8, -4.2], [-7.9, -3.6],
-    [-7.8, -3.0], [-8.2, -1.0],                                   // 長江口外凸(shanghai)
+    [-7.4, -9.0],                                                 // 東岸:渤海灣北(遼東一帶)
+    // 朝鮮半島:窄頸寬身的指狀半島(seoul 北、busan 南),東緣對馬海峽望日本;
+    // 西側以「黃海灣」內凹與大陸分隔 → 看得出是半島,而非海岸線上的鼓包。
+    [-7.5, -8.6],                                                 // 半島北基(頸部,接大陸)
+    [-6.7, -8.3], [-5.9, -7.2], [-5.4, -6.1], [-5.5, -5.1],      // 東岸(日本海/對馬海峽側)南下、微往東突
+    [-6.1, -4.5],                                                 // 南端尖角(釜山以南)
+    [-6.9, -5.0], [-7.5, -6.0], [-7.9, -6.9], [-8.0, -7.5],      // 西岸(黃海側)北上內凹 → 黃海灣頂
+    [-8.5, -7.1], [-8.8, -5.6], [-8.9, -3.8], [-8.6, -2.2],      // 大陸黃海西岸南下(灣的西壁)
+    [-8.2, -1.0],                                                 // 長江口外凸(shanghai)
     [-9.2, 1.4], [-10.4, 3.2], [-10.8, 4.4],                      // 華南海岸南下(shenzhen/guangzhou)
     [-11.8, 5.4], [-12.4, 6.4],                                   // 印度支那半島北基(hanoi/bangkok)
     // 馬來半島:自中南半島往南延伸的長指狀半島(kualalumpur/singapore),與大陸一體
@@ -2469,6 +2477,8 @@ export class Board3D {
     this.wxToColor = new THREE.Color(WEATHER.clear.bg);
     this._tmpColor = new THREE.Color();
     this.wxWindDir = { x: 1, z: 0 };
+    // 天氣顯示細緻度:'full'=完整粒子動畫(預設);'simple'=輕量化(降粒子量/不壓暗/不逼近霧/無漏斗 → 不遮擋棋盤)
+    this.wxDetail = 'full';
   }
 
   _initWeatherBadge() {
@@ -2504,6 +2514,16 @@ export class Board3D {
 
   planeVizLabel() {
     return ['✈️ 空運完全顯示', '✈️ 空運高透明度', '✈️ 空運漸進變換'][this.planeViz || 0];
+  }
+
+  // 切換天氣顯示細緻度:完整(預設,豐富粒子)↔ 簡單(輕量、不遮棋盤)。回傳目前模式說明。
+  cycleWeatherDetail() {
+    this.wxDetail = this.wxDetail === 'simple' ? 'full' : 'simple';
+    return this.weatherDetailLabel();
+  }
+
+  weatherDetailLabel() {
+    return this.wxDetail === 'simple' ? '🌤️ 天氣:簡單顯示(不遮棋盤)' : '🌧️ 天氣:完整顯示';
   }
 
   _applyPlaneViz() {
@@ -2557,21 +2577,26 @@ export class Board3D {
     else { this.wxHold -= dt; if (this.wxHold <= 0 && !this._wxForced) this._pickWeather(); }
     const k = smooth(this.wxBlend), L = this.wxLive;
     for (const f of WX_FIELDS) L[f] = lerp(this.wxFrom[f], this.wxTo[f], k);
+    const simple = this.wxDetail === 'simple'; // 簡單模式:全程壓低遮擋(粒子量/不變暗/不逼霧/無漏斗)
 
-    // 氛圍:背景 / 霧 / 光照
+    // 氛圍:背景 / 霧 / 光照(簡單模式不讓霧逼近、也不壓暗 → 棋盤始終清晰)
     this._tmpColor.copy(this.wxFromColor).lerp(this.wxToColor, k);
     this.scene.background.copy(this._tmpColor);
     this.scene.fog.color.copy(this._tmpColor);
-    this.scene.fog.near = L.fogNear; this.scene.fog.far = L.fogFar;
-    this.ambient.intensity = L.amb; this.dirLight.intensity = L.light;
+    this.scene.fog.near = simple ? Math.max(L.fogNear, 38) : L.fogNear;
+    this.scene.fog.far = simple ? Math.max(L.fogFar, 92) : L.fogFar;
+    this.ambient.intensity = simple ? Math.max(L.amb, 1.2) : L.amb;
+    this.dirLight.intensity = simple ? Math.max(L.light, 0.95) : L.light;
 
-    // 雨
+    // 雨(簡單模式:只動 1/3 雨絲且更淡)
+    const rainCount = simple ? (this.rainN * 0.34) | 0 : this.rainN;
+    this.rain.geometry.setDrawRange(0, rainCount * 2); // 每段 2 頂點
     this.rain.visible = L.rain > 0.02;
     if (this.rain.visible) {
       const fall = 20 + L.wind * 16, wx = this.wxWindDir.x * L.wind * 7, wz = this.wxWindDir.z * L.wind * 7;
       const tx = this.wxWindDir.x * L.wind * 0.5, tz = this.wxWindDir.z * L.wind * 0.5;
       const arr = this.rain.geometry.attributes.position.array;
-      for (let i = 0; i < this.rainN; i++) {
+      for (let i = 0; i < rainCount; i++) {
         let y = this.rainY[i] - fall * dt, x = this.rainX[i] + wx * dt, z = this.rainZ[i] + wz * dt;
         if (y < 0) { y = 24 + Math.random() * 6; x = (Math.random() - 0.5) * 90; z = (Math.random() - 0.5) * 80; }
         else { if (x > 45) x -= 90; else if (x < -45) x += 90; if (z > 40) z -= 80; else if (z < -40) z += 80; }
@@ -2582,14 +2607,16 @@ export class Board3D {
       }
       this.rain.geometry.attributes.position.needsUpdate = true;
     }
-    this.rainMat.opacity = L.rain * 0.55;
+    this.rainMat.opacity = L.rain * 0.55 * (simple ? 0.5 : 1);
 
-    // 雪
+    // 雪(簡單模式:只動 4 成雪花且更淡)
+    const snowCount = simple ? (this.snowN * 0.4) | 0 : this.snowN;
+    this.snow.geometry.setDrawRange(0, snowCount);
     this.snow.visible = L.snow > 0.02;
     if (this.snow.visible) {
       const fall = 2.5 + L.wind * 3;
       const arr = this.snow.geometry.attributes.position.array;
-      for (let i = 0; i < this.snowN; i++) {
+      for (let i = 0; i < snowCount; i++) {
         let y = this.snowY[i] - fall * dt;
         let x = this.snowX[i] + (Math.sin(t * 0.8 + i) * 0.3 + this.wxWindDir.x * L.wind * 4) * dt;
         let z = this.snowZ[i] + (Math.cos(t * 0.7 + i) * 0.3 + this.wxWindDir.z * L.wind * 4) * dt;
@@ -2600,33 +2627,36 @@ export class Board3D {
       }
       this.snow.geometry.attributes.position.needsUpdate = true;
     }
-    this.snowMat.opacity = L.snow * 0.9;
+    this.snowMat.opacity = L.snow * 0.9 * (simple ? 0.55 : 1);
 
-    // 雲(飄動 + 依光照轉暗成烏雲)
+    // 雲(飄動 + 依光照轉暗成烏雲;簡單模式:只留半數雲且更淡,避免高空雲片蓋住棋盤)
     const cTone = 0.35 + L.light * 0.4;
-    for (const s of this.cloudSprites) {
+    for (let ci = 0; ci < this.cloudSprites.length; ci++) {
+      const s = this.cloudSprites[ci];
+      const hide = simple && (ci % 2 === 1);
+      s.visible = !hide;
       s.position.x += this.wxWindDir.x * (0.3 + L.wind * 2) * s.userData.speed * dt;
       s.position.z += this.wxWindDir.z * (0.3 + L.wind * 2) * s.userData.speed * dt;
       if (s.position.x > 48) s.position.x -= 96; else if (s.position.x < -48) s.position.x += 96;
       if (s.position.z > 42) s.position.z -= 84; else if (s.position.z < -42) s.position.z += 84;
-      s.material.opacity = L.cloud * 0.5 * s.userData.alpha;
+      s.material.opacity = L.cloud * 0.5 * s.userData.alpha * (simple ? 0.4 : 1);
       s.material.color.setRGB(cTone, cTone, cTone * 1.05);
     }
 
-    // 閃電
+    // 閃電(簡單模式:減弱閃光強度、拉長間隔,只當遠處點綴)
     if (L.flash > 0.04) {
       this._strikeT -= dt;
       if (this._strikeT <= 0) {
-        this.lightning.intensity = 250 + 500 * L.flash;
+        this.lightning.intensity = (250 + 500 * L.flash) * (simple ? 0.32 : 1);
         this.lightning.position.set((Math.random() - 0.5) * 36, 24, (Math.random() - 0.5) * 32);
-        this._strikeT = 0.4 + Math.random() * (3.5 - 3 * L.flash);
+        this._strikeT = (0.4 + Math.random() * (3.5 - 3 * L.flash)) * (simple ? 2.2 : 1);
       }
     }
     this.lightning.intensity *= Math.exp(-dt * 8);
     if (this.lightning.intensity < 0.5) this.lightning.intensity = 0;
 
-    // 漏斗
-    this.funnel.visible = L.funnel > 0.02;
+    // 漏斗(颱風/龍捲;簡單模式直接隱藏 → 不讓大型旋臂遮住棋盤)
+    this.funnel.visible = !simple && L.funnel > 0.02;
     if (this.funnel.visible) {
       this.funnel.rotation.y += dt * (3 + L.wind * 6);
       this.funnelPtsMat.opacity = L.funnel * 0.85;
@@ -2640,14 +2670,16 @@ export class Board3D {
       this.funnel.scale.set(wide, lerp(0.85, 1.15, gy), wide);
     }
 
-    // 季節落物(春櫻花瓣 / 秋落葉):淡入淡出 + 飄落 + 風漂 + 旋擺
-    const leafTarget = this._seasonFall ? 0.6 : 0;
+    // 季節落物(春櫻花瓣 / 秋落葉):淡入淡出 + 飄落 + 風漂 + 旋擺(簡單模式:更淡、只動 4 成)
+    const leafTarget = (this._seasonFall ? 0.6 : 0) * (simple ? 0.4 : 1);
     this.leafMat.opacity += (leafTarget - this.leafMat.opacity) * Math.min(1, dt * 2);
     this.leaves.visible = this.leafMat.opacity > 0.01;
+    const leafCount = simple ? (this.leafN * 0.4) | 0 : this.leafN;
+    this.leaves.geometry.setDrawRange(0, leafCount);
     if (this.leaves.visible) {
       const fall = 1.6 + L.wind * 2;
       const arr = this.leaves.geometry.attributes.position.array;
-      for (let i = 0; i < this.leafN; i++) {
+      for (let i = 0; i < leafCount; i++) {
         let y = this.leafY[i] - fall * dt;
         let x = this.leafX[i] + (Math.sin(t * 0.9 + i) * 0.5 + this.wxWindDir.x * (0.5 + L.wind * 3)) * dt;
         let z = this.leafZ[i] + (Math.cos(t * 0.8 + i) * 0.5 + this.wxWindDir.z * (0.5 + L.wind * 3)) * dt;

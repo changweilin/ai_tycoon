@@ -1452,6 +1452,11 @@ function setupGameEvents() {
     toast(`${board.cyclePlaneViz()}(也可按 V)`);
     $('#btnPlaneViz').classList.toggle('on', (board.planeViz || 0) !== 0);
   });
+  $('#btnWeatherDetail').addEventListener('click', () => {
+    if (!board) return;
+    toast(board.cycleWeatherDetail());
+    $('#btnWeatherDetail').classList.toggle('on', board.wxDetail === 'simple');
+  });
   $('#btnTwChoose').addEventListener('click', openTwChooseModal);
   $('#btnPivot').addEventListener('click', () => {
     openModal('🔄 秘密轉向(整局一次)',
