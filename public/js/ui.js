@@ -30,6 +30,10 @@ let resultShown = false;
 let lastFxId = null;    // 已播放的最後一個特效 id(增量播放,首次同步不重播歷史)
 let lastTurnIdx = null; // 上次的回合玩家索引(偵測「輪到你」提示音)
 let lastPhase = null;   // 上次的階段(偵測進入交易環節提示音)
+// 手機底部 dock:可展開 / 收合的面板清單。mbPanel = 目前展開的面板 id(null = 收合只看地圖)
+const MB_PANELS = ['techBar', 'playerPanel', 'playersList', 'log', 'bottomCenter', 'hostBar'];
+let mbPanel = null;
+let _mbSig = null;      // 目前 dock 的項目組合簽章(角色變動才重建,避免每次同步重繪)
 
 function fmtRes(c) {
   const parts = RES_KEYS.filter(k => c && c[k] > 0).map(k => `${RESOURCES[k].icon}${c[k]}`);
@@ -856,6 +860,7 @@ function refreshGame(m) {
     : s.phase === 'trade' ? '🤝 交易環節 — 自由交換資源'
     : `輪到 <b style="color:${FACTIONS[turnP.faction].css}">${turnP.name}</b>${isMyTurn() ? '(你!)' : ''}`;
   $('#hostBar').style.display = m.isHost ? '' : 'none';
+  renderMobileDock(m); // 手機底部 dock(依角色:觀戰無「操作」、房主多「主持」)
 
   // 交易環節 overlay
   const meP = myPlayer();
@@ -955,6 +960,66 @@ function updateHandFade() {
   const max = w.scrollWidth - w.clientWidth;
   w.style.setProperty('--fl', w.scrollLeft > 4 ? '34px' : '0px');
   w.style.setProperty('--fr', w.scrollLeft < max - 4 ? '34px' : '0px');
+}
+
+// ---------------- 手機底部 dock(項目清單 + 抽屜)----------------
+// 依角色產生可展開 / 收合的面板項目;點一下展開該面板成底部抽屜,再點收合回地圖,
+// 切換到別項則自動收起前一張。項目過多時 dock 可左右滑,超出邊緣淡出(--dl/--dr,同手牌手法)。
+function renderMobileDock(m) {
+  const dock = $('#mobileDock');
+  if (!dock) return;
+  if (!dock._wired) {
+    dock._wired = true;
+    dock.addEventListener('click', e => {
+      const b = e.target.closest('.mb-chip');
+      if (b) setMbPanel(b.dataset.mb);
+    });
+    dock.addEventListener('scroll', updateDockFade, { passive: true });
+    dock.addEventListener('wheel', e => {
+      if (e.deltaY && dock.scrollWidth > dock.clientWidth) { dock.scrollLeft += e.deltaY; e.preventDefault(); }
+    }, { passive: false });
+    window.addEventListener('resize', updateDockFade);
+  }
+  const spectating = !myPlayer();
+  const chips = [
+    ['techBar', '📊', '戰況'],
+    ['playerPanel', spectating ? '👁️' : '👤', spectating ? '觀戰' : '我的'],
+    ['playersList', '👥', '對手'],
+    ['log', '📜', '紀錄'],
+  ];
+  if (!spectating) chips.push(['bottomCenter', '🎮', '操作']);
+  if (m.isHost) chips.push(['hostBar', '💾', '主持']);
+  const sig = chips.map(c => c[0]).join(',');
+  if (sig !== _mbSig) {
+    _mbSig = sig;
+    dock.innerHTML = chips.map(([id, ic, lb]) =>
+      `<button class="mb-chip" data-mb="${id}"><span class="mb-ic">${ic}</span><span class="mb-lb">${lb}</span></button>`).join('');
+    requestAnimationFrame(updateDockFade);
+  }
+  if (mbPanel && !chips.some(c => c[0] === mbPanel)) mbPanel = null; // 開著的面板已不適用(如轉觀戰)→ 收合
+  applyMbActive();
+}
+
+// 套用目前展開狀態到面板與 dock 項目(桌機 .mb-active 無對應規則,無害)
+function applyMbActive() {
+  for (const id of MB_PANELS) $('#' + id)?.classList.toggle('mb-active', id === mbPanel);
+  for (const chip of document.querySelectorAll('.mb-chip')) chip.classList.toggle('on', chip.dataset.mb === mbPanel);
+}
+
+// 切換面板:再點同一項 = 收合;點別項 = 切換(自動收起前一張)
+function setMbPanel(id) {
+  mbPanel = (id === mbPanel) ? null : id;
+  applyMbActive();
+  if (mbPanel === 'bottomCenter') requestAnimationFrame(updateHandFade); // 操作抽屜展開後重算手牌淡出
+}
+
+// dock 太長時:左右捲動,捲到非端點時該側邊緣淡出
+function updateDockFade() {
+  const d = $('#mobileDock');
+  if (!d) return;
+  const max = d.scrollWidth - d.clientWidth;
+  d.style.setProperty('--dl', d.scrollLeft > 4 ? '22px' : '0px');
+  d.style.setProperty('--dr', (max > 4 && d.scrollLeft < max - 4) ? '22px' : '0px');
 }
 
 function renderActions(m) {

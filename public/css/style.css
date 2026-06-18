@@ -297,6 +297,19 @@ body {
   font-size: .75rem; line-height: 1.6; color: #9fd4ee;
 }
 
+/* ---------- 手機底部項目清單(dock):桌機隱藏,樣式於手機 media query 內啟用 ---------- */
+#mobileDock { display: none; }
+.mb-chip {
+  flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px; min-width: 54px; padding: 3px 13px; border-radius: 11px;
+  background: rgba(0, 240, 255, .06); border: 1px solid var(--border); color: #bfe9ff;
+  font-family: inherit; cursor: pointer; transition: all .15s; white-space: nowrap; user-select: none;
+}
+.mb-chip .mb-ic { font-size: 1.2rem; line-height: 1; }
+.mb-chip .mb-lb { font-size: .62rem; letter-spacing: .03em; }
+.mb-chip.on { background: var(--cyan); color: #001; font-weight: bold; box-shadow: 0 0 12px rgba(0, 240, 255, .55); }
+.mb-chip:active { transform: scale(.94); }
+
 /* ---------- Modal ---------- */
 .overlay {
   position: fixed; inset: 0; background: rgba(2,4,12,.8); z-index: 50;
@@ -563,17 +576,49 @@ body {
   #log { width: 198px; height: 150px; }
 }
 
-/* ---------- 手機直向 ---------- */
+/* ---------- 手機直向:面板改「底部 dock 項目清單 + 抽屜」,隨時切換地圖 / 資訊 / 操作 ---------- */
 @media (max-width: 760px) {
   .lobby-grid { grid-template-columns: 1fr; }
-  /* 右欄(玩家列表/紀錄)隱藏 → 中央 HUD 改為近滿版,不再預留側欄寬度 */
-  #gameUI { --col-left: 8px; --col-right: 8px; }
-  #playerPanel { top: auto; bottom: 340px; left: 8px; max-width: 60vw; font-size: .78rem; }
-  #playersList { display: none; }
-  #log { display: none; }
-  #handWrap { max-height: 150px; }
-  .card { width: 104px; }
+  #gameUI { --col-left: 8px; --col-right: 8px; --dock-h: 58px; }
   #gameLogoHud { display: none; }
+  .card { width: 104px; }
+  #handWrap { max-height: 40vh; }
+
+  /* 永遠可見的精簡資訊:回合提示(左上)、地圖工具(右上直排)、觀戰標籤(上方置中) */
+  .turn-banner { top: 10px; left: 10px; max-width: 62vw; font-size: .9rem; padding: 7px 11px; }
+  .map-tools { top: 10px; right: 8px; bottom: auto; transform: none; padding: 5px; gap: 7px; z-index: 7; }
+  .map-tool { width: 38px; height: 38px; font-size: 1.12rem; }
+  .spectator-tag { top: 56px; bottom: auto; left: 50%; right: auto; margin: 0; transform: translateX(-50%); }
+
+  /* dockable 面板 → 底部抽屜;預設滑出畫面(收合,只看地圖),只有 .mb-active 滑入(展開) */
+  #techBar, #playerPanel, #playersList, #log, #bottomCenter, #hostBar {
+    top: auto; left: 6px; right: 6px; bottom: calc(var(--dock-h) + 8px);
+    width: auto; max-width: none; min-width: 0; margin: 0;
+    max-height: min(56vh, 460px); overflow-y: auto; overflow-x: hidden;
+    transform: translateY(calc(100% + var(--dock-h) + 24px)); opacity: 0; pointer-events: none;
+    transition: transform .26s cubic-bezier(.2, .85, .25, 1), opacity .18s ease;
+  }
+  #playersList, #log { display: block; } /* 取消桌機隱藏 → 改為可展開抽屜 */
+  /* id + class 特異度需勝過上面的 id 規則,才能覆寫 transform 把抽屜拉回畫面 */
+  #techBar.mb-active, #playerPanel.mb-active, #playersList.mb-active,
+  #log.mb-active, #bottomCenter.mb-active, #hostBar.mb-active {
+    transform: translateY(0); opacity: 1; pointer-events: auto;
+  }
+  /* 操作抽屜(行動列 + 手牌)加底襯,讓兩塊看起來像同一張抽屜 */
+  #bottomCenter.mb-active { background: rgba(4, 6, 16, .72); border: 1px solid var(--border); border-radius: 12px; padding: 8px 6px; gap: 8px; }
+
+  /* 底部 dock:橫向可滑的「項目清單」,超出處邊緣淡出(--dl / --dr 由 JS 依捲動位置設定) */
+  #mobileDock {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 8;
+    height: var(--dock-h); gap: 8px; align-items: stretch; padding: 7px 12px;
+    background: linear-gradient(0deg, rgba(3, 5, 14, .97), rgba(6, 10, 28, .86));
+    border-top: 1px solid var(--border); box-shadow: 0 -6px 20px rgba(0, 0, 0, .45);
+    overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    --dl: 0px; --dr: 0px;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--dl), #000 calc(100% - var(--dr)), transparent 100%);
+            mask-image: linear-gradient(90deg, transparent 0, #000 var(--dl), #000 calc(100% - var(--dr)), transparent 100%);
+  }
+  #mobileDock::-webkit-scrollbar { display: none; }
 }
 
 /* ============ 單機設定畫面(GitHub Pages 單機版)============ */

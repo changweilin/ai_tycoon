@@ -15,7 +15,20 @@ import { CHARACTERS, RULES, FACTIONS } from '../public/js/data.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const SAVE_DIR = path.join(__dirname, '..', 'saves');
-const PORT = process.env.PORT || 8520;
+// 命令列參數讀取:支援 `--port 8000` 或 `--port=8000`(任何 shell 都能用 `npm start -- --port 8000`,
+// 避開「PowerShell 不支援 bash 風格 PORT=8000 npm start」這個常見坑)。
+function argVal(...names) {
+  const a = process.argv.slice(2);
+  for (let i = 0; i < a.length; i++) {
+    for (const n of names) {
+      if (a[i] === n) return a[i + 1];
+      if (a[i].startsWith(n + '=')) return a[i].slice(n.length + 1);
+    }
+  }
+  return undefined;
+}
+// 埠來源優先序:命令列參數 > 環境變數 > 預設 8520
+const PORT = argVal('--port', '-p') || process.env.PORT || 8520;
 fs.mkdirSync(SAVE_DIR, { recursive: true });
 
 // 載入數值參數設定檔(config/rules.json)覆寫 RULES
@@ -54,16 +67,19 @@ const requestHandler = (req, res) => {
 };
 
 // ---------------- HTTP / HTTPS 伺服器 ----------------
-// 手機要連線:許多情境(跨網段、想用安全連線)需要 HTTPS。若提供憑證就自動改走 HTTPS + WSS。
+// 一律提供 HTTP(在網址列直接輸入位址預設就是 http,「打開就能用」,桌機零摩擦);
+// 若提供憑證,另外在 HTTPS_PORT 同時提供 HTTPS + WSS,讓手機能用安全連線。
+// 兩個埠共用同一份房間狀態(同一行程),桌機走 http、手機走 https 也能同桌對戰。
 // 憑證來源:環境變數 TLS_KEY / TLS_CERT,或 config/key.pem + config/cert.pem(用 `npm run gen-cert` 產生)。
-// net.js 會在 https 頁面自動把 WebSocket 改成 wss,因此前端零修改。沒有憑證時退回一般 HTTP(維持舊行為)。
+// net.js 會在 https 頁面自動把 WebSocket 改成 wss,因此前端零修改。
 const TLS_KEY = process.env.TLS_KEY || path.join(__dirname, '..', 'config', 'key.pem');
 const TLS_CERT = process.env.TLS_CERT || path.join(__dirname, '..', 'config', 'cert.pem');
 const USE_HTTPS = fs.existsSync(TLS_KEY) && fs.existsSync(TLS_CERT);
-const PROTO = USE_HTTPS ? 'https' : 'http';
-const httpServer = USE_HTTPS
+const HTTPS_PORT = argVal('--https-port') || process.env.HTTPS_PORT || (Number(PORT) + 1); // 預設 = HTTP 埠 + 1(例:8520→8521)
+const httpServer = http.createServer(requestHandler);
+const httpsServer = USE_HTTPS
   ? https.createServer({ key: fs.readFileSync(TLS_KEY), cert: fs.readFileSync(TLS_CERT) }, requestHandler)
-  : http.createServer(requestHandler);
+  : null;
 
 // ---------------- 房間管理 ----------------
 /**
@@ -128,11 +144,14 @@ function genToken() {
 function lanUrls() {
   const urls = [];
   const ifaces = os.networkInterfaces();
+  const addrs = [];
   for (const name in ifaces) {
     for (const i of ifaces[name]) {
-      if (i.family === 'IPv4' && !i.internal) urls.push(`${PROTO}://${i.address}:${PORT}`);
+      if (i.family === 'IPv4' && !i.internal) addrs.push(i.address);
     }
   }
+  for (const a of addrs) urls.push(`http://${a}:${PORT}`);          // 一般連線(桌機)
+  if (USE_HTTPS) for (const a of addrs) urls.push(`https://${a}:${HTTPS_PORT}`); // 安全連線(手機)
   return urls;
 }
 
@@ -378,9 +397,8 @@ function pumpAI(room, delay = 800) {
 }
 
 // ---------------- WebSocket ----------------
-const wss = new WebSocketServer({ server: httpServer });
-
-wss.on('connection', ws => {
+// ws(http 埠)與 wss(https 埠)共用同一個連線處理器,房間狀態在同一行程共享。
+function handleConnection(ws) {
   let clientId = nextClientId++; // reattach 時會改綁回原座位 id
   let room = null;
   let client = null;
@@ -814,26 +832,70 @@ wss.on('connection', ws => {
       }
     }, 60000);
   });
-});
+}
+
+// 一個 WebSocketServer 掛 http 伺服器,(若有)另一個掛 https 伺服器,共用 handleConnection
+const httpWss = new WebSocketServer({ server: httpServer });
+httpWss.on('connection', handleConnection);
+const httpsWss = httpsServer ? new WebSocketServer({ server: httpsServer }) : null;
+if (httpsWss) httpsWss.on('connection', handleConnection);
+
+// 埠被佔用時給清楚指引(常見原因:之前的伺服器沒關乾淨,殭屍行程還霸佔著埠 →
+// 網頁打不開[空回應],新伺服器又因 EADDRINUSE 起不來)。不印 stack trace,改印可直接照做的解法。
+// 注意:ws 會把底層 http server 的 'error' 轉發到 WebSocketServer 實例(websocket-server.js),
+// 所以監聽 wss 即可同時涵蓋 listen() 失敗;若只掛在 http server 上,wss 仍會因未處理而 throw。
+// fatal=true(HTTP 主埠):整台無法服務 → 印解法後結束。
+// fatal=false(HTTPS 副埠):桌機 HTTP 仍可用 → 只警告、保留 HTTP 繼續跑,不要把整台關掉。
+function onListenError(label, port, fatal) {
+  return err => {
+    if (err.code === 'EADDRINUSE') {
+      if (!fatal) {
+        // HTTPS 副埠撞埠不致命:HTTP 照常服務,手機安全連線暫時關閉即可
+        console.error(`\n⚠️  ${label}埠 ${port} 已被佔用 → 略過 HTTPS,桌機仍可用 http://localhost:${PORT}。`);
+        console.error(`    想要手機 HTTPS:換個空閒副埠 →  npm start -- --https-port <空閒埠>  (或 $env:HTTPS_PORT=<空閒埠>; npm start)`);
+        return; // 不 exit
+      }
+      console.error(`\n❌ ${label}埠 ${port} 已被佔用,伺服器無法啟動。`);
+      console.error('   多半是上一個伺服器沒關乾淨(殭屍行程還霸佔著埠,網頁會打不開)。');
+      console.error('   解法(擇一):');
+      console.error(`     1) 換個埠啟動(任何系統都通用):  npm start -- --port <別的埠>`);
+      console.error(`     2) 找出並關掉佔用者:  netstat -ano | findstr :${port}   然後  taskkill /PID <PID> /F`);
+      console.error('     3) 關掉所有舊的本遊戲伺服器(PowerShell):');
+      console.error("        Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ? { $_.CommandLine -like '*server/server.js*' } | % { Stop-Process -Id $_.ProcessId -Force }");
+    } else {
+      console.error(`\n❌ ${label}伺服器啟動失敗:`, err.message);
+      if (!fatal) return; // 副埠的其他錯誤也不致命
+    }
+    process.exit(1);
+  };
+}
+httpWss.on('error', onListenError('HTTP ', PORT, true));
+if (httpsWss) httpsWss.on('error', onListenError('HTTPS ', HTTPS_PORT, false));
 
 httpServer.listen(PORT, '0.0.0.0', () => {
   console.log('===========================================');
   console.log('  🌏 賽博貿易戰 2049 — 伺服器已啟動');
-  console.log(`  連線協定:${USE_HTTPS ? '🔒 HTTPS + WSS(安全連線,適合手機)' : 'HTTP(無加密)'}`);
   console.log('===========================================');
-  console.log(`  本機:  ${PROTO}://localhost:${PORT}`);
-  for (const u of lanUrls()) console.log(`  區網:  ${u}  ← 其他玩家(含手機)用這個連線`);
-  console.log('  (Tailscale 使用者可用 tailscale IP:' + PORT + ')');
+  console.log(`  本機:  http://localhost:${PORT}`);
+  for (const u of lanUrls().filter(u => u.startsWith('http://')))
+    console.log(`  區網:  ${u}  ← 桌機/同一 WiFi 用這個`);
   if (USE_HTTPS) {
     console.log('-------------------------------------------');
+    console.log('  🔒 安全連線(手機建議用,網址要含 https 與這個埠):');
+    for (const u of lanUrls().filter(u => u.startsWith('https://')))
+      console.log(`  手機:  ${u}`);
     console.log('  ⚠️ 自簽憑證:手機首次開啟會出現安全警告,點「進階 / 仍要前往」即可。');
     console.log('  想免警告(行動裝置最穩):改用 Tailscale Serve 取得受信任憑證 →');
     console.log('     1) 後台開啟 MagicDNS + HTTPS Certificates');
     console.log(`     2) tailscale serve --bg ${PORT}`);
     console.log('     3) 手機開 https://<你的機器>.<tailnet>.ts.net');
   } else {
+    console.log('  (Tailscale 使用者可用 tailscale IP:' + PORT + ')');
     console.log('-------------------------------------------');
     console.log('  💡 要讓手機用 HTTPS 安全連線:先跑 `npm run gen-cert` 產生憑證再重啟。');
   }
   console.log('===========================================');
 });
+
+if (httpsServer) httpsServer.listen(HTTPS_PORT, '0.0.0.0',
+  () => console.log(`  🔒 HTTPS + WSS 已在埠 ${HTTPS_PORT} 啟動`));
