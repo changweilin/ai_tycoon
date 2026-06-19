@@ -297,6 +297,7 @@
     </div>
     <div id="rulesTabs" class="rules-tabs">
       <button class="rules-tab on" data-rtab="basic">📘 基礎說明</button>
+      <button class="rules-tab" data-rtab="win">🏆 勝利條件</button>
       <button class="rules-tab" data-rtab="turn">🎯 回合行動</button>
       <button class="rules-tab" data-rtab="faction">🏴 陣營加權</button>
       <button class="rules-tab" data-rtab="char">👤 角色加權</button>
@@ -307,8 +308,9 @@
   </div>
 </div>
 
-<!-- ========= 事件卡全螢幕動畫 ========= -->
+<!-- ========= 事件卡全螢幕動畫(先從事件牌庫翻牌抽出,再放大揭示)========= -->
 <div id="eventFx">
+  <div class="evfx-deal"><span>◈</span></div>
   <div class="evfx-inner">
     <div class="evfx-tag">⚡ 集體事件</div>
     <div class="evfx-icon"></div>
@@ -316,6 +318,9 @@
     <div class="evfx-desc"></div>
   </div>
 </div>
+
+<!-- ========= 合併升階卡片動畫(捨棄的卡聚合 → 爆裂 → 升出新階卡)動態填充 ========= -->
+<div id="mergeFx"></div>
 
 <div id="toast"></div>
 

@@ -225,6 +225,17 @@ body {
 .map-tool:active { transform: scale(.92); }
 .map-tool.on { background: var(--cyan); color: #001; }
 
+/* 音效靜音鈕:預設右下角浮動(連線/大廳/結算可用);進入戰局後 audio.dock() 會加上 .map-tool,
+   把它移進地圖工具列、排在天氣切換鍵(🌦️)下方,沿用 .map-tool 外觀 */
+#audioToggle { font-family: inherit; line-height: 1; }
+#audioToggle:not(.map-tool) {
+  position: fixed; right: 14px; bottom: 14px; z-index: 9999;
+  width: 44px; height: 44px; padding: 0; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--cyan); background: rgba(6,12,24,.78);
+  color: var(--cyan); font-size: 20px; box-shadow: 0 0 12px rgba(0,240,255,.45);
+}
+
 #playerPanel { top: 110px; left: 12px; max-width: 320px; font-size: .92rem; line-height: 1.7; }
 #curName { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .panel-avatar {
@@ -261,9 +272,11 @@ body {
   display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
 }
 
-/* 手牌:固定區塊內左右捲動;捲到非端點時該側淡出(--fl/--fr 由 JS 依捲動位置設定) */
+/* 手牌:固定區塊內左右捲動;捲到非端點時該側淡出(--fl/--fr 由 JS 依捲動位置設定)。
+   上方留白讓 3D 卡片懸停抬升 / 抽卡翻入時不被裁切 */
 #handWrap {
-  position: static; width: 100%; max-width: 100%; max-height: 168px;
+  position: static; width: 100%; max-width: 100%; max-height: 196px;
+  padding: 18px 2px 6px;
   overflow-x: auto; overflow-y: hidden;
   scrollbar-width: none; -webkit-overflow-scrolling: touch;
   --fl: 0px; --fr: 0px;
@@ -271,17 +284,92 @@ body {
           mask-image: linear-gradient(90deg, transparent 0, #000 var(--fl), #000 calc(100% - var(--fr)), transparent 100%);
 }
 #handWrap::-webkit-scrollbar { display: none; }
-#hand { display: flex; gap: 8px; width: max-content; }
-.card {
-  width: 128px; flex-shrink: 0; background: linear-gradient(160deg, #0c1430, #1a0c30);
-  border: 1px solid var(--border); border-radius: 8px; padding: 8px; cursor: pointer; transition: all .15s;
+#hand { display: flex; gap: 10px; width: max-content; perspective: 1100px; align-items: stretch; }
+
+/* ── 牌庫小卡堆(手牌最左)──:疊層陰影做出一疊卡的厚度,抽卡時發光脈動 */
+.deck-pile {
+  flex: 0 0 auto; width: 50px; align-self: stretch; min-height: 132px; position: relative;
+  border-radius: 10px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  color: #bfe9ff; background: linear-gradient(160deg, #12224c, #0a1230);
+  border: 1px solid var(--border);
+  box-shadow: 3px 3px 0 -1px #0a1733, 3px 3px 0 0 var(--border), 6px 6px 0 -2px #0a1733, 6px 6px 0 -1px var(--border);
+  transition: transform .15s;
 }
-.card:hover { transform: translateY(-6px); box-shadow: 0 0 14px rgba(255,43,214,.5); }
-.card-icon { font-size: 1.4rem; }
-.card-name { font-weight: bold; font-size: .9rem; }
-.card-cost { color: #ffd02e; font-size: .8rem; }
-.card-desc { color: #9ab; font-size: .68rem; margin-top: 4px; line-height: 1.4; }
-.card-disabled { opacity: .55; }
+.deck-pile:hover { transform: translateY(-3px); }
+.dp-mark { font-size: 1.15rem; color: var(--cyan); filter: drop-shadow(0 0 6px rgba(0,240,255,.7)); }
+.dp-count { font-weight: 900; font-size: 1.05rem; color: #eaffff; }
+.dp-label { font-size: .55rem; letter-spacing: 1px; color: #7fa6c8; }
+.deck-pile.drawing { animation: deckPulse .6s ease-out; }
+@keyframes deckPulse {
+  0%, 100% { box-shadow: 3px 3px 0 -1px #0a1733, 3px 3px 0 0 var(--border), 6px 6px 0 -2px #0a1733, 6px 6px 0 -1px var(--border); }
+  40% { box-shadow: 0 0 24px 5px rgba(0,240,255,.7), 3px 3px 0 0 var(--cyan), 6px 6px 0 -1px var(--cyan); }
+}
+
+/* ── 3D 立體卡牌 ── 外層 .card 仍是點擊目標,內含 preserve-3d 的 .card3d(正面卡框 + 背面) */
+.card {
+  width: 134px; flex: 0 0 auto; cursor: pointer; position: relative;
+  border: 0; padding: 0; background: none; --rx: 0deg; --ry: 0deg;
+}
+.card3d {
+  position: relative; width: 100%; min-height: 132px; border-radius: 11px;
+  transform-style: preserve-3d;
+  transform: rotateX(var(--rx)) rotateY(var(--ry));
+  transition: transform .14s ease;
+}
+.card:hover { z-index: 4; }
+.card:hover .card3d { transform: translateY(-10px) rotateX(var(--rx)) rotateY(var(--ry)) scale(1.05); }
+.card-face { border-radius: 11px; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.card-front {
+  position: relative; padding: 9px 9px 10px; overflow: hidden; min-height: 132px;
+  background: linear-gradient(160deg, #16213f, #0a0f24 70%);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--cc) 26%, #0c1430), #0a0f24 70%);
+  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--cc) 55%, var(--border));
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.05), inset 0 20px 32px -24px var(--cc), 0 12px 20px -10px rgba(0,0,0,.7);
+}
+.card-front::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 4px;
+  background: linear-gradient(90deg, transparent, var(--cc), transparent); opacity: .9; }
+.card-hd { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; }
+.card-name { font-weight: 800; font-size: .82rem; color: #f2f8ff; text-shadow: 0 1px 3px rgba(0,0,0,.6); line-height: 1.2; }
+.card-tier { flex: 0 0 auto; font-size: .56rem; font-weight: 800; color: #00121a; background: var(--cc); border-radius: 6px; padding: 1px 5px; }
+.card-art {
+  position: relative; height: 46px; margin: 6px 0; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 50% 38%, rgba(140,170,255,.18), transparent 70%);
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--cc) 38%, transparent), transparent 70%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.card-icon { font-size: 2rem; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
+.card-kind { position: absolute; right: 5px; bottom: 3px; font-size: .5rem; color: #9fd8e8; opacity: .6; letter-spacing: .5px; }
+.card-cost { color: #ffd66b; font-size: .76rem; font-weight: 700; }
+.card-desc { color: #b9cbe6; font-size: .64rem; margin-top: 3px; line-height: 1.42; }
+.card-special { color: #ffe49a; margin-top: 2px; }
+.card-shine {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0;
+  background: linear-gradient(110deg, transparent 32%, rgba(255,255,255,.30) 47%, rgba(255,255,255,.05) 56%, transparent 70%);
+}
+.card:hover .card-shine { opacity: 1; animation: cardShine 1.05s ease-out; }
+@keyframes cardShine { from { transform: translateX(-65%); } to { transform: translateX(65%); } }
+.card-edge { position: absolute; inset: 0; pointer-events: none; border-radius: 11px; box-shadow: inset 0 0 14px -6px var(--cc); }
+.card-back {
+  position: absolute; inset: 0; transform: rotateY(180deg);
+  display: flex; align-items: center; justify-content: center;
+  background: repeating-linear-gradient(45deg, rgba(0,240,255,.08) 0 6px, transparent 6px 12px), linear-gradient(160deg, #122046, #0a1024);
+  border: 1px solid var(--border);
+}
+.cb-mark { font-size: 1.8rem; color: var(--cyan); opacity: .5; filter: drop-shadow(0 0 8px rgba(0,240,255,.6)); }
+.card-disabled { opacity: .6; }
+.card-disabled .card3d { filter: grayscale(.4); }
+
+/* 抽卡:卡片從牌庫翻面(背→正)飛入手牌格 */
+.card-draw .card3d { animation: cardDraw .55s cubic-bezier(.2,.9,.3,1.1) both; animation-delay: var(--draw-delay, 0s); }
+@keyframes cardDraw {
+  0%   { transform: translateX(-56px) translateY(6px) rotateY(180deg) scale(.5); opacity: 0; }
+  50%  { opacity: 1; }
+  72%  { transform: translateX(0) translateY(-5px) rotateY(0deg) scale(1.07); opacity: 1; }
+  100% { transform: translateX(0) translateY(0) rotateY(0deg) scale(1); opacity: 1; }
+}
 .trade-box { max-width: 560px; }
 .trade-myres { margin: 8px 0; font-size: 1.05rem; }
 .trade-form { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
@@ -404,6 +492,43 @@ body {
 .ev-card.ev-past { background: rgba(120,140,170,.13); opacity: .72; }
 .ev-card.ev-past .ev-name::after { content: ' · 已發生'; color: #8aa0bd; font-size: .72rem; font-weight: normal; }
 
+/* ========= 合併升階卡片動畫 ========= */
+#mergeFx { position: fixed; inset: 0; z-index: 62; display: none; align-items: center; justify-content: center; pointer-events: none; perspective: 1000px; }
+#mergeFx.show { display: flex; }
+#mergeFx::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at center, rgba(0,0,0,.35), rgba(2,4,12,.7) 75%); }
+.mfx-stage { position: relative; width: 0; height: 0; }
+.mfx-card {
+  position: absolute; left: 0; top: 0; width: 58px; height: 80px; margin: -40px 0 0 -29px;
+  border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1.9rem;
+  background: linear-gradient(160deg, #16213f, #0a0f24); border: 1px solid var(--cc, #00f0ff);
+  box-shadow: 0 0 16px -2px var(--cc, #00f0ff);
+  animation: mfxConverge .7s cubic-bezier(.5,0,.65,1) forwards; animation-delay: var(--d, 0s);
+}
+@keyframes mfxConverge {
+  0%   { transform: translate(var(--sx), var(--sy)) rotate(0) scale(1); opacity: 1; }
+  70%  { opacity: 1; }
+  100% { transform: translate(0,0) rotate(220deg) scale(.15); opacity: 0; }
+}
+.mfx-core {
+  position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--bc, #00f0ff); box-shadow: 0 0 34px 12px var(--bc, #00f0ff); opacity: 0;
+  animation: mfxBurst .6s ease-out .62s forwards;
+}
+@keyframes mfxBurst { 0% { opacity: 0; transform: scale(.2); } 30% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(9); } }
+.mfx-new {
+  position: absolute; left: 50%; top: 50%; width: 132px; padding: 16px 0; border-radius: 13px; text-align: center;
+  background: linear-gradient(160deg, #1a2a52, #0a0f24); border: 1px solid var(--cc, #00f0ff);
+  box-shadow: 0 0 34px -4px var(--cc, #00f0ff); opacity: 0; transform: translate(-50%,-50%) scale(0);
+  animation: mfxNew .95s cubic-bezier(.2,1.4,.4,1) .82s forwards;
+}
+.mfx-new-ic { display: block; font-size: 2.8rem; color: var(--cc, #00f0ff); filter: drop-shadow(0 0 12px var(--cc, #00f0ff)); }
+.mfx-new-lb { display: block; font-weight: 800; color: #eaffff; margin-top: 4px; letter-spacing: 1px; }
+@keyframes mfxNew {
+  0%   { opacity: 0; transform: translate(-50%,-50%) scale(0) rotateY(180deg); }
+  60%  { opacity: 1; transform: translate(-50%,-50%) scale(1.12) rotateY(0deg); }
+  100% { opacity: 1; transform: translate(-50%,-50%) scale(1) rotateY(0deg); }
+}
+
 .result-box { text-align: center; }
 .result-box h1 { color: var(--pink); text-shadow: 0 0 16px var(--pink); margin-bottom: 14px; }
 .result-box.win h1 { color: #ffd02e; text-shadow: 0 0 26px #ffd02e; animation: winpulse 1.2s ease-in-out infinite; }
@@ -437,18 +562,33 @@ body {
   background: radial-gradient(circle at center, rgba(0,240,255,.14), rgba(2,4,12,.82) 70%);
 }
 .evfx-inner { position: relative; text-align: center; }
-#eventFx.show .evfx-inner { animation: evpop .6s cubic-bezier(.2,1.5,.4,1); }
+/* 抽卡:事件揭示前,先有一張卡背從牌庫翻面飛入再放大消失,接著才放大揭示內容(延遲 .5s) */
+.evfx-deal {
+  position: absolute; left: 50%; top: 50%; width: 124px; height: 172px; margin: -86px 0 0 -62px;
+  border-radius: 12px; display: flex; align-items: center; justify-content: center; opacity: 0;
+  background: repeating-linear-gradient(45deg, rgba(0,240,255,.1) 0 7px, transparent 7px 14px), linear-gradient(160deg, #122046, #0a1024);
+  border: 1px solid var(--border); box-shadow: 0 0 26px -6px var(--cyan);
+  font-size: 2.6rem; color: var(--cyan); filter: drop-shadow(0 0 8px rgba(0,240,255,.6));
+}
+#eventFx.show .evfx-deal { animation: evDeal .72s cubic-bezier(.3,.8,.4,1) forwards; }
+@keyframes evDeal {
+  0%   { opacity: 0; transform: translateY(38vh) rotate(-10deg) rotateY(180deg) scale(.4); }
+  42%  { opacity: 1; }
+  70%  { opacity: 1; transform: translateY(0) rotate(0) rotateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-5vh) rotateY(0) scale(1.5); }
+}
+#eventFx.show .evfx-inner { animation: evpop .6s cubic-bezier(.2,1.5,.4,1) .5s both; }
 .evfx-tag { color: var(--cyan); letter-spacing: 6px; font-size: clamp(13px,2vw,18px); font-weight: 700; opacity: .85; }
 .evfx-icon { font-size: clamp(86px,16vw,210px); line-height: 1.1; filter: drop-shadow(0 0 26px rgba(0,240,255,.7)); }
-#eventFx.show .evfx-icon { animation: evspin 2.4s ease-out; }
+#eventFx.show .evfx-icon { animation: evspin 2.4s ease-out .5s both; }
 .evfx-name { font-size: clamp(30px,6vw,68px); font-weight: 900; color: #eaffff; letter-spacing: 4px; text-shadow: 0 0 20px var(--pink); margin-top: 4px; }
 .evfx-desc { font-size: clamp(14px,2.4vw,22px); color: #bfe9ff; margin: 12px auto 0; max-width: 80vw; line-height: 1.6; }
 .evfx-inner::before, .evfx-inner::after {
   content: ''; position: absolute; left: -32vw; right: -32vw; top: 46%; height: 3px;
   background: linear-gradient(90deg, transparent, var(--cyan), transparent); transform: scaleX(0);
 }
-#eventFx.show .evfx-inner::before { animation: evsweep .9s ease-out; }
-#eventFx.show .evfx-inner::after { animation: evsweep .9s ease-out .12s; }
+#eventFx.show .evfx-inner::before { animation: evsweep .9s ease-out .5s; }
+#eventFx.show .evfx-inner::after { animation: evsweep .9s ease-out .62s; }
 @keyframes evpop { from { transform: scale(.55); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes evspin { from { transform: rotate(-14deg) scale(1.5); } 55% { transform: rotate(7deg) scale(1); } to { transform: rotate(0) scale(1); } }
 @keyframes evsweep { from { transform: scaleX(0); opacity: 1; } to { transform: scaleX(1); opacity: 0; } }
@@ -581,8 +721,12 @@ body {
   .lobby-grid { grid-template-columns: 1fr; }
   #gameUI { --col-left: 8px; --col-right: 8px; --dock-h: 58px; }
   #gameLogoHud { display: none; }
-  .card { width: 104px; }
-  #handWrap { max-height: 40vh; }
+  .card { width: 112px; }
+  .card-icon { font-size: 1.7rem; }
+  .card-art { height: 40px; }
+  #handWrap { max-height: 42vh; }
+  /* 手機無滑鼠懸停 → 關閉視差傾斜的抬升,避免觸控時卡片亂跳 */
+  .card:hover .card3d { transform: rotateX(var(--rx)) rotateY(var(--ry)); }
 
   /* 永遠可見的精簡資訊:回合提示(左上)、地圖工具(右上直排)、觀戰標籤(上方置中) */
   .turn-banner { top: 10px; left: 10px; max-width: 62vw; font-size: .9rem; padding: 7px 11px; }
@@ -606,6 +750,11 @@ body {
   }
   /* 操作抽屜(行動列 + 手牌)加底襯,讓兩塊看起來像同一張抽屜 */
   #bottomCenter.mb-active { background: rgba(4, 6, 16, .72); border: 1px solid var(--border); border-radius: 12px; padding: 8px 6px; gap: 8px; }
+  /* 修正:抽屜是 flex 直欄,而 #handWrap 設了 overflow-y:hidden → flex 預設會把它壓縮到比卡片矮、
+     切掉卡片下半截。改為不收縮並讓卡片列自然撐高(抽屜本身 overflow-y:auto,行動列+手牌過高時整體可捲動)*/
+  #bottomCenter.mb-active #handWrap,
+  #bottomCenter.mb-active #actionBar { flex: 0 0 auto; }
+  #bottomCenter.mb-active #handWrap { max-height: none; }
 
   /* 底部 dock:橫向可滑的「項目清單」,超出處邊緣淡出(--dl / --dr 由 JS 依捲動位置設定) */
   #mobileDock {

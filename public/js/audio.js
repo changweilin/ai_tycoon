@@ -156,23 +156,32 @@ class AudioManager {
 
   toggleMute() { this.setMuted(!this.muted); }
 
-  // 右下角浮動靜音鈕(自帶樣式,沿用霓虹主題色)
+  // 靜音鈕(樣式見 style.css #audioToggle):大廳/連線時右下角浮動,進入戰局後靠 dock() 移入地圖工具列
   _mountToggle() {
     if (this._btn) return;
     const b = document.createElement('button');
     b.id = 'audioToggle';
     b.title = '音效開關';
-    b.style.cssText = [
-      'position:fixed', 'right:14px', 'bottom:14px', 'z-index:9999',
-      'width:44px', 'height:44px', 'border-radius:50%', 'cursor:pointer',
-      'border:1px solid #00f0ff', 'background:rgba(6,12,24,0.78)',
-      'color:#00f0ff', 'font-size:20px', 'line-height:42px', 'text-align:center',
-      'box-shadow:0 0 12px rgba(0,240,255,0.45)', 'padding:0',
-    ].join(';');
     b.addEventListener('click', () => this.toggleMute());
     document.body.appendChild(b);
     this._btn = b;
     this._syncToggle();
+  }
+
+  // 依畫面切換靜音鈕位置:進入戰局 → 移入地圖工具列(#mapTools)排在天氣切換鍵下方;
+  // 其餘畫面(連線/大廳/結算)→ 右下角浮動,確保大廳背景樂也能隨時開關。
+  dock(inGame) {
+    const b = this._btn;
+    if (!b) return;
+    const tools = document.getElementById('mapTools');
+    if (inGame && tools) {
+      if (b.parentElement !== tools) tools.appendChild(b); // 排在最後 = 天氣鍵下方
+      b.classList.add('map-tool');
+      b.title = '音效開關';
+    } else {
+      if (b.parentElement !== document.body) document.body.appendChild(b);
+      b.classList.remove('map-tool');
+    }
   }
 
   _syncToggle() {

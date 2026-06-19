@@ -30,6 +30,7 @@ let resultShown = false;
 let lastFxId = null;    // 已播放的最後一個特效 id(增量播放,首次同步不重播歷史)
 let lastTurnIdx = null; // 上次的回合玩家索引(偵測「輪到你」提示音)
 let lastPhase = null;   // 上次的階段(偵測進入交易環節提示音)
+let _prevHandUids = null; // 上一輪手牌的 uid(null=尚未基準);用來偵測新抽到的卡播放抽卡動畫
 // 手機底部 dock:可展開 / 收合的面板清單。mbPanel = 目前展開的面板 id(null = 收合只看地圖)
 const MB_PANELS = ['techBar', 'playerPanel', 'playersList', 'log', 'bottomCenter', 'hostBar'];
 let mbPanel = null;
@@ -370,6 +371,8 @@ function onSync(m) {
     lastFxId = null;        // 回到大廳:下一局重新基準,新局開場事件會播放
     lastLogLen = null;      // 行動訊息饋送也重置基準(下一局不重播歷史)
     lastTurnIdx = null; lastPhase = null; // 回合 / 階段提示音也重置基準
+    _prevHandUids = null;   // 手牌基準重置:下一局開場發牌不誤判為「抽卡」逐張飛入
+    audio.dock(false); // 非戰局畫面:靜音鈕回到右下角浮動(大廳背景樂也可隨時開關)
     if (SOLO) {
       // 單機版:回到單機設定畫面(結束遊戲後),不顯示多人大廳
       $('#lobby').style.display = 'none';
@@ -391,6 +394,7 @@ function onSync(m) {
       board = new Board3D($('#canvas3d'), onRegionClick, onPawnClick, onDeckClick);
       $('#btnPlaneViz').classList.toggle('on', (board.planeViz || 0) !== 0); // 預設「漸進變換」→ 亮起
     }
+    audio.dock(true); // 進入戰局:靜音鈕移到地圖工具列、天氣切換鍵下方
     refreshGame(m);
   }
 }
@@ -570,6 +574,21 @@ function updateModeVisibility() {
           multi: n === 2 ? '⚔️ 2 人=米牆對決(無台灣規則)' : `共 ${n} 位玩家連線對戰(人數不足由 AI 頂替)`,
           god: `你一人輪流操控全部 ${n} 個角色`,
         }[mode] || '');
+  updateStartGate(mode);
+}
+
+// 開始按鈕門檻:多人連線模式下,房間內所有「非房主」參與玩家都按下「準備好」才可開始
+//(房主按下開始即視為自己準備好;上帝模式由房主一人操控,不需等待)
+function updateStartGate(mode) {
+  const startBtn = $('#startBtn');
+  const lob = last?.lobby;
+  if (!startBtn || !lob) return;
+  const others = lob.clients.filter(c => c.mode === 'player' && c.connected !== false && !c.isHost);
+  const notReady = others.filter(c => !c.ready);
+  const gated = (mode || 'multi') === 'multi' && others.length > 0 && notReady.length > 0;
+  startBtn.disabled = gated;
+  startBtn.title = gated ? `還有 ${notReady.length} 位玩家尚未按「準備好」` : '';
+  startBtn.textContent = gated ? `🚀 開始遊戲(待 ${notReady.length} 人準備)` : '🚀 開始遊戲';
 }
 
 function catOf(c) {
@@ -930,26 +949,72 @@ function renderPlayersList(s) {
   }).join('');
 }
 
+// 灰色作戰卡依類型上色,與棋盤特效光束同色系(spy 紅 / steal 綠 / fake 粉)
+const OPS_COLOR = { spy: '#ff5a5a', steal: '#2eff8f', fake: '#ff2bd6' };
+
+// 單張手牌的 3D 卡牌標記:外層 .card[data-idx] 仍是點擊目標(沿用 closest('.card')),
+// 內含 .card3d(preserve-3d)正面卡框 + 背面,正面有卡頭/卡圖/費用/數值/特效與霓虹反光層。
+function cardFaceHtml(c, i) {
+  const isTech = c.kind === 'tech';
+  const cat = isTech ? TECH_CATEGORIES[c.cat] : null;
+  const color = isTech ? cat.css : (OPS_COLOR[c.cat] || '#9aa7c7');
+  const icon = isTech ? cat.icon : (c.icon || '💣');
+  const tier = isTech ? `${c.tier}階` : (c.level ? `Lv.${c.level}` : '');
+  const kindLabel = isTech ? cat.name : '作戰卡';
+  const cost = `${fmtRes(c.myCost)}${!isTech && c.atk ? ` ⚔️${c.atk}` : ''}`;
+  const body = isTech
+    ? `🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}${c.special ? `<div class="card-special">✨ ${c.special.text}</div>` : ''}`
+    : c.desc;
+  return `<div class="card ${isTech ? 'card-tech' : 'card-ops'} ${c.playMsg ? 'card-disabled' : ''}" data-idx="${i}" style="--cc:${color}">
+    <div class="card3d">
+      <div class="card-face card-front">
+        <div class="card-hd"><span class="card-name">${c.name}</span>${tier ? `<span class="card-tier">${tier}</span>` : ''}</div>
+        <div class="card-art"><span class="card-icon">${icon}</span><span class="card-kind">${kindLabel}</span></div>
+        <div class="card-cost">${cost}</div>
+        <div class="card-desc">${body}</div>
+        <div class="card-shine"></div>
+        <div class="card-edge"></div>
+      </div>
+      <div class="card-face card-back"><span class="cb-mark">◈</span></div>
+    </div>
+  </div>`;
+}
+
+// 牌庫小卡堆(手牌最左側):顯示抽牌庫剩餘張數,抽卡時發光脈動,點擊看牌組組成
+function deckPileHtml(deckCount) {
+  return `<div class="deck-pile" data-deck="deckCount" title="抽牌庫(點擊看牌組組成)">
+    <span class="dp-mark">◈</span><span class="dp-count">${deckCount}</span><span class="dp-label">牌庫</span>
+  </div>`;
+}
+
 function renderHand(m) {
   const priv = m.priv;
-  if (!priv) { $('#hand').innerHTML = ''; return; }
-  $('#hand').innerHTML = priv.hand.map((c, i) => {
-    if (c.kind === 'tech') {
-      const cat = TECH_CATEGORIES[c.cat];
-      return `<div class="card ${c.playMsg ? 'card-disabled' : ''}" data-idx="${i}" style="--cc:${cat.css}">
-        <div class="card-icon">${cat.icon}</div>
-        <div class="card-name">${c.name}|${c.tier}階</div>
-        <div class="card-cost">${fmtRes(c.myCost)}</div>
-        <div class="card-desc">🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}${c.special ? `|✨${c.special.text}` : ''}</div>
-      </div>`;
+  const handEl = $('#hand');
+  if (!priv) { handEl.innerHTML = ''; _prevHandUids = null; return; }
+  const deckCount = m.state?.deckCount ?? 0;
+  const cards = priv.hand.map((c, i) => cardFaceHtml(c, i)).join('');
+  handEl.innerHTML = deckPileHtml(deckCount) + (cards || '<div class="hand-empty">沒有手牌</div>');
+
+  // 偵測本輪「新抽到」的卡(uid 不在上一輪手牌)→ 逐張播放「牌庫飛入手牌」動畫;
+  // 首次渲染 / 重連(_prevHandUids 為 null)只顯示不動畫,避免整手牌一起飛入。
+  const curUids = priv.hand.map(c => c.uid);
+  if (_prevHandUids) {
+    const prev = new Set(_prevHandUids);
+    let n = 0;
+    priv.hand.forEach((c, i) => {
+      if (prev.has(c.uid)) return;
+      const el = handEl.querySelector(`.card[data-idx="${i}"]`);
+      if (!el) return;
+      el.classList.add('card-draw');
+      el.style.setProperty('--draw-delay', (n * 0.14) + 's');
+      n++;
+    });
+    if (n) { // 牌庫脈動一下,呼應「從牌庫抽出」
+      const pile = handEl.querySelector('.deck-pile');
+      if (pile) { pile.classList.remove('drawing'); void pile.offsetWidth; pile.classList.add('drawing'); }
     }
-    return `<div class="card" data-idx="${i}">
-      <div class="card-icon">${c.icon}</div>
-      <div class="card-name">${c.name}${c.level ? `|Lv.${c.level}` : ''}</div>
-      <div class="card-cost">${fmtRes(c.myCost)}${c.atk ? ` ⚔️${c.atk}` : ''}</div>
-      <div class="card-desc">${c.desc}</div>
-    </div>`;
-  }).join('') || '<div class="hand-empty">沒有手牌</div>';
+  }
+  _prevHandUids = curUids;
   requestAnimationFrame(updateHandFade); // 重繪後依內容寬度更新左右淡出
 }
 
@@ -1121,14 +1186,46 @@ function openCardUpgradeModal() {
     $('#modalOptions').onclick = e => {
       if (e.target.id === 'upgConfirm') {
         const idxs = [...$('#modalBody').querySelectorAll('.upg-ck:checked')].map(x => parseInt(x.dataset.idx, 10));
+        // 捨棄卡的圖示/顏色,供合併動畫呈現「聚合 → 升出新階卡」
+        const items = idxs.map(ix => {
+          const c = hand[ix];
+          return c.kind === 'tech'
+            ? { icon: TECH_CATEGORIES[c.cat].icon, color: TECH_CATEGORIES[c.cat].css }
+            : { icon: c.icon || '💣', color: OPS_COLOR[c.cat] || '#9aa7c7' };
+        });
         net.action('upgradeCard', { handIdxs: idxs, toTier });
         $('#modal').style.display = 'none';
+        playMergeFx(items, toTier);
       } else if (e.target.id === 'upgCancel') {
         $('#modal').style.display = 'none';
       }
     };
   };
   draw(cu.can4 || !cu.can5 ? 4 : 5);
+}
+
+// 合併升階動畫:捨棄的卡(items=[{icon,color}])從四周聚合到中心 → 爆裂 → 升出新階卡;
+// 動畫結束後伺服器回傳的新卡會再以「抽卡」翻入手牌(renderHand 的 uid 偵測)。
+function playMergeFx(items, toTier) {
+  const host = $('#mergeFx');
+  if (!host || !items || !items.length) return;
+  audio.sfx('upgrade');
+  const n = items.length;
+  const bc = toTier >= 5 ? '#ffd02e' : '#00f0ff';
+  const R = 130;
+  const cards = items.map((it, k) => {
+    const ang = (k / n) * Math.PI * 2 - Math.PI / 2;
+    const x = Math.round(Math.cos(ang) * R), y = Math.round(Math.sin(ang) * R);
+    return `<div class="mfx-card" style="--sx:${x}px; --sy:${y}px; --cc:${it.color}; --d:${(k * 0.04).toFixed(2)}s"><span>${it.icon}</span></div>`;
+  }).join('');
+  host.innerHTML = `<div class="mfx-stage" style="--bc:${bc}">
+    ${cards}
+    <div class="mfx-core"></div>
+    <div class="mfx-new" style="--cc:${bc}"><span class="mfx-new-ic">✦</span><span class="mfx-new-lb">${toTier} 階卡</span></div>
+  </div>`;
+  host.classList.add('show');
+  clearTimeout(playMergeFx._t);
+  playMergeFx._t = setTimeout(() => { host.classList.remove('show'); host.innerHTML = ''; }, 1900);
 }
 
 let twChoosePrompted = false;
@@ -1683,7 +1780,28 @@ function setupGameEvents() {
   });
   $('#hand').addEventListener('click', e => {
     const card = e.target.closest('.card');
-    if (card) onCardClick(parseInt(card.dataset.idx, 10));
+    if (card) { onCardClick(parseInt(card.dataset.idx, 10)); return; }
+    const deck = e.target.closest('.deck-pile');
+    if (deck) onDeckClick(deck.dataset.deck); // 牌庫小卡堆 → 看牌組組成
+  });
+  // 3D 卡牌:游標在卡片上移動時依位置做視差傾斜,離開復位,讓手牌像實體立體卡
+  const handEl = $('#hand');
+  handEl.addEventListener('pointermove', e => {
+    if (e.pointerType && e.pointerType !== 'mouse') return; // 觸控不做視差傾斜(避免點按後卡片卡住歪斜)
+    const card = e.target.closest('.card');
+    if (!card) return;
+    const r = card.getBoundingClientRect();
+    const px = (e.clientX - r.left) / r.width - 0.5;   // -0.5 ~ 0.5
+    const py = (e.clientY - r.top) / r.height - 0.5;
+    card.style.setProperty('--ry', (px * 18).toFixed(1) + 'deg');
+    card.style.setProperty('--rx', (-py * 16).toFixed(1) + 'deg');
+  });
+  handEl.addEventListener('pointerleave', () => {
+    for (const c of handEl.querySelectorAll('.card')) { c.style.removeProperty('--rx'); c.style.removeProperty('--ry'); }
+  });
+  handEl.addEventListener('pointerout', e => {
+    const card = e.target.closest('.card');
+    if (card && !card.contains(e.relatedTarget)) { card.style.removeProperty('--rx'); card.style.removeProperty('--ry'); }
   });
   // 點擊玩家面板的「加權」收入 → 顯示加權成分明細
   $('#playerPanel').addEventListener('click', e => {
@@ -1732,7 +1850,7 @@ function buildRulesTabs() {
   const panels = $('#rulesPanels');
   if (!panels) return;
   panels.innerHTML = [
-    ['basic', ruleBasicHtml()], ['turn', ruleTurnHtml()], ['faction', ruleFactionHtml()],
+    ['basic', ruleBasicHtml()], ['win', ruleWinHtml()], ['turn', ruleTurnHtml()], ['faction', ruleFactionHtml()],
     ['char', ruleCharHtml()], ['tech', ruleTechHtml()], ['ops', ruleOpsHtml()],
   ].map(([k, html]) => `<section class="rules-panel" data-rpanel="${k}">${html}</section>`).join('');
   showRuleTab('basic');
@@ -1756,9 +1874,9 @@ function ruleBasicHtml() {
   const years = Math.round(RULES.maxRounds / RULES.seasonsPerYear);
   return `
   <div class="rule-block"><h4>🎯 目標</h4>
-    <p>以「科技力(點數)」決勝,領先 1 年 = <b>${RULES.pointsPerYear} 點</b>。<b>米國</b>把對牆國的領先拉開到 ${RULES.usWinLead} 年即提前獲勝;<b>牆國</b>追平米國即提前獲勝。</p></div>
-  <div class="rule-block"><h4>🏁 終局判定(打滿 ${years} 年 / ${RULES.maxRounds} 季)</h4>
-    <p>米國領先 ≥5 年 → 米陣營勝(日本同享);牆國反超 ≥5 年 → 牆陣營勝(韓國同享);差距 &lt;5 年 → 冷戰僵局,韓國獨勝。日韓分享勝利需自身場上 ≥${RULES.spoilerWinCards} 張科技卡。多人同贏時總資源最多者奪冠。</p></div>
+    <p>以「科技力(點數)」決勝,領先 1 年 = <b>${RULES.pointsPerYear} 點</b>。<b>米國</b>把對牆國的領先拉開到 ${RULES.usWinLead} 年即提前獲勝;<b>牆國</b>追平米國即提前獲勝。完整勝負規則請見 <b>🏆 勝利條件</b> 頁籤。</p></div>
+  <div class="rule-block"><h4>🏁 賽程長度</h4>
+    <p>共 <b>${years} 年 / ${RULES.maxRounds} 季</b>(每 ${RULES.seasonsPerYear} 季 = 1 年)。期間任一方達成提前勝利即結束;否則打滿後進入終局判定(見 🏆 勝利條件)。</p></div>
   <div class="rule-block"><h4>🔬 科技力歸屬</h4>
     <p>每位玩家的部署計入「本國」科技力,影響自身收益(每 ${RULES.techIncomeDivisor} 點 +1,上限 +${RULES.techBonusCap})。日本計入米國、韓國計入牆國、台灣依秘密立場計入。</p></div>
   <div class="rule-block"><h4>💰 三種資源</h4>
@@ -1769,6 +1887,40 @@ function ruleBasicHtml() {
     <p>每季開始抽 1 張事件卡(共 ${EVENT_CARDS.length} 張),效果持續整輪:限制某種資源收入、增減卡費或行動點/科技力等。</p></div>
   <div class="rule-block"><h4>🏔️ 台灣(造王者)</h4>
     <p>第 1 季內秘密選邊,押對即與該方同贏;未表態前可「轉向」一次(神山儲備折半);「表態」公開立場並注入神山儲備(該方門檻 +5 年)。2 人局為米牆對決,無台灣規則。</p></div>`;
+}
+
+// 勝利條件:提前勝利 / 終局判定 / 同享與奪冠 / 台灣(全部依 game.js 實際判定邏輯撰寫)
+function ruleWinHtml() {
+  const years = Math.round(RULES.maxRounds / RULES.seasonsPerYear);
+  const ppy = RULES.pointsPerYear;
+  return `
+  <div class="rule-block"><p>勝負核心是<b>米、牆兩國的科技力差距</b>(差距每 ${ppy} 點 = 1 年)。米國想把差距拉大、牆國想把差距追平。分出勝負有兩個時機:<b>提前勝利</b>與<b>終局判定</b>。</p></div>
+
+  <div class="rule-block"><h4>⚡ 提前勝利(每次打出科技卡 / 作戰卡後即時檢查)</h4>
+    <ul class="rf-bonus">
+      <li><b>米陣營</b>:科技力領先牆國達 <b>${RULES.usWinLead} 年</b>(${RULES.usWinLead * ppy} 點)→ 立即獲勝。</li>
+      <li><b>牆陣營</b>:把差距追到 <b>追平(0 年)</b>或反超 → 立即獲勝。</li>
+      <li>台灣若已<b>公開表態</b>,被押的陣營提前門檻 <b>+${RULES.twRevealPenalty} 年</b>(更難提前贏)。</li>
+    </ul></div>
+
+  <div class="rule-block"><h4>🏁 終局判定(打滿 ${years} 年 / ${RULES.maxRounds} 季仍未提前分勝負)</h4>
+    <ul class="rf-bonus">
+      <li><b>米陣營勝</b>:終局領先 <b>≥ ${RULES.jpWinLead} 年</b>。</li>
+      <li><b>牆陣營勝</b>:終局差距 <b>≤ ${RULES.cnEndLead} 年</b>(實質追平)或反超。</li>
+      <li><b>僵局帶</b>(差距介於 ${RULES.cnEndLead}~${RULES.jpWinLead} 年):合格的<b>韓國</b>可左右逢源<b>獨勝</b>;若無,則以開局讓分線判定——守住領先的算米陣營贏、把差距追近的算牆陣營贏。</li>
+      <li>若仍無任何贏家(極端情況)→ <b>總資源最雄厚</b>者獲得商業勝利。</li>
+    </ul></div>
+
+  <div class="rule-block"><h4>🤝 同享勝利與最終奪冠</h4>
+    <ul class="rf-bonus">
+      <li><b>陣營同享</b>:米陣營含<b>日本</b>、牆陣營含<b>韓國</b>;<b>台灣</b>依秘密立場跟著押對的一方同贏。</li>
+      <li><b>日 / 韓不能躺贏</b>:要分享勝利,自身場上需 ≥ <b>${RULES.spoilerWinCards} 張科技卡</b>。</li>
+      <li><b>劇本級奪冠</b>:米國只「剛剛好」贏(沒達提前門檻)時,精準攪局且合格的<b>日本</b>反成最大贏家;牆國熬到終局才追平時,左右逢源且合格的<b>韓國</b>反成最大贏家。</li>
+      <li><b>多人同贏</b>:由其中<b>總資源最多</b>者拿下最終冠軍。</li>
+    </ul></div>
+
+  <div class="rule-block"><h4>🏔️ 台灣(造王者)的勝利</h4>
+    <p>第 1 季內<b>秘密選邊</b>,押中的陣營獲勝即同享。可「<b>轉向</b>」一次改變立場(神山儲備折半),或「<b>公開表態</b>」注入神山儲備但讓所押陣營的提前門檻 +${RULES.twRevealPenalty} 年。2 人局為米牆對決,無台灣規則。</p></div>`;
 }
 
 function ruleTurnHtml() {
