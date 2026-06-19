@@ -308,6 +308,15 @@
   </div>
 </div>
 
+<!-- ========= 自動開局倒數覆蓋層(全員準備 + 滿員時,3 秒後自動開始)========= -->
+<div id="startCountdown">
+  <div class="cd-box">
+    <div class="cd-tag">全員準備完成,滿員開戰!</div>
+    <div class="cd-num">3</div>
+    <div class="cd-sub">遊戲即將自動開始…</div>
+  </div>
+</div>
+
 <!-- ========= 事件卡全螢幕動畫(先從事件牌庫翻牌抽出,再放大揭示)========= -->
 <div id="eventFx">
   <div class="evfx-deal"><span>◈</span></div>
@@ -318,6 +327,12 @@
     <div class="evfx-desc"></div>
   </div>
 </div>
+
+<!-- ========= 抽卡全螢幕動畫(從牌庫翻出新卡 → 攤開揭示 → 收入手牌)動態填充 ========= -->
+<div id="drawFx"></div>
+
+<!-- ========= 打出卡牌全螢幕動畫(卡片升起放大 → 衝擊光環爆開 → 上飄淡出)動態填充 ========= -->
+<div id="playFx"></div>
 
 <!-- ========= 合併升階卡片動畫(捨棄的卡聚合 → 爆裂 → 升出新階卡)動態填充 ========= -->
 <div id="mergeFx"></div>

@@ -1408,11 +1408,16 @@ export class Game {
           return { kind: 'ops', uid: c.uid, ...OPS_CARDS[c.type], myCost: this.opsCostFor(p, c.type) };
         }
         const chk = this.canPlayTech(p, c);
+        const cost = this.developCostFor(p, c);
+        // playMsg = 不可在目前城市部署的原因(城市等級/冷卻/一城一卡),再補上資源是否足夠(資金不足等)
+        let playMsg = chk.ok ? null : chk.msg;
+        if (!playMsg && !canPay(p, cost)) playMsg = `資源不足(需 ${resStr(cost)})`;
         return {
           kind: 'tech', uid: c.uid, cat: c.cat, tier: c.tier, name: c.name, desc: c.desc,
+          icon: c.icon, lore: c.lore,
           tech: c.tech, effTech: this.techValueOf(p, c, p.pos), techBreak: this.techValueParts(p, c, p.pos),
           def: c.def, trade: c.trade, special: c.special,
-          myCost: this.developCostFor(p, c), playMsg: chk.ok ? null : chk.msg,
+          myCost: cost, playMsg,
         };
       }),
       turnFlags: { ...p.turnFlags },

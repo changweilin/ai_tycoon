@@ -31,6 +31,9 @@ let lastFxId = null;    // 已播放的最後一個特效 id(增量播放,首次
 let lastTurnIdx = null; // 上次的回合玩家索引(偵測「輪到你」提示音)
 let lastPhase = null;   // 上次的階段(偵測進入交易環節提示音)
 let _prevHandUids = null; // 上一輪手牌的 uid(null=尚未基準);用來偵測新抽到的卡播放抽卡動畫
+let _suppressDrawFx = 0;  // 升階合併動畫後短暫抑制「全螢幕抽卡」動畫的截止時間戳(避免兩段動畫疊播)
+let _cardDrag = null;     // 進行中的手牌拖曳狀態(拖到手牌區外=打出);null=未拖曳
+let _suppressCardClickUntil = 0; // 拖曳打出後短暫忽略接續的 click(避免又觸發點擊打出流程)
 // 手機底部 dock:可展開 / 收合的面板清單。mbPanel = 目前展開的面板 id(null = 收合只看地圖)
 const MB_PANELS = ['techBar', 'playerPanel', 'playersList', 'log', 'bottomCenter', 'hostBar'];
 let mbPanel = null;
@@ -388,6 +391,7 @@ function onSync(m) {
     $('#connect').style.display = 'none';
     $('#lobby').style.display = 'none';
     $('#soloSetup').style.display = 'none'; // 單機設定畫面(若有)在開局後收起
+    updateAutoStartCountdown({ started: true }); // 進入戰局:收起自動開局倒數覆蓋層
     $('#gameUI').style.display = 'block';
     audio.stopMusic();      // 進入戰局:停止大廳背景樂
     if (!board) {
@@ -549,6 +553,7 @@ function renderLobby(m) {
     readyBtn.classList.toggle('is-ready', !!meClient.ready);
   }
   updateModeVisibility();
+  updateAutoStartCountdown(lobby); // 全員準備+滿員時顯示自動開局倒數覆蓋層
   const seated = lobby.clients.filter(c => c.mode === 'player' && c.charId);
   const readyCount = playerClients.filter(c => c.ready).length;
   $('#lobbyStatus').textContent = randomChars
@@ -577,18 +582,48 @@ function updateModeVisibility() {
   updateStartGate(mode);
 }
 
-// 開始按鈕門檻:多人連線模式下,房間內所有「非房主」參與玩家都按下「準備好」才可開始
-//(房主按下開始即視為自己準備好;上帝模式由房主一人操控,不需等待)
+// 開始按鈕門檻:多人連線模式下,房間內所有參與玩家(含房主)都按下「準備好」房主才可開始;
+// 全員準備且滿員時改由伺服器倒數自動開局(見 updateAutoStartCountdown)。上帝模式房主一人操控,不需等待。
 function updateStartGate(mode) {
   const startBtn = $('#startBtn');
   const lob = last?.lobby;
   if (!startBtn || !lob) return;
-  const others = lob.clients.filter(c => c.mode === 'player' && c.connected !== false && !c.isHost);
-  const notReady = others.filter(c => !c.ready);
-  const gated = (mode || 'multi') === 'multi' && others.length > 0 && notReady.length > 0;
+  const participants = lob.clients.filter(c => c.mode === 'player' && c.connected !== false);
+  const notReady = participants.filter(c => !c.ready);
+  const gated = (mode || 'multi') === 'multi' && participants.length > 0 && notReady.length > 0;
   startBtn.disabled = gated;
   startBtn.title = gated ? `還有 ${notReady.length} 位玩家尚未按「準備好」` : '';
   startBtn.textContent = gated ? `🚀 開始遊戲(待 ${notReady.length} 人準備)` : '🚀 開始遊戲';
+}
+
+// 全員(含房主)準備 + 滿員時,伺服器送來 startCountdownMs → 顯示全螢幕「即將開始 3..2..1」倒數;
+// 倒數結束伺服器會自動開局(送來新的 sync)。期間有人取消準備 / 離開 → startCountdownMs 變 null → 收起。
+let _cdTimer = null, _cdDeadline = 0;
+function updateAutoStartCountdown(lobby) {
+  const el = $('#startCountdown');
+  if (!el) return;
+  const ms = lobby?.startCountdownMs;
+  if (ms == null || lobby.started) { // 取消 / 已開局:收起
+    if (_cdTimer) { clearInterval(_cdTimer); _cdTimer = null; }
+    el.classList.remove('show');
+    return;
+  }
+  _cdDeadline = Date.now() + ms;
+  const numEl = el.querySelector('.cd-num');
+  let lastSec = -1;
+  const tick = () => {
+    const left = Math.max(0, _cdDeadline - Date.now());
+    const sec = Math.ceil(left / 1000);
+    if (sec !== lastSec) { // 每秒換數字才播一次「滴」聲、重置彈跳動畫
+      numEl.textContent = sec > 0 ? sec : 'GO!';
+      numEl.classList.remove('pulse'); void numEl.offsetWidth; numEl.classList.add('pulse');
+      if (sec > 0) try { audio.sfx('move'); } catch { /* 音效未解鎖 */ }
+      lastSec = sec;
+    }
+    if (left <= 0 && _cdTimer) { clearInterval(_cdTimer); _cdTimer = null; }
+  };
+  if (!_cdTimer) { el.classList.add('show'); _cdTimer = setInterval(tick, 120); }
+  tick();
 }
 
 function catOf(c) {
@@ -858,6 +893,11 @@ function refreshGame(m) {
     if (s.phase === 'play' && s.turnIdx !== lastTurnIdx && s.players[s.turnIdx]?.id === me.id) audio.sfx('turn');
     else if (s.phase === 'trade' && lastPhase !== 'trade') audio.sfx('turn');
   }
+  // 換人行動:鏡頭自動跟隨當前行動角色(輪到誰畫面就跟著誰,含 AI / 對手)
+  if (board && !s.over && s.phase === 'play' && s.turnIdx !== lastTurnIdx) {
+    const cur = s.players[s.turnIdx];
+    if (cur) board.focusRegion(cur.pos);
+  }
   lastTurnIdx = s.turnIdx; lastPhase = s.phase;
 
   $('#actionBar').style.display = spectating ? 'none' : '';
@@ -951,27 +991,38 @@ function renderPlayersList(s) {
 
 // 灰色作戰卡依類型上色,與棋盤特效光束同色系(spy 紅 / steal 綠 / fake 粉)
 const OPS_COLOR = { spy: '#ff5a5a', steal: '#2eff8f', fake: '#ff2bd6' };
+const OPS_CAT_NAME = { spy: '間諜', steal: '竊取', fake: '假新聞' }; // 灰卡三類中文名
+// 右上角等級徽章的「卡種圖示」:🔬=科技卡、💣=灰色作戰卡(與 STRENGTH_AXES 的科技/作戰圖示一致)
+const CARD_KIND_ICON = { tech: '🔬', ops: '💣' };
+
+// 卡種圖示 + 等級(統一格式 [圖示]LV{n}):科技卡用 tier、灰卡用 level
+function cardKindBadge(c) {
+  const isTech = c.kind === 'tech';
+  const lv = isTech ? c.tier : (c.level || 0);
+  return `<span class="card-tier"><span class="ct-ic">${CARD_KIND_ICON[isTech ? 'tech' : 'ops']}</span>LV${lv}</span>`;
+}
 
 // 單張手牌的 3D 卡牌標記:外層 .card[data-idx] 仍是點擊目標(沿用 closest('.card')),
-// 內含 .card3d(preserve-3d)正面卡框 + 背面,正面有卡頭/卡圖/費用/數值/特效與霓虹反光層。
+// 內含 .card3d(preserve-3d)正面卡框 + 背面。每張卡尺寸一致(固定高);正面有卡頭(名稱 + 卡種LV徽章)、
+// 每張不同的卡圖、數值/費用、解說文字(過長截斷,點擊看詳細),以及霓虹反光層。
 function cardFaceHtml(c, i) {
   const isTech = c.kind === 'tech';
   const cat = isTech ? TECH_CATEGORIES[c.cat] : null;
   const color = isTech ? cat.css : (OPS_COLOR[c.cat] || '#9aa7c7');
-  const icon = isTech ? cat.icon : (c.icon || '💣');
-  const tier = isTech ? `${c.tier}階` : (c.level ? `Lv.${c.level}` : '');
-  const kindLabel = isTech ? cat.name : '作戰卡';
+  const icon = c.icon || (isTech ? cat.icon : '💣'); // 每張卡專屬圖示(舊存檔無 icon 時退回類別圖)
+  const kindLabel = isTech ? cat.name : (OPS_CAT_NAME[c.cat] || '作戰卡');
   const cost = `${fmtRes(c.myCost)}${!isTech && c.atk ? ` ⚔️${c.atk}` : ''}`;
-  const body = isTech
-    ? `🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}${c.special ? `<div class="card-special">✨ ${c.special.text}</div>` : ''}`
-    : c.desc;
-  return `<div class="card ${isTech ? 'card-tech' : 'card-ops'} ${c.playMsg ? 'card-disabled' : ''}" data-idx="${i}" style="--cc:${color}">
+  const stats = isTech ? `🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}` : `⚔️${c.atk}`;
+  const flavor = isTech ? (c.desc || '') : (c.lore || c.desc || ''); // 面上顯示解說/梗;不夠點擊看詳細
+  const blocked = !!c.playMsg; // 資源不足等 → 不可打出(不變暗,改禁止拖曳並提示,見 setupCardDrag)
+  return `<div class="card ${isTech ? 'card-tech' : 'card-ops'}${blocked ? ' card-blocked' : ''}" data-idx="${i}" style="--cc:${color}">
     <div class="card3d">
       <div class="card-face card-front">
-        <div class="card-hd"><span class="card-name">${c.name}</span>${tier ? `<span class="card-tier">${tier}</span>` : ''}</div>
-        <div class="card-art"><span class="card-icon">${icon}</span><span class="card-kind">${kindLabel}</span></div>
-        <div class="card-cost">${cost}</div>
-        <div class="card-desc">${body}</div>
+        <div class="card-hd"><span class="card-name">${escapeHtml(c.name)}</span>${cardKindBadge(c)}</div>
+        <div class="card-art"><span class="card-icon">${icon}</span><span class="card-kind">${kindLabel}</span>${c.special ? '<span class="card-fx">✨</span>' : ''}</div>
+        <div class="card-stats"><span class="card-statline">${stats}</span><span class="card-cost">${cost}</span></div>
+        <div class="card-desc">${escapeHtml(flavor)}</div>
+        <div class="card-more">點擊看詳情 ›</div>
         <div class="card-shine"></div>
         <div class="card-edge"></div>
       </div>
@@ -980,42 +1031,191 @@ function cardFaceHtml(c, i) {
   </div>`;
 }
 
-// 牌庫小卡堆(手牌最左側):顯示抽牌庫剩餘張數,抽卡時發光脈動,點擊看牌組組成
-function deckPileHtml(deckCount) {
-  return `<div class="deck-pile" data-deck="deckCount" title="抽牌庫(點擊看牌組組成)">
-    <span class="dp-mark">◈</span><span class="dp-count">${deckCount}</span><span class="dp-label">牌庫</span>
-  </div>`;
-}
-
 function renderHand(m) {
   const priv = m.priv;
   const handEl = $('#hand');
   if (!priv) { handEl.innerHTML = ''; _prevHandUids = null; return; }
-  const deckCount = m.state?.deckCount ?? 0;
+  // 手牌區不再顯示牌庫小卡堆(改由地圖「公牌區」點擊查看牌組組成,見 board onDeckClick → showDeckInfo)
   const cards = priv.hand.map((c, i) => cardFaceHtml(c, i)).join('');
-  handEl.innerHTML = deckPileHtml(deckCount) + (cards || '<div class="hand-empty">沒有手牌</div>');
+  handEl.innerHTML = cards || '<div class="hand-empty">沒有手牌</div>';
 
-  // 偵測本輪「新抽到」的卡(uid 不在上一輪手牌)→ 逐張播放「牌庫飛入手牌」動畫;
-  // 首次渲染 / 重連(_prevHandUids 為 null)只顯示不動畫,避免整手牌一起飛入。
+  // 偵測本輪「新抽到」的卡(uid 不在上一輪手牌)。首次渲染 / 重連(_prevHandUids 為 null)
+  // 只顯示不動畫,避免整手牌一起飛入。有新卡時:
+  //  ・一般抽卡 → 播放「全螢幕抽卡」動畫(牌庫翻出 → 攤開揭示 → 收入手牌);
+  //  ・升階合併剛結束(_suppressDrawFx 未過期)→ 改回小幅「翻入手牌格」避免與合併動畫疊播。
   const curUids = priv.hand.map(c => c.uid);
   if (_prevHandUids) {
     const prev = new Set(_prevHandUids);
-    let n = 0;
-    priv.hand.forEach((c, i) => {
-      if (prev.has(c.uid)) return;
-      const el = handEl.querySelector(`.card[data-idx="${i}"]`);
-      if (!el) return;
-      el.classList.add('card-draw');
-      el.style.setProperty('--draw-delay', (n * 0.14) + 's');
-      n++;
-    });
-    if (n) { // 牌庫脈動一下,呼應「從牌庫抽出」
-      const pile = handEl.querySelector('.deck-pile');
-      if (pile) { pile.classList.remove('drawing'); void pile.offsetWidth; pile.classList.add('drawing'); }
+    const fresh = priv.hand.filter(c => !prev.has(c.uid));
+    if (fresh.length) {
+      const suppressed = Date.now() < _suppressDrawFx;
+      if (suppressed) { // 合併升階後:逐張小幅翻入手牌格
+        let n = 0;
+        priv.hand.forEach((c, i) => {
+          if (prev.has(c.uid)) return;
+          const el = handEl.querySelector(`.card[data-idx="${i}"]`);
+          if (!el) return;
+          el.classList.add('card-draw');
+          el.style.setProperty('--draw-delay', (n * 0.14) + 's');
+          n++;
+        });
+      } else { // 一般抽卡:全螢幕動畫
+        showDrawFx(fresh);
+      }
     }
   }
   _prevHandUids = curUids;
   requestAnimationFrame(updateHandFade); // 重繪後依內容寬度更新左右淡出
+}
+
+// 全螢幕抽卡動畫:中央牌庫翻出 N 張卡背 → 翻面攤成扇形揭示牌面 → 往下收進手牌淡出。
+// 只在本機玩家實際抽到新卡時觸發(AI / 對手抽卡不播);最多視覺呈現 6 張,避免雜亂。
+function showDrawFx(cards) {
+  const host = $('#drawFx');
+  if (!host || !cards || !cards.length) return;
+  audio.sfx('draw');
+  const cap = cards.slice(0, 6);
+  const n = cap.length;
+  const cardHtml = cap.map((c, k) => {
+    const isTech = c.kind === 'tech';
+    const cat = isTech ? TECH_CATEGORIES[c.cat] : null;
+    const color = isTech ? cat.css : (OPS_COLOR[c.cat] || '#9aa7c7');
+    const icon = c.icon || (isTech ? cat.icon : '💣'); // 每張卡專屬圖示
+    const tier = isTech ? `${c.tier}階` : (c.level ? `Lv.${c.level}` : '');
+    const off = (k - (n - 1) / 2).toFixed(3); // 以中心為基準的扇形欄位偏移
+    return `<div class="dfx-card" style="--cc:${color}; --off:${off}; --d:${(k * 0.12).toFixed(2)}s">
+      <div class="dfx-cf dfx-back">◈</div>
+      <div class="dfx-cf dfx-front">
+        <div class="dfx-ic">${icon}</div>
+        <div class="dfx-nm">${escapeHtml(c.name || '')}</div>
+        ${tier ? `<div class="dfx-tier">${tier}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  host.innerHTML = `<div class="dfx-stage">
+    <div class="dfx-deck">◈<b>抽牌</b></div>
+    <div class="dfx-fan">${cardHtml}</div>
+  </div>`;
+  host.classList.remove('show'); void host.offsetWidth; host.classList.add('show'); // 重置動畫
+  clearTimeout(showDrawFx._t);
+  showDrawFx._t = setTimeout(() => { host.classList.remove('show'); host.innerHTML = ''; }, 1800 + n * 140);
+}
+
+// 打出卡牌全螢幕動畫:卡片從下方升起放大到中央 → 衝擊光環爆開 → 上飄淡出。
+// 本機玩家實際打出卡片時觸發(點擊或拖曳打出皆共用,見 onCardClick / chooseOpsTarget / playCardByDrag)。
+function showPlayFx(c) {
+  const host = $('#playFx');
+  if (!host || !c) return;
+  try { audio.sfx('upgrade'); } catch { /* 音效未解鎖 */ }
+  const isTech = c.kind === 'tech';
+  const cat = isTech ? TECH_CATEGORIES[c.cat] : null;
+  const color = isTech ? cat.css : (OPS_COLOR[c.cat] || '#9aa7c7');
+  const icon = isTech ? cat.icon : (c.icon || '💣');
+  const tier = isTech ? `${c.tier}階` : (c.level ? `Lv.${c.level}` : '');
+  const kindLabel = isTech ? cat.name : '作戰卡';
+  host.innerHTML = `<div class="pfx-stage" style="--cc:${color}">
+    <div class="pfx-ring"></div>
+    <div class="pfx-card">
+      <div class="pfx-ic">${icon}</div>
+      <div class="pfx-nm">${escapeHtml(c.name || '')}</div>
+      <div class="pfx-kind">${kindLabel}${tier ? ` · ${tier}` : ''}</div>
+      <div class="pfx-label">🚀 打出卡牌!</div>
+    </div>
+  </div>`;
+  host.classList.remove('show'); void host.offsetWidth; host.classList.add('show');
+  clearTimeout(showPlayFx._t);
+  showPlayFx._t = setTimeout(() => { host.classList.remove('show'); host.innerHTML = ''; }, 1500);
+}
+
+// 該張手牌目前「無法打出」的原因(資金不足/城市等級/已放棄/無合法目標…);可打出時回 null。
+// 用於:禁止拖曳不可用的卡(不變暗,改跳提示)。
+function cardBlockReason(c) {
+  if (!isMyTurn()) return '還沒輪到你';
+  const priv = last?.priv;
+  if (!c || !priv) return '無法操作';
+  if (c.kind !== 'tech') {
+    if (priv.turnFlags?.forfeitOps) return '本回合已放棄打出作戰卡的權利';
+    const targets = priv.targets?.[c.id] || [];
+    if (!targets.length) return '沒有合法目標(超出航線範圍/防護太高/已被鎖定過)';
+    return null;
+  }
+  if (priv.turnFlags?.forfeitTech) return '本回合已放棄打出科技卡的權利';
+  // 盟友改建是合法的打出方式 → 即使本城自身不能蓋,只要有改建目標仍可拖曳打出
+  const hasRescue = (priv.rescueTargets || []).some(rt => c.tier >= rt.tier);
+  if (c.playMsg && !hasRescue) return c.playMsg; // 例:資源不足(需 …)/ 城市等級不足 / 一城一卡
+  return null;
+}
+
+// 拖曳手牌到手牌區外 → 打出這張卡。科技卡可直接部署者立即打出並播動畫;
+// 需選目標(作戰卡)或有特殊選項(盟友改建)者交回點擊流程處理。
+function playCardByDrag(idx) {
+  const priv = last?.priv;
+  const c = priv?.hand?.[idx];
+  if (!c) return;
+  const block = cardBlockReason(c);
+  if (block) { toast(`⚠️ ${block}`); return; }
+  if (c.kind !== 'tech') { chooseOpsTarget(c, idx); return; } // 作戰卡:選目標(打出時於 chooseOpsTarget 播動畫)
+  // 科技卡:有盟友改建選項 → 走詳情/選項流程;否則直接部署在目前城市
+  const hasRescue = (priv.rescueTargets || []).some(rt => c.tier >= rt.tier);
+  if (hasRescue) { onCardClick(idx); return; }
+  showPlayFx(c);
+  net.action('playTech', { handIdx: idx });
+}
+
+// 座標是否落在「手牌區」之外(以 #handWrap 外框 + 小外擴判定);拖曳卡片到此放開 = 打出
+function isOutsideHand(x, y) {
+  const w = $('#handWrap');
+  if (!w) return false;
+  const r = w.getBoundingClientRect();
+  const M = 10; // 邊界外擴一點,避免貼邊誤判
+  return x < r.left - M || x > r.right + M || y < r.top - M || y > r.bottom + M;
+}
+
+// 手牌拖曳:按住卡片拖動,移到手牌區外放開 = 打出。觸控以「縱向為主」才啟動拖曳,否則讓
+// 手牌列照常水平捲動(避免捲動與打出衝突);純點按(未超過位移門檻)仍走 click 打出流程。
+function setupCardDrag(handEl) {
+  handEl.addEventListener('pointerdown', e => {
+    if (e.button != null && e.button > 0) return; // 僅主鍵 / 觸控 / 觸控筆
+    if (!isMyTurn()) return;
+    const card = e.target.closest('.card');
+    if (!card) return;
+    _cardDrag = { idx: parseInt(card.dataset.idx, 10), card, x0: e.clientX, y0: e.clientY,
+      moved: false, aborted: false, pid: e.pointerId, touch: e.pointerType !== 'mouse' };
+  });
+  handEl.addEventListener('pointermove', e => {
+    const d = _cardDrag;
+    if (!d || d.aborted || e.pointerId !== d.pid) return;
+    const dx = e.clientX - d.x0, dy = e.clientY - d.y0;
+    if (!d.moved) {
+      if (Math.hypot(dx, dy) < 8) return; // 未達門檻:仍視為點按
+      if (d.touch && Math.abs(dx) > Math.abs(dy)) { d.aborted = true; return; } // 觸控橫向 → 讓手牌捲動
+      // 資源不足等原因不可使用 → 不變暗,但禁止拖曳並跳提示(仍可點按看詳情)
+      const block = cardBlockReason(last?.priv?.hand?.[d.idx]);
+      if (block) { d.aborted = true; toast(`⚠️ ${block}`); return; }
+      d.moved = true;
+      d.card.classList.add('card-dragging');
+      d.card.style.removeProperty('--rx'); d.card.style.removeProperty('--ry');
+      try { d.card.setPointerCapture(d.pid); } catch { /* 忽略 */ }
+    }
+    if (e.cancelable) e.preventDefault(); // 拖曳中阻止捲動 / 選取
+    d.card.style.setProperty('--dragX', dx.toFixed(0) + 'px');
+    d.card.style.setProperty('--dragY', dy.toFixed(0) + 'px');
+    d.card.classList.toggle('card-drag-out', isOutsideHand(e.clientX, e.clientY)); // 移到區外 → 高亮「可打出」
+  });
+  const finish = e => {
+    const d = _cardDrag;
+    if (!d || e.pointerId !== d.pid) return;
+    _cardDrag = null;
+    d.card.classList.remove('card-dragging', 'card-drag-out');
+    d.card.style.removeProperty('--dragX'); d.card.style.removeProperty('--dragY');
+    try { d.card.releasePointerCapture(e.pointerId); } catch { /* 忽略 */ }
+    if (d.moved && !d.aborted && isOutsideHand(e.clientX, e.clientY)) {
+      _suppressCardClickUntil = Date.now() + 500; // 忽略接續觸發的 click(避免又跑點擊打出流程)
+      playCardByDrag(d.idx);
+    }
+  };
+  handEl.addEventListener('pointerup', finish);
+  handEl.addEventListener('pointercancel', finish);
 }
 
 // 手牌太多時:固定區塊內左右捲動,捲到非端點時該側邊緣淡出(--fl/--fr 控制 mask)
@@ -1156,7 +1356,7 @@ function openCardUpgradeModal() {
       <button class="btn small-btn ${toTier === 5 ? 'toggled' : ''}" data-totier="5" ${cu.pool5 ? '' : 'disabled'}>換 5 階卡(庫存 ${cu.pool5})</button>
     </div>`;
     const rows = eligible.length ? eligible.map(o => {
-      const icon = o.c.kind === 'tech' ? TECH_CATEGORIES[o.c.cat].icon : o.c.icon;
+      const icon = o.c.icon || (o.c.kind === 'tech' ? TECH_CATEGORIES[o.c.cat].icon : '💣'); // 每張卡專屬圖示
       const tag = o.c.kind === 'ops' ? '灰卡' : '階';
       return `<label class="upg-row"><input type="checkbox" class="upg-ck" data-idx="${o.i}" data-tier="${o.lv}">
         ${icon}【${o.c.name}】Lv.${o.lv}${tag === '灰卡' ? ' 灰卡' : ''}</label>`;
@@ -1209,6 +1409,7 @@ function openCardUpgradeModal() {
 function playMergeFx(items, toTier) {
   const host = $('#mergeFx');
   if (!host || !items || !items.length) return;
+  _suppressDrawFx = Date.now() + 3000; // 合併動畫期間抑制全螢幕抽卡,改用小幅翻入(見 renderHand)
   audio.sfx('upgrade');
   const n = items.length;
   const bc = toTier >= 5 ? '#ffd02e' : '#00f0ff';
@@ -1305,6 +1506,12 @@ function showPlayerInfo(charId) {
 
 function setMode(m2) {
   mode = m2;
+  if (!board) { $('#btnMove').classList.toggle('toggled', mode === 'move'); return; }
+  if (mode === 'move') {
+    // 進入移動模式:鏡頭平滑跳轉到「你的角色」為中心(觀戰/上帝模式為當前回合角色),方便挑選目的地
+    const me = myPlayer() || last?.state?.players?.[last.state.turnIdx];
+    if (me) board.focusRegion(me.pos);
+  }
   if (mode === 'move' && last?.priv?.moveTargets) {
     board.highlight(last.priv.moveTargets.map(t => t.regionId));
     toast(`點擊發光城市移動(相鄰 🛢️1;✈️ 搭飛機 ${RULES.planeRange} 格內 🛢️5)`);
@@ -1337,29 +1544,45 @@ function showDeckInfo(deckKey) {
       note: '獨立一疊(含 Lv.5 灰卡,約科技卡 50%),只能用「2 張 Lv.4 卡升階」換取。' },
   };
   const info = map[deckKey]; if (!info) return;
-  let total = 0, body = '';
+  // 收集牌組內所有卡(科技卡 + 灰卡),附該牌複製張數;以卡牌形式呈現,依「種類 → 等級」排序
+  const TYPE_RANK = { power: 0, hardware: 1, info: 2, ai: 3, fun: 4, spy: 5, steal: 6, fake: 7 };
+  const items = []; let total = 0;
   for (const catId in TECH_CATEGORIES) {
     const cat = TECH_CATEGORIES[catId];
-    const rows = (TECH_CARDS[catId] || []).filter(d => info.tiers.includes(d.tier)).map(d => {
+    for (const d of (TECH_CARDS[catId] || [])) {
+      if (!info.tiers.includes(d.tier)) continue;
       const base = d.tier <= 3 ? MAIN_TIER_COPIES[d.tier - 1] : d.tier === 4 ? TIER4_COPIES : TIER5_COPIES;
       const copies = copiesScaled(base, scale); total += copies;
-      return `<div class="dk-card">${cat.icon}【${d.name}】${d.tier}階 ×${copies}
-        <span class="dk-stat">🔬${d.tech} 🛡️${d.def} 💱${d.trade}</span></div>`;
-    }).join('');
-    if (rows) body += `<div class="dk-group" style="--cc:${cat.css}"><div class="dk-group-head">${cat.icon} ${cat.name}</div>${rows}</div>`;
+      items.push({ isTech: true, cat: catId, color: cat.css, name: d.name, icon: d.icon || cat.icon,
+        level: d.tier, tech: d.tech, def: d.def, trade: d.trade, special: !!d.special, copies, rank: TYPE_RANK[catId] });
+    }
   }
-  if (info.ops) {
-    const opsRows = info.ops.map(([type, base]) => {
-      const o = OPS_CARDS[type], copies = copiesScaled(base, scale); total += copies;
-      return `<div class="dk-card">${o.icon}【${o.name}】Lv.${o.level} ×${copies} <span class="dk-stat">⚔️${o.atk}</span></div>`;
-    }).join('');
-    body += `<div class="dk-group" style="--cc:#9aa7c7"><div class="dk-group-head">🎯 灰色作戰卡</div>${opsRows}</div>`;
+  if (info.ops) for (const [type, base] of info.ops) {
+    const o = OPS_CARDS[type]; const copies = copiesScaled(base, scale); total += copies;
+    items.push({ isTech: false, cat: o.cat, color: OPS_COLOR[o.cat] || '#9aa7c7', name: o.name, icon: o.icon,
+      level: o.level, atk: o.atk, copies, rank: TYPE_RANK[o.cat] ?? 9 });
   }
+  items.sort((a, b) => (a.rank - b.rank) || (a.level - b.level));
   openModal(info.title,
     `<p class="modal-desc">目前牌庫剩 <b>${info.remain}</b> 張(全牌組共 ${total} 張)。${info.note}<br>
-       以下為「全牌組組成」(可公開資訊;不顯示個別卡片的剩餘位置):</p>
-     <div class="dk-list">${body}</div>`,
+       以下為「全牌組組成」(以卡牌形式、依種類・等級排序;右上角數字為該牌的複製張數):</p>
+     <div class="dk-cards">${items.map(deckMiniCard).join('')}</div>`,
     [{ label: '關閉', value: null }]);
+}
+
+// 牌庫一覽的迷你卡(沿用手牌卡的霓虹外觀):每張不同卡圖 + 卡種LV徽章 + 複製張數 + 數值
+function deckMiniCard(c) {
+  const kindIcon = CARD_KIND_ICON[c.isTech ? 'tech' : 'ops'];
+  const kindLabel = c.isTech ? TECH_CATEGORIES[c.cat].name : (OPS_CAT_NAME[c.cat] || '作戰卡');
+  const stats = c.isTech ? `🔬${c.tech} 🛡️${c.def} 💱${c.trade}` : `⚔️${c.atk}`;
+  return `<div class="dk-mini${c.isTech ? '' : ' dk-mini-ops'}" style="--cc:${c.color}">
+    <div class="dkm-badge"><span class="ct-ic">${kindIcon}</span>LV${c.level}</div>
+    <div class="dkm-copies" title="此牌在牌組中的張數">×${c.copies}</div>
+    <div class="dkm-icon">${c.icon}${c.special ? '<span class="dkm-fx">✨</span>' : ''}</div>
+    <div class="dkm-name">${escapeHtml(c.name)}</div>
+    <div class="dkm-kind">${kindLabel}</div>
+    <div class="dkm-stats">${stats}</div>
+  </div>`;
 }
 
 // 點擊地圖中央的「集體事件牌庫」→ 查看全部事件卡內容(本季事件以綠框標示)
@@ -1432,51 +1655,67 @@ function showRegionInfo(rid) {
     [{ label: '關閉', value: null }]);
 }
 
+// 點擊手牌 → 卡片詳情視窗:卡圖 + 卡種/等級 + 完整數值 + 解說 + 時空背景(lore)+ 特殊效果;
+// 並依「是否輪到你 / 可否打出」附上打出按鈕(打出本身也可改用「拖曳到手牌區外」)。
 function onCardClick(idx) {
-  if (!isMyTurn()) { toast('還沒輪到你'); return; }
-  const priv = last.priv;
-  const c = priv.hand[idx];
+  const priv = last?.priv;
+  const c = priv?.hand?.[idx];
   if (!c) return;
+  const isTech = c.kind === 'tech';
+  const cat = isTech ? TECH_CATEGORIES[c.cat] : null;
+  const color = isTech ? cat.css : (OPS_COLOR[c.cat] || '#9aa7c7');
+  const icon = c.icon || (isTech ? cat.icon : '💣');
+  const kindName = isTech ? `${cat.name}科技卡` : `${OPS_CAT_NAME[c.cat] || ''}灰色作戰卡`;
+  const lv = isTech ? c.tier : (c.level || 0);
+  const stats = isTech
+    ? `🔬 科技力 <b>${techDual(c)}</b>　🛡️ 防護 <b>${c.def}</b>　💱 交易 <b>${c.trade}</b>`
+    : `⚔️ 攻擊力 <b>${c.atk}</b>`;
+  const myTurn = isMyTurn();
 
-  // 灰色作戰卡:點擊後直接顯示依遠近排序的目標清單(略過中間「選擇目標」選單)
-  if (c.kind !== 'tech') {
-    const targets = priv.targets?.[c.id] || [];
-    if (priv.turnFlags?.forfeitOps) {
-      openModal(`${c.icon} ${c.name}`,
-        `<p class="modal-desc">${c.desc || ''}</p><p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出作戰卡的權利</p>`,
-        [{ label: '關閉', value: null }]);
-    } else if (!targets.length) {
-      openModal(`${c.icon} ${c.name}`,
-        `<p class="modal-desc">${c.desc || ''}</p><p class="modal-desc" style="color:#ff6">⚠️ 沒有合法目標(超出航線範圍/防護太高/已被鎖定過)</p>`,
-        [{ label: '關閉', value: null }]);
-    } else {
-      chooseOpsTarget(c, idx);
-    }
-    return;
-  }
+  let body = `<div class="card-detail" style="--cc:${color}">
+    <div class="cd-top">
+      <div class="cd-art"><span class="cd-icon">${icon}</span></div>
+      <div class="cd-meta">
+        <div class="cd-kind">${CARD_KIND_ICON[isTech ? 'tech' : 'ops']} ${kindName}・LV${lv}</div>
+        <div class="cd-stats">${stats}</div>
+        <div class="cd-cost">💲 費用 ${fmtRes(c.myCost)}</div>
+      </div>
+    </div>
+    ${c.special ? `<div class="cd-special">✨ ${escapeHtml(c.special.text)}</div>` : ''}
+    ${isTech ? techBreakLine(c) : ''}
+    <div class="cd-desc">${escapeHtml(c.desc || '')}</div>
+    ${c.lore ? `<div class="cd-lore">📖 ${escapeHtml(c.lore)}</div>` : ''}
+  </div>`;
 
   const opts = [];
-  const cat = TECH_CATEGORIES[c.cat];
-  let body = `<p class="modal-desc">${cat.icon} ${cat.name}|${c.tier}階|🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}
-    ${c.special ? `<br>✨ ${c.special.text}` : ''}<br>${c.desc || ''}</p>${techBreakLine(c)}`;
-  if (priv.turnFlags?.forfeitTech) {
-    body += `<p class="modal-desc" style="color:#ff6">⚠️ 你本回合已放棄打出科技卡的權利</p>`;
-  } else {
-    if (c.playMsg) body += `<p class="modal-desc" style="color:#ff6">⚠️ ${c.playMsg}</p>`;
-    else opts.push({ label: `🏗️ 部署在目前城市(${fmtRes(c.myCost)})`, value: { a: 'play' } });
-    // 盟友改建:改建同陣營盟友被作戰卡 debuff 的科技卡(折舊返還原建設玩家)
-    for (const rt of (priv.rescueTargets || [])) {
-      if (c.tier >= rt.tier)
-        opts.push({ label: `🔧 改建盟友 ${rt.ownerName} 的受損【${rt.name}】(${rt.tier}階,折舊 ${rt.deprec} 返還)`,
-          value: { a: 'rescue', uid: rt.uid } });
+  if (!myTurn) {
+    body += `<p class="modal-desc">(目前非你的回合,僅供檢視)</p>`;
+  } else if (isTech) {
+    if (priv.turnFlags?.forfeitTech) body += `<p class="modal-desc cd-warn">⚠️ 你本回合已放棄打出科技卡的權利</p>`;
+    else if (c.playMsg) body += `<p class="modal-desc cd-warn">⚠️ ${escapeHtml(c.playMsg)}</p>`;
+    else {
+      opts.push({ label: `🏗️ 部署在目前城市(${fmtRes(c.myCost)})`, value: { a: 'play' } });
+      for (const rt of (priv.rescueTargets || [])) { // 盟友改建:改建同陣營盟友被 debuff 的卡
+        if (c.tier >= rt.tier)
+          opts.push({ label: `🔧 改建盟友 ${rt.ownerName} 的受損【${rt.name}】(${rt.tier}階,折舊 ${rt.deprec} 返還)`,
+            value: { a: 'rescue', uid: rt.uid } });
+      }
+    }
+  } else { // 灰色作戰卡
+    if (priv.turnFlags?.forfeitOps) body += `<p class="modal-desc cd-warn">⚠️ 你本回合已放棄打出作戰卡的權利</p>`;
+    else {
+      const targets = priv.targets?.[c.id] || [];
+      if (!targets.length) body += `<p class="modal-desc cd-warn">⚠️ 沒有合法目標(超出航線範圍/防護太高/已被鎖定過)</p>`;
+      else opts.push({ label: '🎯 選擇攻擊目標(近 → 遠)', value: { a: 'ops' } });
     }
   }
-  opts.push({ label: '取消', value: null });
+  opts.push({ label: '關閉', value: null });
 
-  openModal(`${cat.icon} ${c.name}`, body, opts, val => {
+  openModal(`${icon} ${c.name}`, body, opts, val => {
     if (!val) return;
-    if (val.a === 'play') net.action('playTech', { handIdx: idx });
-    else if (val.a === 'rescue') net.action('playTech', { handIdx: idx, rebuildUid: val.uid });
+    if (val.a === 'play') { showPlayFx(c); net.action('playTech', { handIdx: idx }); }
+    else if (val.a === 'rescue') { showPlayFx(c); net.action('playTech', { handIdx: idx, rebuildUid: val.uid }); }
+    else if (val.a === 'ops') chooseOpsTarget(c, idx);
   });
 }
 
@@ -1490,6 +1729,7 @@ function chooseOpsTarget(c, idx) {
       .concat([{ label: '取消', value: '__cancel' }]),
     val => {
       if (val === '__cancel' || val === null) return;
+      showPlayFx(c); // 打出卡牌全螢幕動畫
       net.action('playCard', { handIdx: idx, target: val });
     });
 }
@@ -1779,15 +2019,16 @@ function setupGameEvents() {
       val => { if (val) net.action('reveal'); });
   });
   $('#hand').addEventListener('click', e => {
+    if (Date.now() < _suppressCardClickUntil) return; // 剛拖曳打出 → 忽略接續的 click
     const card = e.target.closest('.card');
-    if (card) { onCardClick(parseInt(card.dataset.idx, 10)); return; }
-    const deck = e.target.closest('.deck-pile');
-    if (deck) onDeckClick(deck.dataset.deck); // 牌庫小卡堆 → 看牌組組成
+    if (card) onCardClick(parseInt(card.dataset.idx, 10)); // 點擊卡片 → 開詳情(打出改用拖曳/詳情內按鈕)
   });
   // 3D 卡牌:游標在卡片上移動時依位置做視差傾斜,離開復位,讓手牌像實體立體卡
   const handEl = $('#hand');
+  setupCardDrag(handEl); // 拖曳手牌到區外=打出(見 playCardByDrag)
   handEl.addEventListener('pointermove', e => {
     if (e.pointerType && e.pointerType !== 'mouse') return; // 觸控不做視差傾斜(避免點按後卡片卡住歪斜)
+    if (_cardDrag?.moved) return; // 拖曳中不套用視差傾斜(改由拖曳位移控制)
     const card = e.target.closest('.card');
     if (!card) return;
     const r = card.getBoundingClientRect();

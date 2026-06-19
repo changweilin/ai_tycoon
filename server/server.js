@@ -248,6 +248,7 @@ function clearAutosaves() {
 /** 廣播房間狀態(每個 client 拿到自己視角的 payload) */
 function broadcast(room) {
   pruneKickVotes(room);
+  refreshAutoStart(room); // 全員(含房主)準備 + 滿員 → 啟動/取消自動開局倒數
   const lobby = {
     pin: room.pin,
     started: room.started,
@@ -259,6 +260,8 @@ function broadcast(room) {
     })),
     takenChars: [...room.chars.keys()],
     kickVotes: kickVotesPayload(room),
+    // 自動開局倒數剩餘毫秒(null=未倒數);前端依此本地遞減顯示「即將開始 3..2..1」
+    startCountdownMs: room.startCountdownAt ? Math.max(0, room.startCountdownAt - Date.now()) : null,
   };
   const pub = room.started ? room.game.publicState() : null;
   for (const [id, c] of room.clients) {
@@ -327,6 +330,110 @@ function kickVotesPayload(room) {
   const out = {};
   if (room.kickVotes) for (const [t, voters] of room.kickVotes) if (voters.size) out[t] = [...voters];
   return out;
+}
+
+// ---------------- 自動開局倒數 ----------------
+const START_COUNTDOWN_MS = 3000;
+
+/** 房間內「參與遊戲」的玩家(player 模式、未斷線),房主也算 */
+function participantsOf(room) {
+  return [...room.clients.values()].filter(c => c.mode === 'player' && c.connected !== false);
+}
+/** 全部參與玩家(含房主)都按了「準備好」 */
+function allParticipantsReady(room) {
+  const ps = participantsOf(room);
+  return ps.length > 0 && ps.every(c => c.ready);
+}
+/** 滿員:參與人數已達預計人數 */
+function roomFull(room) {
+  const total = Math.min(RULES.maxPlayers, Math.max(2, room.config.expectedCount || 4));
+  return participantsOf(room).length >= total;
+}
+/** 取消進行中的自動開局倒數 */
+function cancelStartCountdown(room) {
+  if (room.startTimer) { clearTimeout(room.startTimer); room.startTimer = null; }
+  room.startCountdownAt = null;
+}
+/** 在 broadcast 前呼叫:條件成立(全員準備 + 滿員)→ 啟動 3 秒倒數;條件破壞 → 取消。 */
+function refreshAutoStart(room) {
+  if (room.started) { if (room.startTimer) cancelStartCountdown(room); return; }
+  const should = allParticipantsReady(room) && roomFull(room);
+  if (should && !room.startTimer) {
+    room.startCountdownAt = Date.now() + START_COUNTDOWN_MS;
+    room.startTimer = setTimeout(() => {
+      room.startTimer = null; room.startCountdownAt = null;
+      // 倒數結束再確認一次條件仍成立(期間沒人取消準備 / 離開)才真的開局
+      if (!room.started && allParticipantsReady(room) && roomFull(room)) {
+        const e = launchMultiGame(room);
+        if (e) for (const c of room.clients.values()) send(c.ws, { t: 'info', msg: e });
+      } else {
+        broadcast(room); // 條件已破壞:把「倒數取消」狀態送給大家
+      }
+    }, START_COUNTDOWN_MS);
+  } else if (!should && room.startTimer) {
+    cancelStartCountdown(room);
+  }
+}
+
+/** 多人連線模式開局:全員(含房主)已準備 → 依平衡陣容入座、缺額補 AI、建立遊戲。
+ *  回傳 null=成功;字串=錯誤訊息。手動「開始遊戲」與倒數結束自動開局共用此邏輯。 */
+function launchMultiGame(room) {
+  if (room.started) return '遊戲已開始';
+  cancelStartCountdown(room);
+  const total = Math.min(RULES.maxPlayers, Math.max(2, room.config.expectedCount || 4));
+  room.aiChars = new Set();
+  const aiNames = new Set();
+  let participants = participantsOf(room);
+  const notReady = participants.filter(c => !c.ready);
+  if (participants.length > 0 && notReady.length) return `還有 ${notReady.length} 位玩家尚未按「準備好」`;
+  // 參與人數超過預計人數 → 多出者轉觀戰(已選角者優先入座)
+  if (participants.length > total) {
+    participants.sort((a, b) => (b.charId ? 1 : 0) - (a.charId ? 1 : 0));
+    for (const c of participants.slice(total)) {
+      if (c.charId) { room.chars.delete(c.charId); c.charId = null; }
+      c.mode = 'spectator';
+      send(c.ws, { t: 'info', msg: `👁️ 參與人數超過 ${total} 人,你這局自動觀戰` });
+    }
+    participants = participants.slice(0, total);
+  }
+  const chosen = participants.filter(c => c.charId).map(c => c.charId);
+  // buildLineup 依平衡陣容(米/牆/台…)補滿;未被真人選走的角色用來隨機分配 / AI 頂替
+  const remaining = shuffleArr(buildLineup(chosen, total).filter(id => !chosen.includes(id)));
+  const seats = [];
+  for (const c of participants) if (c.charId) seats.push({ charId: c.charId, playerName: c.name });
+  const randomly = [];
+  for (const c of participants) if (!c.charId) {
+    const id = remaining.shift();
+    c.charId = id;
+    room.chars.set(id, { pin: '', ownerName: c.name });
+    seats.push({ charId: id, playerName: c.name });
+    randomly.push(c);
+  }
+  for (const id of remaining) { seats.push(makeAISeat(id, aiNames)); room.aiChars.add(id); }
+  for (const c of randomly) {
+    const cc = CHARACTERS.find(x => x.id === c.charId);
+    send(c.ws, { t: 'info', msg: `🎲 系統分配給你的角色:${cc.name}【${FACTIONS[cc.faction].name}】` });
+  }
+  const aiSeats = seats.filter(s => s.isAI);
+  const aiList = aiSeats.map(s => `${s.playerName}(${CHARACTERS.find(c => c.id === s.charId).name})`).join('、');
+  const aiFillNote = participants.length === 0
+    ? `🍿 無人參與,全 AI 觀賞局開始!對戰角色:${aiList}`
+    : aiSeats.length
+      ? `🤖 ${participants.length} 位玩家參戰,缺額由 ${aiSeats.length} 位 AI 頂替:${aiList}`
+      : randomly.length ? `🎲 已為 ${randomly.length} 位未選角玩家隨機分配角色` : null;
+
+  room.game = new Game(seats);
+  room.started = true;
+  room.kickVotes = new Map(); // 開局清空剔除票
+  if (aiFillNote) {
+    room.game.addLog(aiFillNote);
+    for (const c of room.clients.values()) send(c.ws, { t: 'info', msg: aiFillNote });
+  }
+  console.log(`🎮 房間 ${room.pin} 開始遊戲(模式 multi,${seats.length} 角色)`);
+  broadcast(room);
+  autosave(room); // 開局即留一份自動存檔,確保剛開局(尚無人行動)也能斷線復原
+  pumpAI(room);
+  return null;
 }
 
 /** 選角玩家已達預計人數時,把其餘未選角的(非房主)玩家自動轉為觀戰 */
@@ -718,50 +825,14 @@ function handleConnection(ws) {
           : makeAISeat(id, aiNames));
         for (const id of lineup) if (id !== client.charId) room.aiChars.add(id);
       } else {
-        // 多人連線:全員「準備好」才能開始。已選角者用自己的角色;未選角者(含隨機分配模式、
-        // 或選擇交給系統)按平衡陣容隨機分配;缺額由 AI 頂替。
-        if (client.mode === 'player') client.ready = true; // 房主按下開始 = 視為已準備
-        let participants = [...room.clients.values()].filter(c => c.mode === 'player' && c.connected !== false);
-        const notReady = participants.filter(c => !c.ready);
-        if (participants.length > 0 && notReady.length) {
-          err(`還有 ${notReady.length} 位玩家尚未按「準備好」`); return;
-        }
-        // 參與人數超過預計人數 → 多出者轉觀戰(已選角者優先入座)
-        if (participants.length > total) {
-          participants.sort((a, b) => (b.charId ? 1 : 0) - (a.charId ? 1 : 0));
-          for (const c of participants.slice(total)) {
-            if (c.charId) { room.chars.delete(c.charId); c.charId = null; }
-            c.mode = 'spectator';
-            send(c.ws, { t: 'info', msg: `👁️ 參與人數超過 ${total} 人,你這局自動觀戰` });
-          }
-          participants = participants.slice(0, total);
-        }
-        const chosen = participants.filter(c => c.charId).map(c => c.charId);
-        // buildLineup 依平衡陣容(米/牆/台…)補滿;未被真人選走的角色用來隨機分配 / AI 頂替
-        const remaining = shuffleArr(buildLineup(chosen, total).filter(id => !chosen.includes(id)));
-        seats = [];
-        for (const c of participants) if (c.charId)
-          seats.push({ charId: c.charId, playerName: c.name });
-        const randomly = [];
-        for (const c of participants) if (!c.charId) {
-          const id = remaining.shift();
-          c.charId = id;
-          room.chars.set(id, { pin: '', ownerName: c.name });
-          seats.push({ charId: id, playerName: c.name });
-          randomly.push(c);
-        }
-        for (const id of remaining) { seats.push(makeAISeat(id, aiNames)); room.aiChars.add(id); }
-        for (const c of randomly) {
-          const cc = CHARACTERS.find(x => x.id === c.charId);
-          send(c.ws, { t: 'info', msg: `🎲 系統分配給你的角色:${cc.name}【${FACTIONS[cc.faction].name}】` });
-        }
-        const aiSeats = seats.filter(s => s.isAI);
-        const aiList = aiSeats.map(s => `${s.playerName}(${CHARACTERS.find(c => c.id === s.charId).name})`).join('、');
-        aiFillNote = participants.length === 0
-          ? `🍿 無人參與,全 AI 觀賞局開始!對戰角色:${aiList}`
-          : aiSeats.length
-            ? `🤖 ${participants.length} 位玩家參戰,缺額由 ${aiSeats.length} 位 AI 頂替:${aiList}`
-            : randomly.length ? `🎲 已為 ${randomly.length} 位未選角玩家隨機分配角色` : null;
+        // 多人連線:全員(含房主)「準備好」才能開始。已選角者用自己的角色;未選角者(含隨機
+        // 分配模式、或選擇交給系統)按平衡陣容隨機分配;缺額由 AI 頂替。開局流程與倒數自動
+        // 開局共用 launchMultiGame。房主按下「開始」即視為自己已準備(前端 start 門檻仍要求
+        // 房主先按「準備好」才會解開;全員準備 + 滿員時則由伺服器倒數自動呼叫 launchMultiGame)。
+        if (client.mode === 'player') client.ready = true;
+        const e = launchMultiGame(room);
+        if (e) { err(e); return; }
+        return;
       }
 
       room.game = new Game(seats);
@@ -824,6 +895,7 @@ function handleConnection(ws) {
       dcRoom.clients.delete(dcId);
       if (dcRoom.clients.size === 0) {
         if (dcRoom.aiTimer) { clearTimeout(dcRoom.aiTimer); dcRoom.aiTimer = null; }
+        cancelStartCountdown(dcRoom); // 房間關閉:清掉自動開局倒數計時器
         rooms.delete(dcRoom.pin);
         console.log(`🗑️ 房間 ${dcRoom.pin} 已關閉`);
       } else {

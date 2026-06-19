@@ -275,7 +275,7 @@ body {
 /* 手牌:固定區塊內左右捲動;捲到非端點時該側淡出(--fl/--fr 由 JS 依捲動位置設定)。
    上方留白讓 3D 卡片懸停抬升 / 抽卡翻入時不被裁切 */
 #handWrap {
-  position: static; width: 100%; max-width: 100%; max-height: 196px;
+  position: static; width: 100%; max-width: 100%; max-height: 222px;
   padding: 18px 2px 6px;
   overflow-x: auto; overflow-y: hidden;
   scrollbar-width: none; -webkit-overflow-scrolling: touch;
@@ -308,11 +308,12 @@ body {
 
 /* ── 3D 立體卡牌 ── 外層 .card 仍是點擊目標,內含 preserve-3d 的 .card3d(正面卡框 + 背面) */
 .card {
-  width: 134px; flex: 0 0 auto; cursor: pointer; position: relative;
+  width: 138px; flex: 0 0 auto; cursor: pointer; position: relative;
   border: 0; padding: 0; background: none; --rx: 0deg; --ry: 0deg;
 }
+/* 每張卡尺寸一致:固定高度,內容過長(解說文字)自動截斷 */
 .card3d {
-  position: relative; width: 100%; min-height: 132px; border-radius: 11px;
+  position: relative; width: 100%; height: 190px; border-radius: 11px;
   transform-style: preserve-3d;
   transform: rotateX(var(--rx)) rotateY(var(--ry));
   transition: transform .14s ease;
@@ -321,7 +322,8 @@ body {
 .card:hover .card3d { transform: translateY(-10px) rotateX(var(--rx)) rotateY(var(--ry)) scale(1.05); }
 .card-face { border-radius: 11px; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
 .card-front {
-  position: relative; padding: 9px 9px 10px; overflow: hidden; min-height: 132px;
+  position: relative; padding: 9px 8px 7px; overflow: hidden; height: 190px;
+  display: flex; flex-direction: column;
   background: linear-gradient(160deg, #16213f, #0a0f24 70%);
   background: linear-gradient(160deg, color-mix(in srgb, var(--cc) 26%, #0c1430), #0a0f24 70%);
   border: 1px solid var(--border);
@@ -330,21 +332,29 @@ body {
 }
 .card-front::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 4px;
   background: linear-gradient(90deg, transparent, var(--cc), transparent); opacity: .9; }
-.card-hd { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; }
-.card-name { font-weight: 800; font-size: .82rem; color: #f2f8ff; text-shadow: 0 1px 3px rgba(0,0,0,.6); line-height: 1.2; }
-.card-tier { flex: 0 0 auto; font-size: .56rem; font-weight: 800; color: #00121a; background: var(--cc); border-radius: 6px; padding: 1px 5px; }
+.card-hd { display: flex; align-items: center; justify-content: space-between; gap: 4px; flex: 0 0 auto; }
+.card-name { font-weight: 800; font-size: .8rem; color: #f2f8ff; text-shadow: 0 1px 3px rgba(0,0,0,.6); line-height: 1.15;
+  overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+/* 右上角等級徽章:[卡種圖示]LV{數字} ── 圖示區分科技卡(🔬)/灰卡(💣) */
+.card-tier { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 1px;
+  font-size: .58rem; font-weight: 800; color: #00121a; background: var(--cc); border-radius: 6px; padding: 1px 5px 1px 3px; }
+.card-tier .ct-ic { font-size: .68rem; filter: drop-shadow(0 0 2px rgba(0,0,0,.35)); }
 .card-art {
-  position: relative; height: 46px; margin: 6px 0; border-radius: 8px;
+  position: relative; height: 48px; margin: 6px 0 4px; border-radius: 8px; flex: 0 0 auto;
   display: flex; align-items: center; justify-content: center;
   background: radial-gradient(circle at 50% 38%, rgba(140,170,255,.18), transparent 70%);
   background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--cc) 38%, transparent), transparent 70%);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.06);
 }
-.card-icon { font-size: 2rem; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
+.card-icon { font-size: 2.15rem; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
 .card-kind { position: absolute; right: 5px; bottom: 3px; font-size: .5rem; color: #9fd8e8; opacity: .6; letter-spacing: .5px; }
-.card-cost { color: #ffd66b; font-size: .76rem; font-weight: 700; }
-.card-desc { color: #b9cbe6; font-size: .64rem; margin-top: 3px; line-height: 1.42; }
-.card-special { color: #ffe49a; margin-top: 2px; }
+.card-fx { position: absolute; left: 5px; top: 3px; font-size: .72rem; filter: drop-shadow(0 0 4px var(--cc)); }
+.card-stats { display: flex; align-items: center; justify-content: space-between; gap: 4px; flex: 0 0 auto; }
+.card-statline { font-size: .56rem; color: #cfe0f5; white-space: nowrap; }
+.card-cost { color: #ffd66b; font-size: .7rem; font-weight: 700; white-space: nowrap; }
+.card-desc { color: #b9cbe6; font-size: .61rem; margin-top: 3px; line-height: 1.32; flex: 1 1 auto;
+  overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.card-more { flex: 0 0 auto; font-size: .5rem; color: #7fb6c9; opacity: .8; text-align: right; margin-top: 2px; letter-spacing: .3px; }
 .card-shine {
   position: absolute; inset: 0; pointer-events: none; opacity: 0;
   background: linear-gradient(110deg, transparent 32%, rgba(255,255,255,.30) 47%, rgba(255,255,255,.05) 56%, transparent 70%);
@@ -359,8 +369,27 @@ body {
   border: 1px solid var(--border);
 }
 .cb-mark { font-size: 1.8rem; color: var(--cyan); opacity: .5; filter: drop-shadow(0 0 8px rgba(0,240,255,.6)); }
-.card-disabled { opacity: .6; }
-.card-disabled .card3d { filter: grayscale(.4); }
+/* 不可使用(資源不足等):不變暗,改用紅色描邊與紅費用提示;拖曳時會跳訊息(見 setupCardDrag) */
+.card-blocked .card-front { box-shadow: inset 0 0 0 1px rgba(255,90,90,.55), inset 0 20px 32px -24px var(--cc), 0 12px 20px -10px rgba(0,0,0,.7); }
+.card-blocked .card-cost { color: #ff8d8d; }
+.card-blocked .card-front::after { content: '🔒'; position: absolute; right: 6px; top: 26px; font-size: .7rem; opacity: .85; }
+
+/* 拖曳打出:卡片跟著指標位移(觸控保留水平捲動 → touch-action: pan-x);拖到區外時高亮提示 */
+.card { touch-action: pan-x; }
+.card.card-dragging {
+  z-index: 30; transition: none; cursor: grabbing;
+  transform: translate(var(--dragX, 0), var(--dragY, 0));
+}
+.card.card-dragging .card3d {
+  transition: none; transform: rotateX(8deg) scale(1.06);
+  box-shadow: 0 22px 44px -12px rgba(0,0,0,.85);
+}
+.card.card-drag-out .card3d { box-shadow: 0 0 32px -2px var(--cc), 0 22px 44px -12px rgba(0,0,0,.85); }
+.card.card-drag-out::after {
+  content: '🚀 放開打出'; position: absolute; left: 50%; top: -24px; transform: translateX(-50%);
+  white-space: nowrap; font-size: .7rem; font-weight: 800; color: #00121a;
+  background: var(--cc); padding: 2px 9px; border-radius: 9px; box-shadow: 0 0 12px var(--cc);
+}
 
 /* 抽卡:卡片從牌庫翻面(背→正)飛入手牌格 */
 .card-draw .card3d { animation: cardDraw .55s cubic-bezier(.2,.9,.3,1.1) both; animation-delay: var(--draw-delay, 0s); }
@@ -482,6 +511,42 @@ body {
 .dk-group-head { color: var(--cc, #00f0ff); font-weight: bold; font-size: .92rem; margin-bottom: 4px; }
 .dk-card { display: flex; justify-content: space-between; gap: 12px; font-size: .82rem; color: #d7ecff; padding: 2px 0; line-height: 1.5; }
 .dk-card .dk-stat { color: #8aa9c9; white-space: nowrap; }
+/* 牌庫組成:以卡牌形式呈現(依種類・等級排序) */
+.dk-cards { max-height: 60vh; overflow-y: auto; margin: 8px 0; display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px; }
+.dk-mini { position: relative; border-radius: 10px; padding: 8px 7px 7px; text-align: center;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--cc) 24%, #0c1430), #0a0f24 72%);
+  border: 1px solid color-mix(in srgb, var(--cc) 55%, var(--border)); }
+.dk-mini::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 3px; border-radius: 10px 10px 0 0;
+  background: linear-gradient(90deg, transparent, var(--cc), transparent); }
+.dkm-badge { position: absolute; left: 6px; top: 5px; display: inline-flex; align-items: center; gap: 1px;
+  font-size: .56rem; font-weight: 800; color: #00121a; background: var(--cc); border-radius: 5px; padding: 0 4px 0 2px; }
+.dkm-badge .ct-ic { font-size: .64rem; }
+.dkm-copies { position: absolute; right: 6px; top: 5px; font-size: .62rem; font-weight: 800; color: #ffd66b; }
+.dkm-icon { font-size: 1.9rem; margin-top: 12px; filter: drop-shadow(0 2px 5px rgba(0,0,0,.6)); position: relative; }
+.dkm-fx { position: absolute; right: -2px; top: -4px; font-size: .7rem; }
+.dkm-name { font-size: .68rem; font-weight: 800; color: #eaffff; line-height: 1.2; margin-top: 3px; }
+.dkm-kind { font-size: .54rem; color: #9fd8e8; opacity: .75; }
+.dkm-stats { font-size: .58rem; color: #cfe0f5; margin-top: 2px; }
+
+/* 手牌詳情視窗:卡圖 + 卡種/等級 + 完整數值 + 解說 + 時空背景 */
+.card-detail { --cc: #00f0ff; border-radius: 10px; }
+.card-detail .cd-top { display: flex; gap: 12px; align-items: center; }
+.card-detail .cd-art { flex: 0 0 auto; width: 74px; height: 92px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--cc) 42%, transparent), transparent 72%);
+  border: 1px solid color-mix(in srgb, var(--cc) 60%, var(--border)); box-shadow: inset 0 0 16px -6px var(--cc); }
+.card-detail .cd-icon { font-size: 3rem; filter: drop-shadow(0 0 10px var(--cc)); }
+.card-detail .cd-meta { flex: 1 1 auto; min-width: 0; }
+.card-detail .cd-kind { font-weight: 800; color: var(--cc); font-size: .95rem; }
+.card-detail .cd-stats { margin-top: 5px; color: #d7ecff; font-size: .9rem; }
+.card-detail .cd-cost { margin-top: 4px; color: #ffd66b; font-weight: 700; }
+.card-detail .cd-special { margin-top: 9px; color: #ffe49a; font-size: .85rem;
+  background: rgba(255,210,90,.08); border-left: 3px solid #ffd66b; border-radius: 4px; padding: 5px 8px; }
+.card-detail .cd-desc { margin-top: 9px; color: #d7ecff; font-size: .9rem; line-height: 1.5; }
+.card-detail .cd-lore { margin-top: 7px; color: #9fc0dc; font-size: .82rem; line-height: 1.55;
+  background: rgba(120,160,210,.08); border-radius: 6px; padding: 7px 9px; }
+.modal-desc.cd-warn { color: #ff8d8d; font-weight: 600; margin-top: 8px; }
 .tc-cost { margin-top: 8px; color: var(--cyan); }
 /* 集體事件牌庫一覽 */
 .ev-card { display: block; padding: 5px 7px; border-radius: 6px; line-height: 1.45; }
@@ -491,6 +556,149 @@ body {
 .ev-card.ev-active .ev-name::after { content: ' · 本季'; color: #2eff8f; font-size: .74rem; }
 .ev-card.ev-past { background: rgba(120,140,170,.13); opacity: .72; }
 .ev-card.ev-past .ev-name::after { content: ' · 已發生'; color: #8aa0bd; font-size: .72rem; font-weight: normal; }
+
+/* ========= 自動開局倒數覆蓋層(全員準備 + 滿員 → 3 秒後自動開局)========= */
+#startCountdown {
+  position: fixed; inset: 0; z-index: 70; display: none;
+  align-items: center; justify-content: center;
+  background: radial-gradient(circle at 50% 45%, rgba(0,240,255,.14), rgba(2,4,12,.82) 70%);
+  backdrop-filter: blur(3px);
+}
+#startCountdown.show { display: flex; animation: cdFadeIn .3s ease-out; }
+@keyframes cdFadeIn { from { opacity: 0; } to { opacity: 1; } }
+#startCountdown .cd-box { text-align: center; }
+#startCountdown .cd-tag {
+  color: var(--cyan); font-size: clamp(15px, 3vw, 26px); font-weight: 800; letter-spacing: 3px;
+  text-shadow: 0 0 18px rgba(0,240,255,.7);
+}
+#startCountdown .cd-num {
+  font-size: clamp(120px, 30vw, 280px); font-weight: 900; line-height: 1; margin: 6px 0;
+  color: #eaffff; text-shadow: 0 0 50px var(--cyan), 0 0 90px rgba(0,240,255,.5);
+}
+#startCountdown .cd-num.pulse { animation: cdPulse .9s cubic-bezier(.2,1.4,.4,1); }
+@keyframes cdPulse { 0% { transform: scale(.4); opacity: .2; } 55% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+#startCountdown .cd-sub { color: #bfe9ff; font-size: clamp(13px, 2.2vw, 20px); letter-spacing: 2px; }
+
+/* ========= 抽卡全螢幕動畫(牌庫翻出 → 攤開揭示 → 收入手牌)========= */
+#drawFx {
+  position: fixed; inset: 0; z-index: 61; display: none; pointer-events: none;
+  align-items: center; justify-content: center; perspective: 1300px;
+}
+#drawFx.show { display: flex; }
+#drawFx::before { content: ''; position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 46%, rgba(0,240,255,.12), rgba(2,4,12,.62) 72%);
+  opacity: 0; animation: dfxBg 1.5s ease-out forwards; }
+@keyframes dfxBg { 0% { opacity: 0; } 18% { opacity: 1; } 78% { opacity: 1; } 100% { opacity: 0; } }
+.dfx-stage { position: relative; width: 0; height: 0; transform-style: preserve-3d; }
+/* 牌庫:中央一疊卡背,翻牌時發光、結束時收起 */
+.dfx-deck {
+  position: absolute; left: -42px; top: -116px; width: 84px; height: 116px; border-radius: 11px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  color: var(--cyan); font-size: 2rem; font-weight: 800; letter-spacing: 2px;
+  background: repeating-linear-gradient(45deg, rgba(0,240,255,.12) 0 7px, transparent 7px 14px), linear-gradient(160deg, #14264f, #0a1024);
+  border: 1px solid var(--border); box-shadow: 0 0 26px -4px var(--cyan), 6px 8px 0 -3px #0a1733, 6px 8px 0 -2px var(--border);
+  animation: dfxDeck 1.4s ease-out forwards;
+}
+.dfx-deck b { font-size: .6rem; letter-spacing: 3px; color: #bfe9ff; }
+@keyframes dfxDeck {
+  0% { transform: translateY(34px) scale(.7); opacity: 0; }
+  16% { transform: translateY(0) scale(1); opacity: 1; }
+  70% { transform: translateY(0) scale(1); opacity: 1; }
+  100% { transform: translateY(-10px) scale(.94); opacity: 0; }
+}
+/* 攤開的扇形容器 */
+.dfx-fan { position: absolute; left: 0; top: 0; transform-style: preserve-3d; }
+/* 每張抽到的卡:由牌庫位置翻面飛出 → 攤到扇形位 → 收進手牌(往下淡出) */
+.dfx-card {
+  position: absolute; left: -62px; top: -86px; width: 124px; height: 172px; border-radius: 12px;
+  transform-style: preserve-3d; opacity: 0; transform-origin: 50% 120%;
+  animation: dfxDeal 1.7s linear forwards; animation-delay: var(--d, 0s);
+}
+.dfx-cf {
+  position: absolute; inset: 0; border-radius: 12px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+}
+/* 翻面揭示靠「兩面 opacity 與翻轉同步交叉」實作(不依賴 backface-visibility — 軟體合成會錯誤剔除正面)。
+   卡片 rotateY 在 keyframe 0%→52% 由 0°轉到 180°,90°(keyframe≈26%)是正反交界 → 在此交叉切換顯示面。
+   必須與 .dfx-card 用「相同的 duration / timing-function / delay」,keyframe% 才會對齊(同一緩動把實時映到相同 keyframe 進度)。--d 由 .dfx-card 繼承 */
+.dfx-back  { animation: dfxBackFace  1.7s linear var(--d, 0s) forwards; }
+.dfx-front { animation: dfxFrontFace 1.7s linear var(--d, 0s) forwards; }
+@keyframes dfxBackFace  { 0%, 23% { opacity: 1; } 29%, 100% { opacity: 0; } }
+@keyframes dfxFrontFace { 0%, 23% { opacity: 0; } 29%, 100% { opacity: 1; } }
+.dfx-back { background: repeating-linear-gradient(45deg, rgba(0,240,255,.1) 0 7px, transparent 7px 14px), linear-gradient(160deg, #122046, #0a1024);
+  border: 1px solid var(--border); color: var(--cyan); font-size: 2.4rem; }
+.dfx-front {
+  transform: rotateY(180deg); padding: 10px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--cc, #00f0ff) 30%, #0c1430), #0a0f24 72%);
+  border: 1px solid color-mix(in srgb, var(--cc, #00f0ff) 60%, var(--border));
+  box-shadow: 0 0 30px -6px var(--cc, #00f0ff), inset 0 0 0 1px rgba(255,255,255,.06);
+}
+.dfx-ic { font-size: 3rem; filter: drop-shadow(0 0 12px var(--cc, #00f0ff)); }
+.dfx-nm { font-size: .92rem; font-weight: 800; color: #eaffff; text-align: center; line-height: 1.25; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.dfx-tier { font-size: .62rem; font-weight: 800; color: #00121a; background: var(--cc, #00f0ff); border-radius: 6px; padding: 1px 7px; }
+/* 起點=牌庫(中央偏上、卡背朝外 rotateY(0)、縮小);中段攤開到 --off 欄位並翻到正面 rotateY(180)放大;
+   末段下沉淡出收進手牌(.dfx-front 本身已 rotateY(180),故卡片 0°顯背、180°顯正)*/
+@keyframes dfxDeal {
+  0%   { opacity: 0; transform: translate(0, 14px) rotateY(0deg) scale(.42); }
+  20%  { opacity: 1; }
+  52%  { opacity: 1; transform: translate(calc(var(--off, 0) * 142px), -6px) rotateY(180deg) scale(1.04); }
+  74%  { opacity: 1; transform: translate(calc(var(--off, 0) * 142px), 0) rotateY(180deg) scale(1); }
+  100% { opacity: 0; transform: translate(calc(var(--off, 0) * 60px), 48vh) rotateY(180deg) scale(.42); }
+}
+@media (max-width: 760px) {
+  .dfx-card { width: 96px; height: 134px; left: -48px; top: -67px; }
+  .dfx-ic { font-size: 2.3rem; }
+  .dfx-nm { font-size: .78rem; }
+  @keyframes dfxDeal {
+    0%   { opacity: 0; transform: translate(0, 12px) rotateY(0deg) scale(.42); }
+    20%  { opacity: 1; }
+    52%  { opacity: 1; transform: translate(calc(var(--off, 0) * 104px), -4px) rotateY(180deg) scale(1.04); }
+    74%  { opacity: 1; transform: translate(calc(var(--off, 0) * 104px), 0) rotateY(180deg) scale(1); }
+    100% { opacity: 0; transform: translate(calc(var(--off, 0) * 44px), 46vh) rotateY(180deg) scale(.42); }
+  }
+}
+
+/* ========= 打出卡牌全螢幕動畫(卡片升起放大 → 衝擊光環爆開 → 上飄淡出)========= */
+#playFx {
+  position: fixed; inset: 0; z-index: 63; display: none; pointer-events: none;
+  align-items: center; justify-content: center; perspective: 1200px;
+}
+#playFx.show { display: flex; }
+#playFx::before { content: ''; position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(0,240,255,.10), rgba(2,4,12,.6) 74%);
+  opacity: 0; animation: pfxBg 1.5s ease-out forwards; }
+@keyframes pfxBg { 0% { opacity: 0; } 22% { opacity: 1; } 74% { opacity: 1; } 100% { opacity: 0; } }
+.pfx-stage { position: relative; display: flex; align-items: center; justify-content: center; }
+.pfx-card {
+  position: relative; width: 200px; min-height: 280px; border-radius: 16px; padding: 16px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--cc, #00f0ff) 32%, #0c1430), #0a0f24 72%);
+  border: 1px solid color-mix(in srgb, var(--cc, #00f0ff) 65%, var(--border));
+  box-shadow: 0 0 44px -4px var(--cc, #00f0ff), inset 0 0 0 1px rgba(255,255,255,.06);
+  animation: pfxCard 1.5s cubic-bezier(.2,.9,.3,1) forwards;
+}
+@keyframes pfxCard {
+  0%   { opacity: 0; transform: translateY(58vh) rotateX(42deg) scale(.5); }
+  28%  { opacity: 1; transform: translateY(0) rotateX(0) scale(1.07); }
+  44%  { transform: translateY(0) rotateX(0) scale(1); }
+  72%  { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-16vh) scale(.9); }
+}
+.pfx-ic { font-size: 5rem; filter: drop-shadow(0 0 16px var(--cc, #00f0ff)); }
+.pfx-nm { font-size: 1.3rem; font-weight: 900; color: #eaffff; text-align: center; line-height: 1.2; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+.pfx-kind { font-size: .85rem; font-weight: 700; color: var(--cc, #00f0ff); letter-spacing: 1px; }
+.pfx-label { margin-top: 6px; font-size: .9rem; font-weight: 900; letter-spacing: 3px; color: #00121a; background: var(--cc, #00f0ff); border-radius: 8px; padding: 3px 12px; }
+.pfx-ring {
+  position: absolute; left: 50%; top: 50%; width: 220px; height: 220px; margin: -110px 0 0 -110px;
+  border-radius: 50%; border: 3px solid var(--cc, #00f0ff); opacity: 0;
+  animation: pfxRing 1.05s ease-out .28s forwards;
+}
+@keyframes pfxRing { 0% { opacity: .9; transform: scale(.3); } 100% { opacity: 0; transform: scale(2.6); } }
+@media (max-width: 760px) {
+  .pfx-card { width: 150px; min-height: 210px; }
+  .pfx-ic { font-size: 3.6rem; }
+  .pfx-nm { font-size: 1.05rem; }
+}
 
 /* ========= 合併升階卡片動畫 ========= */
 #mergeFx { position: fixed; inset: 0; z-index: 62; display: none; align-items: center; justify-content: center; pointer-events: none; perspective: 1000px; }
@@ -748,13 +956,31 @@ body {
   #log.mb-active, #bottomCenter.mb-active, #hostBar.mb-active {
     transform: translateY(0); opacity: 1; pointer-events: auto;
   }
-  /* 操作抽屜(行動列 + 手牌)加底襯,讓兩塊看起來像同一張抽屜 */
-  #bottomCenter.mb-active { background: rgba(4, 6, 16, .72); border: 1px solid var(--border); border-radius: 12px; padding: 8px 6px; gap: 8px; }
-  /* 修正:抽屜是 flex 直欄,而 #handWrap 設了 overflow-y:hidden → flex 預設會把它壓縮到比卡片矮、
-     切掉卡片下半截。改為不收縮並讓卡片列自然撐高(抽屜本身 overflow-y:auto,行動列+手牌過高時整體可捲動)*/
+  /* 操作抽屜(行動列 + 手牌)加底襯,讓兩塊看起來像同一張抽屜。
+     桌機行動列是「長文字按鈕橫向 wrap」,在手機窄屏會堆成 8 列高牆(~400px)塞不進抽屜、
+     底部按鈕(結束回合等)被推到摺線下難以點到 → 手機改「精簡網格」:每顆小一點、兩欄排列,
+     結束回合獨佔整列釘在最下方;抽屜本身拉高(72vh)讓行動列 + 手牌一次看完不需大幅捲動。 */
+  #bottomCenter.mb-active {
+    background: rgba(4, 6, 16, .72); border: 1px solid var(--border); border-radius: 12px;
+    padding: 8px 6px; gap: 8px; max-height: min(72vh, 560px);
+  }
   #bottomCenter.mb-active #handWrap,
   #bottomCenter.mb-active #actionBar { flex: 0 0 auto; }
   #bottomCenter.mb-active #handWrap { max-height: none; }
+  /* 行動列 → 精簡兩欄網格,小字按鈕(文字可換行),整體更矮、每顆都點得到 */
+  #bottomCenter.mb-active #actionBar {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; align-content: start;
+  }
+  #bottomCenter.mb-active #actionBar .btn.act {
+    padding: 8px 6px; font-size: .74rem; line-height: 1.18; min-height: 40px;
+    white-space: normal; text-align: center; word-break: break-word;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* 規則鈕(普通格)排到結束回合之前,正好補上奇數顆按鈕在末列留下的空格 → 不留洞 */
+  #bottomCenter.mb-active #actionBar #rulesBtn { order: 1; }
+  /* 結束回合獨佔整列釘在最下方(最常按、最顯眼);台灣表態鈕出現時也跨整列 */
+  #bottomCenter.mb-active #actionBar .btn.act.end,
+  #bottomCenter.mb-active #actionBar .btn.act.tw { grid-column: 1 / -1; order: 2; }
 
   /* 底部 dock:橫向可滑的「項目清單」,超出處邊緣淡出(--dl / --dr 由 JS 依捲動位置設定) */
   #mobileDock {

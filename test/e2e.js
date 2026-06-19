@@ -338,6 +338,41 @@ if (!k3.kicked) throw new Error('被剔除者應收到 kicked 通知');
 if (k1.last.lobby.clients.some(c => c.name === '搗蛋鬼')) throw new Error('過半票後應被移出房間');
 console.log('✅ 投票剔除玩家通過');
 
+// ---- 全員(含房主)準備 + 滿員 → 3 秒倒數自動開局 ----
+const a1 = await client('a1');
+a1.send({ t: 'createRoom', name: '自動開局房' });
+await a1.wait();
+const aPin = a1.last.lobby.pin;
+a1.send({ t: 'setRoomConfig', expectedCount: 2 }); // 米牆對決,2 人即滿員
+const a2 = await client('a2'); a2.send({ t: 'joinRoom', pin: aPin, name: '對手', mode: 'player' });
+await a1.wait();
+a1.send({ t: 'selectChar', charId: 'jensen', charPin: '1111' }); // 米
+a2.send({ t: 'selectChar', charId: 'ren', charPin: '2222' });    // 牆
+await a1.wait();
+// 只有對手準備(房主未準備)→ 不該倒數
+a2.send({ t: 'setReady', ready: true });
+await a1.wait();
+if (a1.last.lobby.startCountdownMs != null) throw new Error('房主未準備不應啟動自動開局倒數');
+if (a1.last.lobby.started) throw new Error('房主未準備不應開局');
+// 房主也準備 → 全員準備 + 滿員 → 啟動倒數
+a1.send({ t: 'setReady', ready: true });
+await a1.wait();
+if (a1.last.lobby.startCountdownMs == null) throw new Error('全員準備 + 滿員應啟動自動開局倒數');
+if (a1.last.lobby.started) throw new Error('倒數中尚不應開局');
+console.log(`  倒數啟動,剩餘 ${a1.last.lobby.startCountdownMs}ms`);
+// 倒數中有人取消準備 → 倒數取消
+a2.send({ t: 'setReady', ready: false });
+await a1.wait();
+if (a1.last.lobby.startCountdownMs != null) throw new Error('取消準備應取消倒數');
+// 重新全員準備 → 等倒數結束自動開局
+a2.send({ t: 'setReady', ready: true });
+await a1.wait();
+if (a1.last.lobby.startCountdownMs == null) throw new Error('重新全員準備應再次倒數');
+await new Promise(r => setTimeout(r, 3300)); // 等 3 秒倒數結束
+if (!a1.last.lobby.started) throw new Error('倒數結束應自動開局: ' + a1.errors.join(','));
+if (a1.last.state.players.length !== 2) throw new Error('自動開局人數應為 2');
+console.log('✅ 全員準備 + 滿員自動開局倒數通過');
+
 console.log('✅ 端對端煙霧測試全部通過');
 server.kill();
 process.exit(0);
