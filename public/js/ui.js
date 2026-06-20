@@ -82,6 +82,7 @@ function toast(msg) {
 
 function openModal(title, bodyHtml, options, onChoose) {
   $('#modalTitle').innerHTML = title;
+  $('#modalBody').onclick = null; // 清掉前一個 modal(如牌庫一覽)掛在 body 上的委派點擊
   $('#modalBody').innerHTML = bodyHtml;
   $('#modalOptions').innerHTML = options.map((o, i) =>
     `<button class="btn modal-opt" data-i="${i}">${o.label}</button>`).join('');
@@ -995,40 +996,138 @@ const OPS_CAT_NAME = { spy: '間諜', steal: '竊取', fake: '假新聞' }; // �
 // 右上角等級徽章的「卡種圖示」:🔬=科技卡、💣=灰色作戰卡(與 STRENGTH_AXES 的科技/作戰圖示一致)
 const CARD_KIND_ICON = { tech: '🔬', ops: '💣' };
 
-// 卡種圖示 + 等級(統一格式 [圖示]LV{n}):科技卡用 tier、灰卡用 level
-function cardKindBadge(c) {
-  const isTech = c.kind === 'tech';
-  const lv = isTech ? c.tier : (c.level || 0);
-  return `<span class="card-tier"><span class="ct-ic">${CARD_KIND_ICON[isTech ? 'tech' : 'ops']}</span>LV${lv}</span>`;
+// 卡種 → 顏色 / 預設圖示 / 中文類別名(統一給卡面、徽章、詳情使用)
+function cardKindMeta(kind, cat) {
+  if (kind === 'event') return { color: '#2eff8f', icon: '🌏', label: '集體事件' };
+  if (kind === 'tech') { const t = TECH_CATEGORIES[cat]; return { color: t.css, icon: t.icon, label: t.name }; }
+  return { color: OPS_COLOR[cat] || '#9aa7c7', icon: '💣', label: OPS_CAT_NAME[cat] || '作戰卡' };
 }
 
-// 單張手牌的 3D 卡牌標記:外層 .card[data-idx] 仍是點擊目標(沿用 closest('.card')),
-// 內含 .card3d(preserve-3d)正面卡框 + 背面。每張卡尺寸一致(固定高);正面有卡頭(名稱 + 卡種LV徽章)、
-// 每張不同的卡圖、數值/費用、解說文字(過長截斷,點擊看詳細),以及霓虹反光層。
-function cardFaceHtml(c, i) {
-  const isTech = c.kind === 'tech';
-  const cat = isTech ? TECH_CATEGORIES[c.cat] : null;
-  const color = isTech ? cat.css : (OPS_COLOR[c.cat] || '#9aa7c7');
-  const icon = c.icon || (isTech ? cat.icon : '💣'); // 每張卡專屬圖示(舊存檔無 icon 時退回類別圖)
-  const kindLabel = isTech ? cat.name : (OPS_CAT_NAME[c.cat] || '作戰卡');
-  const cost = `${fmtRes(c.myCost)}${!isTech && c.atk ? ` ⚔️${c.atk}` : ''}`;
-  const stats = isTech ? `🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}` : `⚔️${c.atk}`;
-  const flavor = isTech ? (c.desc || '') : (c.lore || c.desc || ''); // 面上顯示解說/梗;不夠點擊看詳細
-  const blocked = !!c.playMsg; // 資源不足等 → 不可打出(不變暗,改禁止拖曳並提示,見 setupCardDrag)
-  return `<div class="card ${isTech ? 'card-tech' : 'card-ops'}${blocked ? ' card-blocked' : ''}" data-idx="${i}" style="--cc:${color}">
+// 事件效果 → 卡面短標籤 + 好/壞色調(讓事件卡也有可掃讀的「角標」)
+function eventEffectChip(e) {
+  const ef = e.effect || {}; const t = ef.type; const m = ef.mult;
+  const good = t === 'resBoost' || t === 'incomeBonus' || t === 'techDelta' || (t === 'catCost' && m < 1);
+  const bad = t === 'resZero' || t === 'resHalf' || t === 'opsCost' || t === 'allCost'
+    || (t === 'catCost' && m > 1) || (t === 'apDelta' && ef.val < 0);
+  const tone = good ? 'ev-good' : bad ? 'ev-bad' : 'ev-neutral';
+  const label = ({ resZero: '收入歸零', resHalf: '收入減半', resBoost: '收入加成', incomeBonus: '全資源 +1',
+    catCost: m > 1 ? '建造漲價' : '建造降價', opsCost: '作戰漲價', allCost: '全面漲價',
+    apDelta: `行動點 ${ef.val > 0 ? '+' : ''}${ef.val}`, techDelta: `科技力 +${ef.val}` })[t] || '事件效果';
+  return { tone, label };
+}
+
+// 把不同來源(手牌 / 牌庫靜態科技卡 / 灰卡 / 事件)正規化成同一份「卡片物件」,
+// 讓卡面(cardFaceHtml)與詳情(cardDetailHtml)在任何清單都長得跟手牌一模一樣。
+function techCardLike(d, catId) {
+  return { kind: 'tech', cat: catId, tier: d.tier, name: d.name, icon: d.icon || TECH_CATEGORIES[catId].icon,
+    tech: d.tech, def: d.def, trade: d.trade, special: d.special, desc: d.desc, lore: d.lore,
+    myCost: splitCost(d.cost, CATEGORY_RATIO[catId] || d.ratio || { money: 1, power: 1, oil: 1 }) };
+}
+function opsCardLike(o) {
+  return { kind: 'ops', cat: o.cat, level: o.level, name: o.name, icon: o.icon, atk: o.atk,
+    desc: o.desc, lore: o.lore, myCost: splitCost(o.cost, o.ratio) };
+}
+function eventCardLike(e) {
+  return { kind: 'event', cat: null, name: e.name, icon: e.icon, desc: e.desc, __ev: e };
+}
+
+// 單張 3D 卡牌標記(手牌 / 牌庫一覽 / 事件一覽共用,確保牌面格式完全一致):
+// 外層 .card 為點擊目標(手牌用 data-idx;牌庫/事件用 data-dk 供 modal 委派點擊看詳情)。
+// 卡面分兩排顯示「能力數值」與「資源需求」;4 / 5 階卡加華麗高級邊框(card-lux4 / card-lux5)。
+// opts: { idx 手牌索引 | dk 清單索引, copies 牌組張數, stateCls 事件本季/已發生樣式 }
+function cardFaceHtml(c, opts = {}) {
+  const k = c.kind;
+  const isTech = k === 'tech', isEvent = k === 'event';
+  const meta = cardKindMeta(k, c.cat);
+  const icon = c.icon || meta.icon; // 每張卡專屬圖示(舊存檔無 icon 時退回類別圖)
+  const lv = isEvent ? null : (isTech ? c.tier : (c.level || 0));
+  const ability = isEvent ? null : (isTech ? `🔬${techDual(c)} 🛡️${c.def} 💱${c.trade}` : `⚔️${c.atk}`);
+  const flavor = isEvent ? '' : isTech ? (c.desc || '') : (c.lore || c.desc || '');
+  const blocked = !!c.playMsg; // 僅手牌:資源不足等 → 不可打出(不變暗,改禁止拖曳並提示,見 setupCardDrag)
+  const lux = lv >= 4 ? lv : 0; // 4 / 5 階華麗框
+  const kindCls = isTech ? 'card-tech' : isEvent ? 'card-event' : 'card-ops';
+  const dataAttr = opts.idx != null ? ` data-idx="${opts.idx}"` : opts.dk != null ? ` data-dk="${opts.dk}"` : '';
+  const extra = (lux ? ` card-lux card-lux${lux}` : '') + (blocked ? ' card-blocked' : '') + (opts.stateCls ? ` ${opts.stateCls}` : '');
+  // 角標:科技 / 作戰卡 = [卡種圖示]LV{n};事件卡 = 效果性質標籤
+  const badge = isEvent
+    ? (() => { const ch = eventEffectChip(c.__ev || c); return `<span class="card-evtag ${ch.tone}">${ch.label}</span>`; })()
+    : `<span class="card-tier"><span class="ct-ic">${CARD_KIND_ICON[isTech ? 'tech' : 'ops']}</span>LV${lv}</span>`;
+  // 兩排:能力數值 / 資源需求(事件卡無數值 → 改用效果說明填滿)
+  const statsBlock = isEvent
+    ? `<div class="card-stats card-stats-ev"><div class="card-effect">${escapeHtml(c.desc || '')}</div></div>`
+    : `<div class="card-stats">
+        <div class="card-statline"><span class="cs-tag">能力</span>${ability}</div>
+        <div class="card-cost"><span class="cs-tag">需求</span>${fmtRes(c.myCost)}</div>
+      </div>`;
+  const copiesBadge = opts.copies ? `<span class="card-copies" title="此牌在牌組中的張數">×${opts.copies}</span>` : '';
+  const luxOver = lux >= 5
+    ? `<div class="card-lux-ring"></div><div class="card-holo"></div><div class="card-gem">👑</div>`
+    : lux === 4 ? `<div class="card-lux-ring"></div><div class="card-gem">⭐</div>` : '';
+  return `<div class="card ${kindCls}${extra}"${dataAttr} style="--cc:${meta.color}">
     <div class="card3d">
       <div class="card-face card-front">
-        <div class="card-hd"><span class="card-name">${escapeHtml(c.name)}</span>${cardKindBadge(c)}</div>
-        <div class="card-art"><span class="card-icon">${icon}</span><span class="card-kind">${kindLabel}</span>${c.special ? '<span class="card-fx">✨</span>' : ''}</div>
-        <div class="card-stats"><span class="card-statline">${stats}</span><span class="card-cost">${cost}</span></div>
-        <div class="card-desc">${escapeHtml(flavor)}</div>
+        <div class="card-hd"><span class="card-name">${escapeHtml(c.name)}</span>${badge}</div>
+        <div class="card-art"><span class="card-icon">${icon}</span><span class="card-kind">${meta.label}</span>${c.special ? '<span class="card-fx">✨</span>' : ''}${copiesBadge}</div>
+        ${statsBlock}
+        ${isEvent ? '' : `<div class="card-desc">${escapeHtml(flavor)}</div>`}
         <div class="card-more">點擊看詳情 ›</div>
         <div class="card-shine"></div>
         <div class="card-edge"></div>
+        ${luxOver}
       </div>
       <div class="card-face card-back"><span class="cb-mark">◈</span></div>
     </div>
   </div>`;
+}
+
+// 卡片詳情主體(手牌詳情與牌庫一覽點卡共用):卡圖 + 卡種/等級 + 完整數值 + 資源需求 + 解說 + 時空背景。
+function cardDetailHtml(c) {
+  const meta = cardKindMeta(c.kind, c.cat);
+  const icon = c.icon || meta.icon;
+  if (c.kind === 'event') {
+    const ch = eventEffectChip(c.__ev || c);
+    return `<div class="card-detail card-detail-ev" style="--cc:${meta.color}">
+      <div class="cd-top">
+        <div class="cd-art"><span class="cd-icon">${icon}</span></div>
+        <div class="cd-meta">
+          <div class="cd-kind">🌏 集體事件卡</div>
+          <div class="cd-stats"><span class="card-evtag ${ch.tone}">${ch.label}</span></div>
+        </div>
+      </div>
+      <div class="cd-desc">${escapeHtml(c.desc || '')}</div>
+    </div>`;
+  }
+  const isTech = c.kind === 'tech';
+  const lv = isTech ? c.tier : (c.level || 0);
+  const kindName = isTech ? `${meta.label}科技卡` : `${meta.label}灰色作戰卡`;
+  const stats = isTech
+    ? `🔬 科技力 <b>${techDual(c)}</b>　🛡️ 防護 <b>${c.def}</b>　💱 交易 <b>${c.trade}</b>`
+    : `⚔️ 攻擊力 <b>${c.atk}</b>`;
+  const luxCls = lv >= 4 ? ` cd-lux cd-lux${lv}` : '';
+  return `<div class="card-detail${luxCls}" style="--cc:${meta.color}">
+    <div class="cd-top">
+      <div class="cd-art"><span class="cd-icon">${icon}</span></div>
+      <div class="cd-meta">
+        <div class="cd-kind">${CARD_KIND_ICON[isTech ? 'tech' : 'ops']} ${kindName}・LV${lv}</div>
+        <div class="cd-stats">${stats}</div>
+        <div class="cd-cost">💲 資源需求 ${fmtRes(c.myCost)}</div>
+      </div>
+    </div>
+    ${c.special ? `<div class="cd-special">✨ ${escapeHtml(c.special.text)}</div>` : ''}
+    ${isTech ? techBreakLine(c) : ''}
+    <div class="cd-desc">${escapeHtml(c.desc || '')}</div>
+    ${c.lore ? `<div class="cd-lore">📖 ${escapeHtml(c.lore)}</div>` : ''}
+  </div>`;
+}
+
+// 牌庫 / 事件一覽中點擊單卡 → 開該卡詳情(可附「返回牌庫」回到清單)
+function showCardDetailModal(c, backFn) {
+  const meta = cardKindMeta(c.kind, c.cat);
+  const opts = [];
+  if (backFn) opts.push({ label: '← 返回牌庫', value: 'back' });
+  opts.push({ label: '關閉', value: null });
+  openModal(`${c.icon || meta.icon} ${c.name}`, cardDetailHtml(c), opts,
+    val => { if (val === 'back' && backFn) backFn(); });
 }
 
 function renderHand(m) {
@@ -1036,7 +1135,7 @@ function renderHand(m) {
   const handEl = $('#hand');
   if (!priv) { handEl.innerHTML = ''; _prevHandUids = null; return; }
   // 手牌區不再顯示牌庫小卡堆(改由地圖「公牌區」點擊查看牌組組成,見 board onDeckClick → showDeckInfo)
-  const cards = priv.hand.map((c, i) => cardFaceHtml(c, i)).join('');
+  const cards = priv.hand.map((c, i) => cardFaceHtml(c, { idx: i })).join('');
   handEl.innerHTML = cards || '<div class="hand-empty">沒有手牌</div>';
 
   // 偵測本輪「新抽到」的卡(uid 不在上一輪手牌)。首次渲染 / 重連(_prevHandUids 為 null)
@@ -1544,67 +1643,52 @@ function showDeckInfo(deckKey) {
       note: '獨立一疊(含 Lv.5 灰卡,約科技卡 50%),只能用「2 張 Lv.4 卡升階」換取。' },
   };
   const info = map[deckKey]; if (!info) return;
-  // 收集牌組內所有卡(科技卡 + 灰卡),附該牌複製張數;以卡牌形式呈現,依「種類 → 等級」排序
+  // 收集牌組內所有卡(科技卡 + 灰卡),正規化成卡片物件附該牌複製張數;依「種類 → 等級」排序。
+  // 以與手牌完全相同的卡面呈現(cardFaceHtml),點擊單卡 → 詳情(showCardDetailModal,可返回牌庫)。
   const TYPE_RANK = { power: 0, hardware: 1, info: 2, ai: 3, fun: 4, spy: 5, steal: 6, fake: 7 };
   const items = []; let total = 0;
   for (const catId in TECH_CATEGORIES) {
-    const cat = TECH_CATEGORIES[catId];
     for (const d of (TECH_CARDS[catId] || [])) {
       if (!info.tiers.includes(d.tier)) continue;
       const base = d.tier <= 3 ? MAIN_TIER_COPIES[d.tier - 1] : d.tier === 4 ? TIER4_COPIES : TIER5_COPIES;
       const copies = copiesScaled(base, scale); total += copies;
-      items.push({ isTech: true, cat: catId, color: cat.css, name: d.name, icon: d.icon || cat.icon,
-        level: d.tier, tech: d.tech, def: d.def, trade: d.trade, special: !!d.special, copies, rank: TYPE_RANK[catId] });
+      items.push({ cl: techCardLike(d, catId), copies, rank: TYPE_RANK[catId], lv: d.tier });
     }
   }
   if (info.ops) for (const [type, base] of info.ops) {
     const o = OPS_CARDS[type]; const copies = copiesScaled(base, scale); total += copies;
-    items.push({ isTech: false, cat: o.cat, color: OPS_COLOR[o.cat] || '#9aa7c7', name: o.name, icon: o.icon,
-      level: o.level, atk: o.atk, copies, rank: TYPE_RANK[o.cat] ?? 9 });
+    items.push({ cl: opsCardLike(o), copies, rank: TYPE_RANK[o.cat] ?? 9, lv: o.level });
   }
-  items.sort((a, b) => (a.rank - b.rank) || (a.level - b.level));
+  items.sort((a, b) => (a.rank - b.rank) || (a.lv - b.lv));
   openModal(info.title,
     `<p class="modal-desc">目前牌庫剩 <b>${info.remain}</b> 張(全牌組共 ${total} 張)。${info.note}<br>
-       以下為「全牌組組成」(以卡牌形式、依種類・等級排序;右上角數字為該牌的複製張數):</p>
-     <div class="dk-cards">${items.map(deckMiniCard).join('')}</div>`,
+       以下為「全牌組組成」(卡面與手牌相同,依種類・等級排序;卡圖右上角為該牌的複製張數,點卡看詳情):</p>
+     <div class="dk-cards">${items.map((x, i) => cardFaceHtml(x.cl, { dk: i, copies: x.copies })).join('')}</div>`,
     [{ label: '關閉', value: null }]);
+  $('#modalBody').onclick = e => {
+    const card = e.target.closest('.card[data-dk]'); if (!card) return;
+    showCardDetailModal(items[+card.dataset.dk].cl, () => showDeckInfo(deckKey));
+  };
 }
 
-// 牌庫一覽的迷你卡(沿用手牌卡的霓虹外觀):每張不同卡圖 + 卡種LV徽章 + 複製張數 + 數值
-function deckMiniCard(c) {
-  const kindIcon = CARD_KIND_ICON[c.isTech ? 'tech' : 'ops'];
-  const kindLabel = c.isTech ? TECH_CATEGORIES[c.cat].name : (OPS_CAT_NAME[c.cat] || '作戰卡');
-  const stats = c.isTech ? `🔬${c.tech} 🛡️${c.def} 💱${c.trade}` : `⚔️${c.atk}`;
-  return `<div class="dk-mini${c.isTech ? '' : ' dk-mini-ops'}" style="--cc:${c.color}">
-    <div class="dkm-badge"><span class="ct-ic">${kindIcon}</span>LV${c.level}</div>
-    <div class="dkm-copies" title="此牌在牌組中的張數">×${c.copies}</div>
-    <div class="dkm-icon">${c.icon}${c.special ? '<span class="dkm-fx">✨</span>' : ''}</div>
-    <div class="dkm-name">${escapeHtml(c.name)}</div>
-    <div class="dkm-kind">${kindLabel}</div>
-    <div class="dkm-stats">${stats}</div>
-  </div>`;
-}
-
-// 點擊地圖中央的「集體事件牌庫」→ 查看全部事件卡內容(本季事件以綠框標示)
+// 點擊地圖中央的「集體事件牌庫」→ 查看全部事件卡內容(與手牌相同卡面,本季/已發生有標示,點卡看詳情)
 function showEventDeckInfo() {
   const s = last.state;
   const curId = s.event?.id || null;
   const past = new Set(s.pastEvents || []); // 已發生過的事件 id
   const pastCount = [...past].filter(id => id !== curId).length;
-  const rows = EVENT_CARDS.map(e => {
-    const cls = e.id === curId ? ' ev-active' : past.has(e.id) ? ' ev-past' : '';
-    return `
-    <div class="ev-card${cls}">
-      <div class="ev-name">${e.icon} ${e.name}</div>
-      <div class="ev-desc">${e.desc}</div>
-    </div>`;
-  }).join('');
+  const items = EVENT_CARDS.map(e => ({ cl: eventCardLike(e),
+    stateCls: e.id === curId ? 'card-ev-active' : past.has(e.id) ? 'card-ev-past' : '' }));
   openModal('🌏 集體事件牌庫',
     `<p class="modal-desc">每季開始前自動抽 1 張,效果持續整季;全 ${EVENT_CARDS.length} 張抽完會循環洗回。${
       curId ? `本季為【${s.event.icon} ${s.event.name}】。` : ''}${
-      pastCount ? `已發生 ${pastCount} 張(灰底標「已發生」)。` : ''}<br>以下為所有事件卡內容:</p>
-     <div class="dk-list"><div class="dk-group" style="--cc:#2eff8f">${rows}</div></div>`,
+      pastCount ? `已發生 ${pastCount} 張(灰底標「已發生」)。` : ''}<br>以下為所有事件卡內容(點卡看詳情):</p>
+     <div class="dk-cards">${items.map((x, i) => cardFaceHtml(x.cl, { dk: i, stateCls: x.stateCls })).join('')}</div>`,
     [{ label: '關閉', value: null }]);
+  $('#modalBody').onclick = e => {
+    const card = e.target.closest('.card[data-dk]'); if (!card) return;
+    showCardDetailModal(items[+card.dataset.dk].cl, () => showEventDeckInfo());
+  };
 }
 
 // 尋找當前位置:把 3D 鏡頭平滑聚焦到「你」(觀戰/上帝模式時為當前回合玩家)所在的城市
@@ -1662,31 +1746,10 @@ function onCardClick(idx) {
   const c = priv?.hand?.[idx];
   if (!c) return;
   const isTech = c.kind === 'tech';
-  const cat = isTech ? TECH_CATEGORIES[c.cat] : null;
-  const color = isTech ? cat.css : (OPS_COLOR[c.cat] || '#9aa7c7');
-  const icon = c.icon || (isTech ? cat.icon : '💣');
-  const kindName = isTech ? `${cat.name}科技卡` : `${OPS_CAT_NAME[c.cat] || ''}灰色作戰卡`;
-  const lv = isTech ? c.tier : (c.level || 0);
-  const stats = isTech
-    ? `🔬 科技力 <b>${techDual(c)}</b>　🛡️ 防護 <b>${c.def}</b>　💱 交易 <b>${c.trade}</b>`
-    : `⚔️ 攻擊力 <b>${c.atk}</b>`;
+  const icon = c.icon || cardKindMeta(c.kind, c.cat).icon;
   const myTurn = isMyTurn();
 
-  let body = `<div class="card-detail" style="--cc:${color}">
-    <div class="cd-top">
-      <div class="cd-art"><span class="cd-icon">${icon}</span></div>
-      <div class="cd-meta">
-        <div class="cd-kind">${CARD_KIND_ICON[isTech ? 'tech' : 'ops']} ${kindName}・LV${lv}</div>
-        <div class="cd-stats">${stats}</div>
-        <div class="cd-cost">💲 費用 ${fmtRes(c.myCost)}</div>
-      </div>
-    </div>
-    ${c.special ? `<div class="cd-special">✨ ${escapeHtml(c.special.text)}</div>` : ''}
-    ${isTech ? techBreakLine(c) : ''}
-    <div class="cd-desc">${escapeHtml(c.desc || '')}</div>
-    ${c.lore ? `<div class="cd-lore">📖 ${escapeHtml(c.lore)}</div>` : ''}
-  </div>`;
-
+  let body = cardDetailHtml(c); // 與牌庫一覽點卡相同的詳情主體
   const opts = [];
   if (!myTurn) {
     body += `<p class="modal-desc">(目前非你的回合,僅供檢視)</p>`;

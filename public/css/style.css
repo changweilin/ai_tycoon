@@ -349,9 +349,25 @@ body {
 .card-icon { font-size: 2.15rem; filter: drop-shadow(0 2px 6px rgba(0,0,0,.6)); }
 .card-kind { position: absolute; right: 5px; bottom: 3px; font-size: .5rem; color: #9fd8e8; opacity: .6; letter-spacing: .5px; }
 .card-fx { position: absolute; left: 5px; top: 3px; font-size: .72rem; filter: drop-shadow(0 0 4px var(--cc)); }
-.card-stats { display: flex; align-items: center; justify-content: space-between; gap: 4px; flex: 0 0 auto; }
-.card-statline { font-size: .56rem; color: #cfe0f5; white-space: nowrap; }
-.card-cost { color: #ffd66b; font-size: .7rem; font-weight: 700; white-space: nowrap; }
+/* 卡面數值分兩排:第一排「能力」數值、第二排「需求」資源,各帶小標籤 */
+.card-stats { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; margin-top: 1px; }
+.card-statline { font-size: .58rem; color: #cfe0f5; white-space: nowrap; display: flex; align-items: center; gap: 3px; }
+.card-cost { color: #ffd66b; font-size: .62rem; font-weight: 700; white-space: nowrap; display: flex; align-items: center; gap: 3px; }
+.cs-tag { font-size: .46rem; font-weight: 700; letter-spacing: .5px; color: #8fb0cf; flex: 0 0 auto;
+  background: rgba(120,160,210,.14); border-radius: 4px; padding: 1px 3px; }
+.card-cost .cs-tag { color: #ffcf8a; background: rgba(255,200,90,.13); }
+/* 事件卡無數值 → 改以效果說明填滿這塊 */
+.card-stats-ev { flex: 1 1 auto; }
+.card-effect { font-size: .6rem; color: #d7ecff; line-height: 1.35;
+  overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; }
+/* 牌組張數角標(卡圖右上) */
+.card-copies { position: absolute; right: 4px; top: 3px; font-size: .62rem; font-weight: 800; color: #ffd66b;
+  background: rgba(8,12,28,.72); border-radius: 5px; padding: 0 3px; z-index: 2; }
+/* 事件效果性質標籤(取代 LV 徽章) */
+.card-evtag { flex: 0 0 auto; font-size: .54rem; font-weight: 800; border-radius: 6px; padding: 1px 5px; color: #00121a; }
+.card-evtag.ev-good { background: #2eff8f; }
+.card-evtag.ev-bad { background: #ff6b6b; color: #fff; }
+.card-evtag.ev-neutral { background: #9fc0dc; }
 .card-desc { color: #b9cbe6; font-size: .61rem; margin-top: 3px; line-height: 1.32; flex: 1 1 auto;
   overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 .card-more { flex: 0 0 auto; font-size: .5rem; color: #7fb6c9; opacity: .8; text-align: right; margin-top: 2px; letter-spacing: .3px; }
@@ -399,6 +415,75 @@ body {
   72%  { transform: translateX(0) translateY(-5px) rotateY(0deg) scale(1.07); opacity: 1; }
   100% { transform: translateX(0) translateY(0) rotateY(0deg) scale(1); opacity: 1; }
 }
+
+/* ───────── 高階卡華麗框:4 階金箔質感、5 階全息彩虹(更華麗)───────── */
+.card-lux-ring { position: absolute; inset: 0; border-radius: 11px; pointer-events: none; box-sizing: border-box; }
+.card-gem { position: absolute; right: 5px; bottom: 4px; font-size: .9rem; pointer-events: none; z-index: 3;
+  filter: drop-shadow(0 0 6px var(--cc)); }
+.card-holo { position: absolute; inset: 0; border-radius: 11px; pointer-events: none; }
+
+/* 4 階:金箔 */
+.card-lux4 .card-front {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--cc) 26%, #1c1606), #0a0904 72%);
+  border-color: #ffcf5e;
+  box-shadow: 0 0 18px -4px rgba(255,200,90,.5), inset 0 0 0 1px rgba(255,225,150,.3),
+    inset 0 22px 34px -24px var(--cc), 0 14px 22px -10px rgba(0,0,0,.75);
+}
+.card-lux4 .card-front::before {
+  height: 4px; opacity: 1;
+  background: linear-gradient(90deg, transparent, #ffe08a, #ffb347, #ffe08a, transparent);
+}
+.card-lux4 .card-lux-ring { box-shadow: inset 0 0 0 1px rgba(255,215,120,.6), inset 0 0 18px -7px #ffcf5e; }
+.card-lux4 .card-lux-ring::after {
+  content: ''; position: absolute; inset: 0; border-radius: 11px;
+  background: linear-gradient(115deg, transparent 32%, rgba(255,232,160,.20) 46%, transparent 60%);
+  background-size: 250% 100%; animation: luxFoil 3.4s linear infinite;
+}
+.card-lux4 .card-gem { filter: drop-shadow(0 0 6px #ffcf5e); }
+
+/* 5 階:全息彩虹邊框 + 流動全息光 + 皇冠脈動(比 4 階更華麗）*/
+.card-lux5 .card-front {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--cc) 32%, #120a26), #06040f 72%);
+  border-color: transparent;
+  box-shadow: 0 0 26px -3px color-mix(in srgb, var(--cc) 70%, transparent),
+    inset 0 0 0 1px rgba(255,255,255,.16), inset 0 22px 36px -24px var(--cc), 0 16px 26px -10px rgba(0,0,0,.8);
+}
+.card-lux5 .card-front::before {
+  height: 5px; opacity: 1;
+  background: linear-gradient(90deg, #ff5ec8, #ffd02e, #5ecfff, #c45eff, #ff5ec8);
+  background-size: 200% 100%; animation: luxRainbow 4s linear infinite;
+}
+.card-lux5 .card-lux-ring {
+  padding: 1.6px;
+  background: conic-gradient(from 0deg, #ff5ec8, #ffd02e, #2eff8f, #5ecfff, #c45eff, #ff5ec8);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: luxHue 5s linear infinite;
+}
+.card-lux5 .card-holo {
+  mix-blend-mode: screen; opacity: .45;
+  background: linear-gradient(115deg, transparent 18%, rgba(255,94,200,.3) 34%, rgba(94,207,255,.3) 50%, rgba(46,255,143,.3) 66%, transparent 82%);
+  background-size: 250% 250%; animation: luxFoil 3.6s linear infinite;
+}
+.card-lux5 .card-gem { filter: drop-shadow(0 0 9px #ffd02e); animation: luxPulse 1.9s ease-in-out infinite; }
+@keyframes luxFoil { from { background-position: 200% 0; } to { background-position: -60% 0; } }
+@keyframes luxRainbow { from { background-position: 0 0; } to { background-position: 200% 0; } }
+@keyframes luxHue { to { filter: hue-rotate(360deg); } }
+@keyframes luxPulse { 0%, 100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.18); opacity: 1; } }
+
+/* 事件一覽:本季 / 已發生標示(浮在卡片上緣的小緞帶) */
+.card-ev-active .card-front {
+  box-shadow: 0 0 14px -2px #2eff8f, inset 0 0 0 1px rgba(46,255,143,.5),
+    inset 0 20px 32px -24px var(--cc), 0 12px 20px -10px rgba(0,0,0,.7);
+}
+.card-ev-past .card3d { opacity: .6; filter: grayscale(.4); }
+.card-ev-active::before, .card-ev-past::before {
+  position: absolute; z-index: 6; left: 50%; top: -7px; transform: translateX(-50%);
+  font-size: .56rem; font-weight: 800; padding: 1px 8px; border-radius: 8px; white-space: nowrap;
+}
+.card-ev-active::before { content: '本季'; background: #2eff8f; color: #00121a; box-shadow: 0 0 10px rgba(46,255,143,.7); }
+.card-ev-past::before { content: '已發生'; background: #6b7c95; color: #fff; }
+
 .trade-box { max-width: 560px; }
 .trade-myres { margin: 8px 0; font-size: 1.05rem; }
 .trade-form { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px; }
@@ -505,29 +590,10 @@ body {
 .bd-row .bd-val { color: #fff; font-weight: bold; white-space: nowrap; }
 .bd-total { border-top: 1px solid rgba(0,240,255,.3); margin-top: 4px; padding-top: 6px; }
 .bd-total .bd-label, .bd-total .bd-val { color: #ffd02e; }
-/* 牌庫組成彈窗 */
-.dk-list { max-height: 56vh; overflow-y: auto; margin: 8px 0; display: flex; flex-direction: column; gap: 10px; }
-.dk-group { border-left: 3px solid var(--cc, #00f0ff); padding-left: 8px; }
-.dk-group-head { color: var(--cc, #00f0ff); font-weight: bold; font-size: .92rem; margin-bottom: 4px; }
-.dk-card { display: flex; justify-content: space-between; gap: 12px; font-size: .82rem; color: #d7ecff; padding: 2px 0; line-height: 1.5; }
-.dk-card .dk-stat { color: #8aa9c9; white-space: nowrap; }
-/* 牌庫組成:以卡牌形式呈現(依種類・等級排序) */
-.dk-cards { max-height: 60vh; overflow-y: auto; margin: 8px 0; display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px; }
-.dk-mini { position: relative; border-radius: 10px; padding: 8px 7px 7px; text-align: center;
-  background: linear-gradient(160deg, color-mix(in srgb, var(--cc) 24%, #0c1430), #0a0f24 72%);
-  border: 1px solid color-mix(in srgb, var(--cc) 55%, var(--border)); }
-.dk-mini::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 3px; border-radius: 10px 10px 0 0;
-  background: linear-gradient(90deg, transparent, var(--cc), transparent); }
-.dkm-badge { position: absolute; left: 6px; top: 5px; display: inline-flex; align-items: center; gap: 1px;
-  font-size: .56rem; font-weight: 800; color: #00121a; background: var(--cc); border-radius: 5px; padding: 0 4px 0 2px; }
-.dkm-badge .ct-ic { font-size: .64rem; }
-.dkm-copies { position: absolute; right: 6px; top: 5px; font-size: .62rem; font-weight: 800; color: #ffd66b; }
-.dkm-icon { font-size: 1.9rem; margin-top: 12px; filter: drop-shadow(0 2px 5px rgba(0,0,0,.6)); position: relative; }
-.dkm-fx { position: absolute; right: -2px; top: -4px; font-size: .7rem; }
-.dkm-name { font-size: .68rem; font-weight: 800; color: #eaffff; line-height: 1.2; margin-top: 3px; }
-.dkm-kind { font-size: .54rem; color: #9fd8e8; opacity: .75; }
-.dkm-stats { font-size: .58rem; color: #cfe0f5; margin-top: 2px; }
+/* 牌庫 / 事件一覽:以「與手牌完全相同」的卡面呈現,點卡看詳情 */
+.dk-cards { max-height: 64vh; overflow-y: auto; margin: 8px 0; padding: 12px 2px 6px;
+  display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; }
+.dk-cards .card { touch-action: auto; } /* 清單區改可垂直捲動(非手牌的水平捲動) */
 
 /* 手牌詳情視窗:卡圖 + 卡種/等級 + 完整數值 + 解說 + 時空背景 */
 .card-detail { --cc: #00f0ff; border-radius: 10px; }
@@ -546,16 +612,15 @@ body {
 .card-detail .cd-desc { margin-top: 9px; color: #d7ecff; font-size: .9rem; line-height: 1.5; }
 .card-detail .cd-lore { margin-top: 7px; color: #9fc0dc; font-size: .82rem; line-height: 1.55;
   background: rgba(120,160,210,.08); border-radius: 6px; padding: 7px 9px; }
+/* 詳情視窗的高階卡華麗:4 階金箔、5 階全息(呼應卡面) */
+.cd-lux4 .cd-art { border-color: #ffcf5e; box-shadow: inset 0 0 18px -6px #ffcf5e, 0 0 14px -4px rgba(255,200,90,.5); }
+.cd-lux4 .cd-kind { color: #ffd98a; }
+.cd-lux5 .cd-art { border-color: transparent;
+  box-shadow: inset 0 0 20px -5px var(--cc), 0 0 18px -3px color-mix(in srgb, var(--cc) 70%, transparent); }
+.cd-lux5 .cd-kind { background: linear-gradient(90deg, #ff5ec8, #ffd02e, #5ecfff, #c45eff);
+  -webkit-background-clip: text; background-clip: text; color: transparent; }
 .modal-desc.cd-warn { color: #ff8d8d; font-weight: 600; margin-top: 8px; }
 .tc-cost { margin-top: 8px; color: var(--cyan); }
-/* 集體事件牌庫一覽 */
-.ev-card { display: block; padding: 5px 7px; border-radius: 6px; line-height: 1.45; }
-.ev-card .ev-name { color: #eafff4; font-weight: bold; font-size: .86rem; }
-.ev-card .ev-desc { color: #9fb6d2; font-size: .77rem; }
-.ev-card.ev-active { background: rgba(46,255,143,.12); box-shadow: inset 0 0 0 1px rgba(46,255,143,.55); }
-.ev-card.ev-active .ev-name::after { content: ' · 本季'; color: #2eff8f; font-size: .74rem; }
-.ev-card.ev-past { background: rgba(120,140,170,.13); opacity: .72; }
-.ev-card.ev-past .ev-name::after { content: ' · 已發生'; color: #8aa0bd; font-size: .72rem; font-weight: normal; }
 
 /* ========= 自動開局倒數覆蓋層(全員準備 + 滿員 → 3 秒後自動開局)========= */
 #startCountdown {
