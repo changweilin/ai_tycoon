@@ -63,6 +63,38 @@ body {
 }
 .create-public input { accent-color: var(--cyan, #00f0ff); width: 17px; height: 17px; margin-top: 1px; cursor: pointer; flex: none; }
 
+/* ---------- About Me 頁尾 ---------- */
+.about-me { max-width: 440px; margin: 38px auto 12px; }
+.about-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 22px 26px; text-align: center;
+  box-shadow: 0 0 26px rgba(0, 240, 255, .12);
+}
+.about-label {
+  color: #5a7a9a; font-size: .72rem; letter-spacing: .42em; text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.about-name {
+  font-size: 1.3rem; letter-spacing: .14em; color: #eaffff;
+  text-shadow: 0 0 14px rgba(0, 240, 255, .5);
+}
+.about-quote { border: none; margin: 14px 0 20px; }
+.aq-zh { color: #d8f4ff; font-size: 1rem; letter-spacing: .08em; line-height: 1.7; }
+.aq-en { color: var(--cyan); font-size: .85rem; font-style: italic; margin-top: 6px; line-height: 1.55; opacity: .92; }
+.aq-cite { display: block; margin-top: 12px; color: #8fb0cc; font-size: .76rem; font-style: normal; letter-spacing: .04em; }
+.about-links { display: flex; justify-content: center; gap: 16px; }
+.about-link {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 1px solid var(--border); color: #bfe9ff;
+  background: rgba(6, 10, 30, .7); transition: all .16s ease;
+}
+.about-link svg { width: 21px; height: 21px; fill: currentColor; }
+.about-link:hover {
+  color: #04050f; background: var(--cyan); border-color: var(--cyan);
+  box-shadow: 0 0 18px rgba(0, 240, 255, .6); transform: translateY(-2px);
+}
+
 /* ---------- 房間列表 ---------- */
 .room-list { display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto; }
 .room-empty { color: #6c87a6; font-size: .85rem; text-align: center; padding: 12px 6px; }
